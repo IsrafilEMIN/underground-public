@@ -156,6 +156,34 @@ finish() {
   printf '\n'
 }
 
+repo_from_checkout() {
+  local origin repo owner name
+  origin=$(git -C "$1" remote get-url origin 2>/dev/null) || {
+    printf 'Cannot read origin from checkout: %s\n' "$1" >&2
+    return 1
+  }
+  case "$origin" in
+    git@github.com:*) repo=${origin#git@github.com:} ;;
+    https://github.com/*) repo=${origin#https://github.com/} ;;
+    *)
+      printf 'Origin must be a GitHub SSH or HTTPS URL: %s\n' "$origin" >&2
+      return 1
+      ;;
+  esac
+  repo=${repo%.git}
+  owner=${repo%%/*}
+  name=${repo#*/}
+  if [[ "$repo" != */* || ! "$owner" =~ ^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?$ || ! "$name" =~ ^[A-Za-z0-9_.-]+$ || "$name" == . || "$name" == .. ]]; then
+    printf 'Invalid GitHub repository in origin: %s\n' "$origin" >&2
+    return 1
+  fi
+  printf '%s\n' "$repo"
+}
+
+author_binding() {
+  "$1" -e 'const [file, repo, run] = process.argv.slice(1); const bindings = JSON.parse(require("fs").readFileSync(file, "utf8")); const key = Object.keys(bindings).find((k) => bindings[k].repo.toLowerCase() === repo.toLowerCase() && bindings[k].role === "author"); if (key !== undefined) console.log(`${bindings[key].repo}\n${run}/${key}.sock`);' "$2" "$3" "$4"
+}
+
 run_wizard() {
 
 TOTAL_STAGES=6
@@ -164,7 +192,10 @@ CONFIG_DIR="$HOME/.config/underground-broker"
 APP_JSON="$CONFIG_DIR/github-app.json"
 APP_PEM="$CONFIG_DIR/github-app.pem"
 OLD_GH_DIR="$CONFIG_DIR/gh"
-REPO=IsrafilEMIN/underground
+SCRIPT_CHECKOUT=$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)
+ask CHECKOUT "Your checkout (Enter takes $SCRIPT_CHECKOUT):"
+[[ -n $CHECKOUT ]] || CHECKOUT=$SCRIPT_CHECKOUT
+REPO=$(repo_from_checkout "$CHECKOUT") || return 1
 
 banner "Broker GitHub App: your own app, on selected repos"
 
@@ -256,15 +287,14 @@ stage "Install the broker and check it"
 say "ug-install installs main. The GitHub App change must be merged on main first."
 confirm "Is the GitHub App change merged on main?" || { SKIPPED+=("Merge the GitHub App change, then run: ug-install; broker sync $REPO"); finish; exit 1; }
 "$HOME/.agents/bin/ug-install"
-BROKER_SOCKET=$(/opt/homebrew/bin/node -e 'const [file, repo, run] = process.argv.slice(1); const bindings = JSON.parse(require("fs").readFileSync(file, "utf8")); const key = Object.keys(bindings).find((k) => bindings[k].repo === repo && bindings[k].role === "author"); if (key !== undefined) console.log(`${run}/${key}.sock`);' "$HOME/.agents/broker/bindings.json" "$REPO" "$HOME/.agents/broker/run" 2>/dev/null || true)
+BINDING=$(author_binding /opt/homebrew/bin/node "$HOME/.agents/broker/bindings.json" "$REPO" "$HOME/.agents/broker/run" 2>/dev/null || true)
+BROKER_SOCKET=${BINDING#*$'\n'}
 if [[ -z $BROKER_SOCKET || ! -S $BROKER_SOCKET ]]; then
   SKIPPED+=("Start omp once in your checkout of $REPO, then run inside it: broker sync $REPO")
   finish
   exit 1
 fi
-CHECKOUT=$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)
-ask CHECKOUT "Your checkout of $REPO (Enter takes $CHECKOUT):"
-[[ -n $CHECKOUT ]] || CHECKOUT=$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)
+REPO=${BINDING%%$'\n'*}
 (cd "$CHECKOUT" && UG_BROKER_SOCKET="$BROKER_SOCKET" "$HOME/.agents/bin/broker" sync "$REPO")
 say "A pass: the sync above prints 'origin/main is now <commit>', so the broker got an app token for $REPO."
 SKIPPED+=("Onboarding check 4: open https://github.com/settings/apps/$APP_SLUG/permissions and https://github.com/settings/installations, and confirm the app's permissions and repos")
@@ -272,4 +302,6 @@ SKIPPED+=("Onboarding check 4: open https://github.com/settings/apps/$APP_SLUG/p
 finish
 }
 
-run_wizard "$@"; exit
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  run_wizard "$@"
+fi
