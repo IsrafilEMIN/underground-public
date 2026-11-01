@@ -2,6 +2,8 @@
 
 Date: 2026-11-01. Owner decision. Supersedes `0002-role-homes.md` (the role homes); its policy overlay and the list of pinned settings still hold.
 
+Amended on 2026-11-01 by `0010-shared-sessions-and-state.md`: sessions and state are no longer per role name; every role uses one session folder and one state folder per repo.
+
 Each role name had its own role home under `~/.ug`, with its own omp root, cache, state, temp folder, and reviewer stores. The owner decided to drop the per-role homes.
 
 ## Decision

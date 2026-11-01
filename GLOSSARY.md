@@ -33,7 +33,7 @@ A Git worktree that a session makes for itself in the worktree folder, on its ow
 _Avoid_: ticket worktree, task clone, copy, workspace
 
 **Session folder**:
-The one omp session folder in the write area: `~/.ug/omp/agent/sessions/<role name>/ug-<repo id>`. All sessions of a repo and role name share it. The wrapper passes it to omp only as the `--session-dir` default. A session can point omp at other session files in the omp root, those of other role names among them (`docs/adr/0009-one-omp-root.md`).
+The one omp session folder of a repo in the write area: `~/.ug/omp/agent/sessions/ug-<repo id>`. All sessions of a repo share it, whatever their role name. The wrapper passes it to omp only as the `--session-dir` default. A session can open the session files of every other role (`docs/adr/0010-shared-sessions-and-state.md`).
 _Avoid_: session bucket, sessions dir
 
 **Write area**:
@@ -113,7 +113,7 @@ The future underground MVP after 0.5. A threat marked MVPF has no control in 0.5
 _Avoid_: later, backlog, v1
 
 **Omp root**:
-The one omp root of every role name: `~/.ug/omp` (`PI_CONFIG_DIR=.ug/omp`). It holds the owner part `agent`, omp's own files (`agent/config.yml`, `agent.db`, `history.db`, caches), the session folders `agent/sessions/<role name>`, and underground's folders in `underground`: the cache root `cache`, the temp folder `tmp` (`TMPDIR`), and the state folders `state/<role name>/<hash>`. Every role writes it, except the owner part. Agents write it, so the owner runs no host tool there. It replaced the per-role homes (`docs/adr/0009-one-omp-root.md`).
+The one omp root of every role name: `~/.ug/omp` (`PI_CONFIG_DIR=.ug/omp`). It holds the owner part `agent`, omp's own files (`agent/config.yml`, `agent.db`, `history.db`, caches), the session folders `agent/sessions/ug-<repo id>`, and underground's folders in `underground`: the cache root `cache`, the temp folder `tmp` (`TMPDIR`), and the state folders `state/<hash>`, one per repo for every role. Every role writes it, except the owner part. Agents write it, so the owner runs no host tool there. It replaced the per-role homes (`docs/adr/0009-one-omp-root.md`, `docs/adr/0010-shared-sessions-and-state.md`).
 _Avoid_: role home, profile, sandbox dir
 
 **Owner part**:

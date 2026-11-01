@@ -156,10 +156,10 @@ restart_service() {
 }
 
 # An omp daemon broker keeps the sandbox rules of the session that started it, and outlives that session.
-# After a rules change, each role session must get a broker under the new rules, so stop every broker of every role here.
+# After a rules change, each session must get a broker under the new rules, so stop every broker here.
 stop_role_brokers() {
   local file pid n=0
-  for file in "$HOME"/.ug/omp/underground/state/*/*/omp/run/daemons/*/*/broker.pid; do
+  for file in "$HOME"/.ug/omp/underground/state/*/omp/run/daemons/*/*/broker.pid; do
     [[ -f $file ]] || continue
     pid=$(sed -n 's/.*"pid":\([0-9]*\).*/\1/p' "$file")
     [[ -n $pid ]] || continue

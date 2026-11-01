@@ -192,10 +192,10 @@ export function renderSettings(input: SettingsInput): string {
   }
 
   mkdirSync(join(home, ".omp/wt"), { recursive: true });
-  mkdirSync(join(ompRoot, "agent/sessions", roleName), { recursive: true });
+  mkdirSync(join(ompRoot, "agent/sessions"), { recursive: true });
   const wtRoot = realDir(join(home, ".omp/wt"));
-  const sessionsRoot = realDir(join(ompRoot, "agent/sessions", roleName));
-  const stateRoot = realDir(join(ompRoot, "underground/state", roleName));
+  const sessionsRoot = realDir(join(ompRoot, "agent/sessions"));
+  const stateRoot = realDir(join(ompRoot, "underground/state"));
   const repo = realDir(input.repo);
   const gitDir = join(repo, ".git");
   const gitDirStat = lstatOrUndefined(gitDir);

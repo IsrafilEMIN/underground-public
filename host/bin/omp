@@ -221,11 +221,11 @@ stop_failed_brokers() {
   done
 }
 
-# One omp root serves every role. The wrapper makes its private folders; admin.ts start-session then
-# writes the owner files from ~/.agents/roles when the role copy differs.
+# One omp root serves every role, with one session folder and one state folder per repo for all roles. The wrapper
+# makes its private folders; admin.ts start-session then writes the owner files from ~/.agents/roles when the role copy differs.
 make_omp_root() {
-  local role_name=$1 dir agent=$omp_root/agent
-  for dir in "$HOME/.ug" "$omp_root" "$agent" "$agent/cache" "$ug_root" "$ug_root/cache" "$ug_root/tmp" "$ug_root/state" "$ug_root/state/$role_name" "$agent/hooks" "$agent/hooks/pre"; do
+  local dir agent=$omp_root/agent
+  for dir in "$HOME/.ug" "$omp_root" "$agent" "$agent/cache" "$ug_root" "$ug_root/cache" "$ug_root/tmp" "$ug_root/state" "$agent/hooks" "$agent/hooks/pre"; do
     make_private_dir "$dir" || return 1
   done
 }
@@ -324,10 +324,10 @@ main() {
   drop_secret_env
   repo_hash=$(path_hash "$repo")
   rid="$(basename "$repo")-$repo_hash"
-  make_omp_root "$role_name" || exit 1
-  state="$ug_root/state/$role_name/$repo_hash"
+  make_omp_root || exit 1
+  state="$ug_root/state/$repo_hash"
   cd "$repo"
-  make_state_dir "$ug_root/state/$role_name" "$state" || exit 1
+  make_state_dir "$ug_root/state" "$state" || exit 1
   stop_failed_brokers "$state"
   if [[ -f $rules ]]; then
     rules_args=(--append-system-prompt "$rules")
@@ -340,7 +340,7 @@ main() {
     store="$store_root/$role_name/$repo_hash.git"
     make_review_store "$store" || exit 1
   fi
-  sessions="$omp_root/agent/sessions/$role_name/ug-$rid"
+  sessions="$omp_root/agent/sessions/ug-$rid"
   local predict_socket predict_dir native_file="$HOME/.omp/natives/$omp_pin/pi_natives.darwin-arm64.node"
   if [[ ! -f $native_file ]]; then
     (cd / && PI_NATIVES_DIR="$HOME/.omp/natives" "$omp_bin" --help >/dev/null)
