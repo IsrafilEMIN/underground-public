@@ -23,6 +23,8 @@ const FAKE_SRT = `const keys = ${JSON.stringify(["PI_CONFIG_DIR", "PI_CONFIG_FIL
 process.stdout.write(JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd(), env: Object.fromEntries(keys.map((k) => [k, process.env[k] ?? null])) }));
 `;
 
+const ADMIN_ON_NODE = `if [ "$BUN_BE_BUN" = 1 ] && [ "\${1##*/}" = admin.ts ]; then exec ${JSON.stringify(process.execPath)} "$@"; fi\n`;
+
 type Settings = { filesystem: { allowRead: string[]; allowWrite: string[]; denyWrite: string[] }; network: { allowedDomains: string[]; allowLocalBinding?: boolean; allowUnixSockets?: string[] } };
 type Run = { status: number | null; stderr: string; argv: string[]; cwd: string; env: Record<string, string | null>; settings: Settings };
 
@@ -68,7 +70,7 @@ async function makeHome(parent = tmpdir()): Promise<{ home: string; repo: string
   await putRoles(home, ROLES);
   await put(home, `${SRT_DIR}/package.json`, '{"version":"test"}\n');
   await put(home, `${SRT_DIR}/dist/cli.js`, FAKE_SRT);
-  await put(home, "Library/Application Support/Tern/omp/versions/test", "#!/bin/sh\nprintf '%s/predict.sock\\n' \"$3\"\n", 0o755);
+  await put(home, "Library/Application Support/Tern/omp/versions/test", `#!/bin/sh\n${ADMIN_ON_NODE}printf '%s/predict.sock\\n' "$3"\n`, 0o755);
   const wrapper = (await readFile(join(SRC, "host/bin/omp"), "utf8")).replaceAll("@OMP_PIN@", "test").replaceAll("@SRT_PIN@", "test");
   await put(home, ".agents/bin/omp", wrapper, 0o755);
   recordInstall(home);
@@ -294,7 +296,7 @@ test("a role can write any runtime file of the omp root, but no owner file or lo
 test("a prediction socket under /tmp is granted by its real path, which the macOS sandbox compares", { skip }, async () => {
   const { home, repo } = await makeHome();
   const uid = process.getuid?.() ?? 0;
-  await put(home, "Library/Application Support/Tern/omp/versions/test", `#!/bin/sh\nprintf '/tmp/omp-${uid}/ugtest-predict.sock\\n'\n`, 0o755);
+  await put(home, "Library/Application Support/Tern/omp/versions/test", `#!/bin/sh\n${ADMIN_ON_NODE}printf '/tmp/omp-${uid}/ugtest-predict.sock\\n'\n`, 0o755);
   const run = await runOmp(home, repo, []);
   assert.equal(run.status, 0, run.stderr);
   const socket = join(await realpath(`/tmp/omp-${uid}`), "ugtest-predict.sock");
@@ -1193,11 +1195,28 @@ test("each start copies the owner's display settings, and only those, into the r
   const { home, repo } = await makeHome();
   await put(home, ".agents/broker/display-prefs.ts", await readFile(join(SRC, "host/broker/display-prefs.ts"), "utf8"));
   recordInstall(home);
-  await put(home, "Library/Application Support/Tern/omp/versions/test", `#!/bin/sh\nif [ "$BUN_BE_BUN" = 1 ] && [ "\${1##*/}" = display-prefs.ts ]; then exec '${pinnedOmp}' "$@"; fi\nprintf '%s/predict.sock\\n' "$3"\n`, 0o755);
+  await put(home, "Library/Application Support/Tern/omp/versions/test", `#!/bin/sh\n${ADMIN_ON_NODE}if [ "$BUN_BE_BUN" = 1 ] && [ "\${1##*/}" = display-prefs.ts ]; then exec '${pinnedOmp}' "$@"; fi\nprintf '%s/predict.sock\\n' "$3"\n`, 0o755);
   await put(home, ".omp/agent/config.yml", "theme:\n  dark: midnight\nstatusLine:\n  preset: minimal\nmemory:\n  backend: local\nenabledProviders:\n  - anthropic\n");
   const run = await runOmp(home, repo, []);
   assert.equal(run.status, 0, run.stderr);
   assert.deepEqual(JSON.parse(await readFile(join(ompRoot(home), "agent/prefs.yml"), "utf8")), { theme: { dark: "midnight" }, statusLine: { preset: "minimal" } });
+});
+
+test("the wrapper looks the role up on the bun inside the pinned omp", { skip: skip || (existsSync(pinnedOmp) ? false : `needs the pinned omp ${pinnedOmp}, which runs the role lookup as bun`) }, async () => {
+  const { home, repo } = await makeHome();
+  await put(home, "Library/Application Support/Tern/omp/versions/test", `#!/bin/sh\nif [ "$BUN_BE_BUN" = 1 ] && [ "\${1##*/}" = admin.ts ]; then exec '${pinnedOmp}' "$@"; fi\nprintf '%s/predict.sock\\n' "$3"\n`, 0o755);
+  const author = await runOmp(home, repo, ["--role", "author"]);
+  assert.equal(author.status, 0, author.stderr);
+  assert.equal(author.env.UG_ROLE_RULES, join(home, ".agents/roles/author/AGENTS.md"));
+  const reviewer = await runOmp(home, repo, ["--role", "sec2"]);
+  assert.equal(reviewer.status, 0, reviewer.stderr);
+  assert.equal(reviewer.env.UG_ROLE_RULES, join(home, ".agents/roles/security-review/AGENTS.md"));
+  const unknown = await runOmp(home, repo, ["--role", "security-reveiw"]);
+  assert.equal(unknown.status, 64, unknown.stderr);
+  assert.match(unknown.stderr, /role name security-reveiw is not in the roles file/);
+  const printed = spawnSync("/bin/sh", ["-c", 'cd / && BUN_BE_BUN=1 "$1" "$2" role "$3"', "_", pinnedOmp, join(home, ".agents/broker/admin.ts"), "author"], { env: { HOME: home, PATH: "/usr/bin:/bin" }, encoding: "utf8" });
+  assert.equal(printed.status, 0, printed.stderr);
+  assert.equal(printed.stdout, "author\n");
 });
 
 test("a reviewer's git store stays as it is at the next start, and its folders are private", { skip }, async () => {
@@ -1261,7 +1280,7 @@ test("the broker command in a session reaches the broker socket that the wrapper
   for (const bin of ["omp-inner", "broker"]) await put(home, `.agents/bin/${bin}`, await readFile(join(SRC, "host/bin", bin), "utf8"), 0o755);
   recordInstall(home);
   await put(home, `${SRT_DIR}/dist/cli.js`, 'const { spawnSync } = require("node:child_process");\nconst argv = process.argv.slice(2);\nconst inner = argv.slice(argv.indexOf("--") + 1);\nprocess.exit(spawnSync(inner[0], inner.slice(1), { stdio: "inherit" }).status ?? 1);\n');
-  await put(home, "Library/Application Support/Tern/omp/versions/test", `#!/bin/sh\nif [ "$1" = --session-dir ]; then shift 2; [ "$1" = --append-system-prompt ] && shift 2; exec "$HOME/.agents/bin/broker" "$@"; fi\nprintf '%s/predict.sock\\n' "$3"\n`, 0o755);
+  await put(home, "Library/Application Support/Tern/omp/versions/test", `#!/bin/sh\n${ADMIN_ON_NODE}if [ "$1" = --session-dir ]; then shift 2; [ "$1" = --append-system-prompt ] && shift 2; exec "$HOME/.agents/bin/broker" "$@"; fi\nprintf '%s/predict.sock\\n' "$3"\n`, 0o755);
   const sessionSocket = join(home, "session.sock");
   const admin = await fakeBrokerSocket(join(home, ".agents/broker/run/admin.sock"), { exit: 0, stdout: "", stderr: "", socket: sessionSocket });
   const session = await fakeBrokerSocket(sessionSocket, { exit: 0, stdout: "#7 open, checks pass\n", stderr: "" });
@@ -1296,7 +1315,7 @@ test("omp-inner sets PI_PROXY from https_proxy, else from HTTPS_PROXY, and leave
 test("omp unpacks the omp natives when they are missing, and not when they are there", { skip }, async () => {
   const { home, repo } = await makeHome();
   const log = join(home, "help.log");
-  await put(home, "Library/Application Support/Tern/omp/versions/test", `#!/bin/sh\nif [ "$1" = --help ]; then printf '%s\\n' "$PI_NATIVES_DIR" >>'${log}'; exit 0; fi\nprintf '%s/predict.sock\\n' "$3"\n`, 0o755);
+  await put(home, "Library/Application Support/Tern/omp/versions/test", `#!/bin/sh\n${ADMIN_ON_NODE}if [ "$1" = --help ]; then printf '%s\\n' "$PI_NATIVES_DIR" >>'${log}'; exit 0; fi\nprintf '%s/predict.sock\\n' "$3"\n`, 0o755);
   assert.equal((await runOmp(home, repo, [])).status, 0);
   assert.equal(await readFile(log, "utf8"), `${join(home, ".omp/natives")}\n`);
   await put(home, ".omp/natives/test/pi_natives.darwin-arm64.node", "");

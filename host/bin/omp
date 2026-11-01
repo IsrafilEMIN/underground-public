@@ -300,13 +300,8 @@ main() {
     esac
   done
   refuse_config_flags ${args[@]+"${args[@]}"} || exit 64
-  role=$("$node_bin" "$broker_admin" role "$role_name") || exit 64
-  if [[ $role != author ]]; then
-    refuse_reviewer_flags ${args[@]+"${args[@]}"} || exit 64
-  fi
   cache_root="$ug_root/cache"
   tool_root="$cache_root/tools"
-  rules="$role_rules_root/$role/AGENTS.md"
   cwd=$(pwd -P)
   wt_real=$(cd "$wt_root" 2>/dev/null && pwd -P) || wt_real=$wt_root
   if [[ $cwd == "$wt_real" || $cwd == "$wt_real"/* ]]; then
@@ -321,6 +316,11 @@ main() {
   fi
   check_srt || exit 1
   preflight || exit 1
+  role=$(cd / && BUN_BE_BUN=1 "$omp_bin" "$broker_admin" role "$role_name") || exit 64
+  if [[ $role != author ]]; then
+    refuse_reviewer_flags ${args[@]+"${args[@]}"} || exit 64
+  fi
+  rules="$role_rules_root/$role/AGENTS.md"
   drop_secret_env
   repo_hash=$(path_hash "$repo")
   rid="$(basename "$repo")-$repo_hash"
