@@ -4,9 +4,6 @@
 
 ## Todo
 
-- [ ] 12: Live run in a throwaway repo (B8) #mvp-0-5 #ready-for-human
-  `.scratch/mvp-0-5/issues/12-live-run.md` · blocked by: none
-
 ## Done
 
 - [x] 01: Role homes and the role table (B2a) #mvp-0-5 #ready-for-agent
