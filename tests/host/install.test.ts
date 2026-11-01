@@ -106,6 +106,8 @@ async function makeFixture(versions = "srt=9.9.9\nomp=1.2.3\n"): Promise<Fixture
   for (const dir of [home, stub, tools, tmp, join(root, "state")]) await mkdir(dir, { recursive: true });
   await cp(join(SRC, "host"), join(src, "host"), { recursive: true });
   await cp(join(SRC, "install.sh"), join(src, "install.sh"));
+  await cp(join(SRC, "INSTALL_SOURCE"), join(src, "INSTALL_SOURCE"));
+  await put(join(home, ".agents/bin/ug-install"), await readFile(join(src, "host/bin/ug-install"), "utf8"), 0o755);
   await put(join(src, "VERSIONS"), versions);
   await put(join(src, "host/bin/omp"), OMP_TEMPLATE, 0o755);
   await put(join(src, "tests/broker/a.test.ts"), "");
@@ -286,6 +288,7 @@ test("the test gate passes only a suite that exits 0 with no failed, skipped, or
 
 test("run_install installs srt, passes the gate, installs every file, links the pinned omp, sets up the gateway, restarts the services, and writes the install record", { skip }, async () => {
   const fx = await makeFixture();
+  await writeFile(join(fx.src, "INSTALL_SOURCE"), "git@github.com:example-owner/alternate-repo.git\n");
   await put(join(fx.home, ".zshrc"), "export KEEP=1\n");
   const run = await runInstall(fx);
   assert.equal(run.status, 0, run.stderr);
@@ -298,6 +301,8 @@ test("run_install installs srt, passes the gate, installs every file, links the 
   assert.equal(await mode(join(h, ".agents/bin/omp")), 0o755);
   assert.equal(await readFile(join(h, ".agents/bin/ug-install"), "utf8"), await readFile(join(SRC, "host/bin/ug-install"), "utf8"));
   assert.equal(await mode(join(h, ".agents/bin/ug-install")), 0o755);
+  assert.equal(await readFile(join(h, ".agents/install-source"), "utf8"), "git@github.com:example-owner/alternate-repo.git\n");
+  assert.equal(await mode(join(h, ".agents/install-source")), 0o644);
   assert.equal(await readFile(join(h, ".agents/broker/server.ts"), "utf8"), await readFile(join(SRC, "host/broker/server.ts"), "utf8"));
   assert.equal(await mode(join(h, ".agents/broker/server.ts")), 0o644);
   assert.equal(await readlink(join(h, ".agents/bin/pinned/omp")), fx.ompBin);
@@ -417,11 +422,9 @@ test("install_file replaces the target with a copy or a rendered file with its m
   assert.deepEqual((await readdir(home)).sort(), ["x", "y"]);
 });
 
-const UG_INSTALL = join(SRC, "host/bin/ug-install");
-
 function ugInstall(fx: Fixture, args: string[], extra: Record<string, string> = {}): Run {
   assert.notEqual(fx.home, homedir());
-  const run = spawnSync("/bin/bash", [UG_INSTALL, ...args], { cwd: fx.root, env: env(fx, extra), encoding: "utf8" });
+  const run = spawnSync("/bin/bash", [join(fx.home, ".agents/bin/ug-install"), ...args], { cwd: fx.root, env: env(fx, extra), encoding: "utf8" });
   return { status: run.status, stdout: run.stdout, stderr: run.stderr };
 }
 
@@ -434,13 +437,29 @@ test("ug-install with an argument prints its usage, exits 64, and clones nothing
   assert.deepEqual(await calls(fx), []);
 });
 
-test("ug-install clones main without hooks into a private work folder, runs its install.sh there, and removes the clone", { skip }, async () => {
+test("ug-install refuses a missing or empty installed source before cloning or creating a work folder", { skip }, async () => {
   const fx = await makeFixture();
+  for (const contents of [null, "", " \t\n"]) {
+    if (contents !== null) await put(join(fx.home, ".agents/install-source"), contents);
+    const run = ugInstall(fx, []);
+    assert.equal(run.status, 1, run.stderr);
+    assert.match(run.stderr, /ug-install: missing or empty installer source:/);
+    assert.ok(run.stderr.includes(join(fx.home, ".agents/install-source")), run.stderr);
+    assert.equal(existsSync(join(fx.home, ".agents/install-work")), false);
+    assert.deepEqual(await calls(fx), []);
+  }
+});
+
+test("standalone ug-install clones the installed alternate source outside any checkout, runs its installer without hooks, and removes the private clone", { skip }, async () => {
+  const fx = await makeFixture();
+  await put(join(fx.home, ".agents/install-source"), "git@github.com:example-owner/alternate-repo.git\n");
+  await put(join(fx.root, "INSTALL_SOURCE"), "https://github.com/wrong-owner/wrong-repo.git\n");
+  await rm(fx.src, { recursive: true });
   const run = ugInstall(fx, []);
   assert.equal(run.status, 0, run.stderr);
   const [git, install, ...rest] = await calls(fx);
   assert.deepEqual(rest, []);
-  const work = /^git -c core\.hooksPath=\/dev\/null clone --quiet --depth 1 --branch main git@github\.com:IsrafilEMIN\/underground\.git (.*)\/src\|cwd=\/$/.exec(git ?? "");
+  const work = /^git -c core\.hooksPath=\/dev\/null clone --quiet --depth 1 --branch main git@github\.com:example-owner\/alternate-repo\.git (.*)\/src\|cwd=\/$/.exec(git ?? "");
   assert.ok(work !== null, git);
   assert.match(work[1] ?? "", new RegExp(`^${join(fx.home, ".agents/install-work")}/ug-install\\.[A-Za-z0-9]+$`));
   assert.equal(install, `install.sh 0|cwd=${work[1]}/src`);
@@ -450,6 +469,7 @@ test("ug-install clones main without hooks into a private work folder, runs its 
 
 test("ug-install stops when the clone fails, passes on the exit of a failed install, and removes the work folder", { skip }, async () => {
   const fx = await makeFixture();
+  await put(join(fx.home, ".agents/install-source"), "https://github.com/example-owner/alternate-repo.git\n");
   const clone = ugInstall(fx, [], { FAKE_GIT_EXIT: "128" });
   assert.equal(clone.status, 128);
   assert.deepEqual(await calls(fx, "install.sh"), []);

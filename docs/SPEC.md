@@ -22,6 +22,8 @@ Deadline: 2026-11-01. The rows come from `THREAT-MODEL.md`; the reasons are in `
 
 U3, U6, U10, U12, U13, U18: the controls in `THREAT-MODEL.md`. U4 host rule: in `AGENTS.md`. Change them only when a build item needs it.
 
+repo identity comes from the selected checkout's `origin` in the setup wizard (`scripts/broker-github-app-wizard.sh:159`). work commands use `<owner/repo>` from `origin` (`AGENTS.md:27`). the standalone installer reads `~/.agents/install-source`, installed from the single `INSTALL_SOURCE` setting (`host/bin/ug-install:9`, `install.sh:25`). when publishing a fork, set `INSTALL_SOURCE` to its installer source. the existing host test job runs the release reference check and its rejection cases (`tests/host/repo-references.test.ts:12`, `.github/workflows/ci.yml:66`).
+
 ## Checks
 
 The U1 and U2 probes and the gate tests are in `TEST-PLAN.md`.

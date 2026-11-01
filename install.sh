@@ -22,6 +22,7 @@ host/bin/omp|$HOME/.agents/bin/omp|755|render
 host/bin/omp-inner|$HOME/.agents/bin/omp-inner|755|copy
 host/bin/broker|$HOME/.agents/bin/broker|755|copy
 host/bin/ug-install|$HOME/.agents/bin/ug-install|755|copy
+INSTALL_SOURCE|$HOME/.agents/install-source|644|copy
 host/sandbox/render-settings|$HOME/.agents/sandbox/render-settings|755|copy
 host/sandbox/render-settings.ts|$HOME/.agents/sandbox/render-settings.ts|644|copy
 host/sandbox/srt-settings.template.json|$HOME/.agents/sandbox/srt-settings.template.json|644|copy
