@@ -52,7 +52,7 @@ async function makeHome(parent = tmpdir()): Promise<{ home: string; repo: string
   for (const file of ["admin.ts", "client.ts", "protocol.ts", "gateway.ts", "owner-files.ts"]) {
     await put(home, `.agents/broker/${file}`, await readFile(join(SRC, "host/broker", file), "utf8"));
   }
-  await put(home, ".agents/sandbox/render-settings", await readFile(join(SRC, "host/sandbox/render-settings"), "utf8"), 0o755);
+  await put(home, ".agents/sandbox/render-settings", (await readFile(join(SRC, "host/sandbox/render-settings"), "utf8")).replaceAll("@OMP_PIN@", "test"), 0o755);
   await put(home, ".agents/sandbox/render-settings.ts", await readFile(join(SRC, "host/sandbox/render-settings.ts"), "utf8"));
   await put(home, ".agents/sandbox/srt-settings.template.json", await readFile(join(SRC, "host/sandbox/srt-settings.template.json"), "utf8"));
   await put(home, ".agents/roles/policy.yml", await readFile(join(SRC, "host/roles/policy.yml"), "utf8"));

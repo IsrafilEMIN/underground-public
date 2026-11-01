@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { chmod, mkdir, readdir, readFile, rename, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -12,6 +12,7 @@ const SRC = join(import.meta.dirname, "../..");
 const RENDER = join(SRC, "host/sandbox/render-settings");
 const NODE = "/opt/homebrew/bin/node";
 const skip = process.platform !== "darwin" || !existsSync(NODE) ? "needs macOS and /opt/homebrew/bin/node" : false;
+const pinnedOmp = join(homedir(), "Library/Application Support/Tern/omp/versions", /^omp=(\S+)$/m.exec(readFileSync(join(SRC, "VERSIONS"), "utf8"))?.[1] ?? "none");
 const GATEWAY = "100.64.0.1:4000";
 const ENGINE = "100.64.0.2:8081";
 const IFCONFIG = "lo0: flags=8049<UP,LOOPBACK,RUNNING,MULTICAST> mtu 16384\n\tinet 127.0.0.1 netmask 0xff000000\nutun4: flags=8051<UP,POINTOPOINT,RUNNING,MULTICAST> mtu 1280\n\tinet 100.64.0.1 --> 100.64.0.1 netmask 0xffffffff\n";
@@ -36,6 +37,8 @@ async function makeRole(home: string, name: string, binding: string): Promise<vo
 
 async function makeFixture(): Promise<Fixture> {
   const home = await tempDir(join(tmpdir(), "ugr-"));
+  await put(join(home, ".agents/sandbox/render-settings"), (await readFile(RENDER, "utf8")).replaceAll("@OMP_PIN@", "test"), 0o755);
+  await put(join(home, "Library/Application Support/Tern/omp/versions/test"), `#!/bin/sh\nif [ "$BUN_BE_BUN" = 1 ] && [ "\${1##*/}" = admin.ts ]; then exec ${JSON.stringify(process.execPath)} "$@"; fi\nexit 1\n`, 0o755);
   for (const file of ["admin.ts", "client.ts", "protocol.ts", "gateway.ts", "owner-files.ts"]) {
     await put(join(home, ".agents/broker", file), await readFile(join(SRC, "host/broker", file), "utf8"));
   }
@@ -70,7 +73,7 @@ async function makeFixture(): Promise<Fixture> {
 }
 
 function render(home: string, args: string[], env: Record<string, string> = {}): Result {
-  const run = spawnSync("/bin/bash", [RENDER, ...args], { env: { HOME: home, PATH: `${join(home, "stub-bin")}:/usr/bin:/bin`, ...env }, encoding: "utf8" });
+  const run = spawnSync("/bin/bash", [join(home, ".agents/sandbox/render-settings"), ...args], { env: { HOME: home, PATH: `${join(home, "stub-bin")}:/usr/bin:/bin`, ...env }, encoding: "utf8" });
   return { status: run.status, stdout: run.stdout, stderr: run.stderr };
 }
 
@@ -108,6 +111,39 @@ const covers = (grants: string[], path: string): boolean =>
   grants.some((g) => new RegExp(`^${g.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replaceAll("*", "[^/]*")}(?:/.*)?$`).test(path));
 
 const writable = (settings: Settings, path: string): boolean => covers(settings.filesystem.allowWrite, path) && !covers(settings.filesystem.denyWrite, path);
+
+test("start-session writes byte-identical sandbox settings and gives the same refusal on node and the pinned omp bun", { skip: skip || (existsSync(pinnedOmp) ? false : `needs the pinned omp ${pinnedOmp}, which runs start-session as bun`) }, async () => {
+  const { home, args } = await makeFixture();
+  const run = (runtime: string, input: string[]): Result => {
+    const result = spawnSync(runtime, [join(home, ".agents/broker/admin.ts"), "start-session", ...input], {
+      cwd: "/",
+      env: { HOME: home, PATH: `${join(home, "stub-bin")}:/usr/bin:/bin`, BUN_BE_BUN: "1" },
+      encoding: "utf8",
+    });
+    return { status: result.status, stdout: result.stdout, stderr: result.stderr };
+  };
+  for (const [name, binding] of [["author", "author"], ["code-review", "code-review"]] as const) {
+    const node = run(NODE, args(name, binding));
+    const bun = run(pinnedOmp, args(name, binding));
+    assert.equal(node.status, 0, node.stderr);
+    assert.equal(bun.status, 0, bun.stderr);
+    const [nodeSocket, nodeFile] = node.stdout.trimEnd().split("\n");
+    const [bunSocket, bunFile] = bun.stdout.trimEnd().split("\n");
+    assert.equal(nodeSocket, "");
+    assert.equal(bunSocket, nodeSocket);
+    assert.notEqual(nodeFile, bunFile);
+    assert.deepEqual(await readFile(bunFile), await readFile(nodeFile), name);
+  }
+  await writeFile(join(home, ".config/underground-broker/addresses"), "gateway=100.64.0.1\nengine=100.64.0.2:8081\n");
+  const node = run(NODE, args("author", "author"));
+  const bun = run(pinnedOmp, args("author", "author"));
+  assert.equal(node.status, 2, node.stderr);
+  assert.equal(bun.status, node.status);
+  assert.match(node.stderr, /broker admin: .*addresses: gateway=100\.64\.0\.1 is not <ip>:<port>/);
+  assert.equal(bun.stderr, node.stderr);
+  assert.equal(node.stdout, "");
+  assert.equal(bun.stdout, "");
+});
 
 test("render-settings grants every role the one state folder and the one session folder of the repo, and no broker socket for a repo with no origin", { skip }, async () => {
   const { home, stateRoot, sessionsRoot, args } = await makeFixture();
