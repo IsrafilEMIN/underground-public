@@ -1,0 +1,71 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck libxml2-utils
+
+      - name: Shell syntax and lint
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          scripts=(install.sh host/bin/omp host/bin/ug-install host/sandbox/render-settings tests/escape/*.sh)
+          for f in "${scripts[@]}"; do
+            bash -n "$f"
+          done
+          sh -n host/bin/broker
+          sh -n host/bin/omp-inner
+          shellcheck host/bin/broker host/bin/omp-inner "${scripts[@]}"
+
+      - name: Settings template JSON
+        run: |
+          set -euo pipefail
+          sed -e 's|@HOME@|/Users/ci|g' \
+              -e 's|@REPO@|/Users/ci/repo|g' \
+              -e 's|@WORKTREE@|/Users/ci/.omp/wt/repo-00000000|g' \
+              -e 's|@ROLE@|/Users/ci/.ug/roles/author|g' \
+              -e 's|@SESSIONS@|/Users/ci/.ug/roles/author/omp/agent/sessions/ug-repo-00000000|g' \
+              -e 's|@TMPDIR@|/private/tmp|g' \
+              host/sandbox/srt-settings.template.json > rendered.json
+          if grep -q '@[A-Z]*@' rendered.json; then
+            echo "unreplaced placeholder" >&2
+            exit 1
+          fi
+          python3 -m json.tool rendered.json > /dev/null
+
+      - name: Launchd plist XML
+        run: xmllint --noout host/launchd/*.plist
+
+      - name: Broker tests
+        run: |
+          set -euo pipefail
+          if [ -d tests/broker ]; then
+            node --test tests/broker/*.test.ts
+          fi
+
+      - name: Host tests
+        run: |
+          set -euo pipefail
+          if [ -d tests/host ]; then
+            node --test tests/host/*.test.ts
+          fi

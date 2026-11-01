@@ -1,0 +1,37 @@
+providers:
+  anthropic:
+    transport: pi-native
+    baseUrl: "http://@GATEWAY@"
+    apiKey: "@GATEWAY_TOKEN@"
+  openai-codex:
+    transport: pi-native
+    baseUrl: "http://@GATEWAY@"
+    apiKey: "@GATEWAY_TOKEN@"
+  opencode-go:
+    transport: pi-native
+    baseUrl: "http://@GATEWAY@"
+    apiKey: "@GATEWAY_TOKEN@"
+    api: openai-completions
+    models:
+      - id: deepseek-v4.1-flash
+        name: DeepSeek V4.1 Flash
+      - id: mimo-v2.6-flash
+        name: MiMo V2.6 Flash
+  lm-studio:
+    transport: pi-native
+    baseUrl: "http://@GATEWAY@"
+    apiKey: "@GATEWAY_TOKEN@"
+    api: openai-completions
+    models:
+      - id: qwen3.8-flash-next-ud-q4_k_xl
+        name: qwen 3.8 flash next (v100)
+        maxTokens: 16384
+        reasoning: true
+        thinking:
+          mode: effort
+          efforts: [low, medium, xhigh]
+          defaultLevel: xhigh
+          requiresEffort: false
+        compat:
+          thinkingFormat: qwen-chat-template
+          qwenTemplateReasoningEffort: true

@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_url=git@github.com:IsrafilEMIN/underground.git
+
+if [[ $# -ne 0 ]]; then
+  printf 'usage: ug-install\n' >&2
+  exit 64
+fi
+
+work_root="$HOME/.agents/install-work"
+mkdir -p "$work_root"
+chmod 700 "$work_root"
+work=$(mktemp -d "$work_root/ug-install.XXXXXX")
+trap 'rm -rf "$work"' EXIT
+
+cd /
+git -c core.hooksPath=/dev/null clone --quiet --depth 1 --branch main "$repo_url" "$work/src"
+cd "$work/src"
+bash ./install.sh

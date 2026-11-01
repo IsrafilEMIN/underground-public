@@ -1,0 +1,19 @@
+#!/bin/sh
+set -eu
+
+if [ $# -lt 2 ]; then
+  printf 'usage: omp-inner <temp-folder> <command> [arg...]\n' >&2
+  exit 64
+fi
+
+proxy=${https_proxy:-${HTTPS_PROXY:-}}
+if [ -n "$proxy" ]; then
+  PI_PROXY=$proxy
+  export PI_PROXY
+fi
+
+TMPDIR=$1
+export TMPDIR
+shift
+
+exec "$@"

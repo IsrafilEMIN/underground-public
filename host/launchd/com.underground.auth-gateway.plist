@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.underground.auth-gateway</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>@HOME@/Library/Application Support/Tern/omp/versions/@OMP_PIN@</string>
+    <string>auth-gateway</string>
+    <string>serve</string>
+    <string>--bind=@GATEWAY@</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>@HOME@/.agents/auth/auth-gateway.log</string>
+  <key>StandardErrorPath</key>
+  <string>@HOME@/.agents/auth/auth-gateway.log</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/bin:/bin</string>
+    <key>OMP_AUTH_BROKER_URL</key>
+    <string>http://127.0.0.1:8765</string>
+    <key>LM_STUDIO_BASE_URL</key>
+    <string>http://@ENGINE@/v1</string>
+  </dict>
+</dict>
+</plist>
