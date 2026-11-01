@@ -161,7 +161,7 @@ const flag = (run: Run, name: string): string | undefined => {
   return i < 0 ? undefined : run.argv[i + 1];
 };
 
-test("omp --role <name> starts with the one omp root, and state and sessions of that role name", { skip }, async () => {
+test("omp --role <name> starts with the one omp root and the shared session and state folders of the repo", { skip }, async () => {
   const { home, repo } = await makeHome();
   const template = await readFile(join(SRC, "host/roles/policy.yml"), "utf8");
   const rolePolicy = join(home, ".ug/omp/agent/policy.yml");
@@ -172,13 +172,13 @@ test("omp --role <name> starts with the one omp root, and state and sessions of 
   assert.equal(run.env.PI_CONFIG_DIR, ".ug/omp");
   assert.equal(run.env.PI_CODING_AGENT_DIR, null);
   assert.equal(run.env.PI_NATIVES_DIR, join(home, ".omp/natives"));
-  assert.match(run.env.XDG_STATE_HOME ?? "", new RegExp(`^${omp}/underground/state/security-review/[0-9a-f]{8}$`));
+  assert.match(run.env.XDG_STATE_HOME ?? "", new RegExp(`^${omp}/underground/state/[0-9a-f]{8}$`));
   assert.equal(run.env.XDG_CACHE_HOME, join(omp, "underground/cache/xdg"));
   assert.equal(run.env.npm_config_cache, join(omp, "underground/cache/npm"));
   const inner = run.argv.slice(run.argv.indexOf("--") + 1);
   assert.deepEqual(inner.slice(0, 2), [join(home, ".agents/bin/omp-inner"), join(omp, "underground/tmp")]);
   const rules = join(home, ".agents/roles/security-review/AGENTS.md");
-  assert.deepEqual(inner.slice(3), ["--session-dir", join(omp, `agent/sessions/security-review/ug-repo-${inner[4].slice(-8)}`), "--append-system-prompt", rules, "-p", "hi"]);
+  assert.deepEqual(inner.slice(3), ["--session-dir", join(omp, `agent/sessions/ug-repo-${inner[4].slice(-8)}`), "--append-system-prompt", rules, "-p", "hi"]);
   assert.equal(run.env.UG_ROLE_RULES, rules);
   assert.equal(run.env.PI_CONFIG_FILES, `${join(omp, "agent/prefs.yml")}:${join(omp, "agent/policy.yml")}`);
   assert.equal(await readFile(join(omp, "agent/policy.yml"), "utf8"), await readFile(join(SRC, "host/roles/policy.yml"), "utf8"));
@@ -340,7 +340,7 @@ test("omp refuses --config and --profile for every role, and every role uses the
   assert.deepEqual(prompt.argv.slice(-2), ["--", "--config"]);
 });
 
-test("sessions of different roles write the one omp root and temp folder, but keep state and sessions in folders of their role name", { skip }, async () => {
+test("every role shares one session folder and one state folder per repo", { skip }, async () => {
   const { home, repo } = await makeHome();
   const author = await runOmp(home, repo, ["--role", "author"]);
   const reviewer = await runOmp(home, repo, ["--role", "security-review"]);
@@ -351,10 +351,10 @@ test("sessions of different roles write the one omp root and temp folder, but ke
     assert.equal(run.settings.filesystem.allowWrite.some((p) => p === "/private/tmp/agent" || p === "/tmp/agent"), false);
   }
   assert.equal(author.argv[author.argv.indexOf("--") + 2], reviewer.argv[reviewer.argv.indexOf("--") + 2]);
-  assert.match(author.env.XDG_STATE_HOME ?? "", /\/underground\/state\/author\//);
-  assert.match(reviewer.env.XDG_STATE_HOME ?? "", /\/underground\/state\/security-review\//);
-  assert.match(flag(author, "--session-dir") ?? "", /\/agent\/sessions\/author\/ug-/);
-  assert.match(flag(reviewer, "--session-dir") ?? "", /\/agent\/sessions\/security-review\/ug-/);
+  assert.match(author.env.XDG_STATE_HOME ?? "", /\/underground\/state\/[0-9a-f]{8}$/);
+  assert.equal(reviewer.env.XDG_STATE_HOME, author.env.XDG_STATE_HOME);
+  assert.match(flag(author, "--session-dir") ?? "", /\/agent\/sessions\/ug-/);
+  assert.equal(flag(reviewer, "--session-dir"), flag(author, "--session-dir"));
 });
 
 test("a reviewer session starts in its store folder and gets no grant on the repo folder, its .git, or the worktree folder", { skip }, async () => {
@@ -881,20 +881,20 @@ test("the wrapper stops a daemon broker of its state folder whose worker failed,
   }
 });
 
-test("install.sh stops every daemon broker of every role, and only omp brokers", { skip: psSkip }, async () => {
+test("install.sh stops every daemon broker, and only omp brokers", { skip: psSkip }, async () => {
   const home = await tempDir(join(tmpdir(), "ugb-"));
   const a = fakeBroker();
   const b = fakeBroker();
   const stranger = fakeProcess(["/bin/sleep", "300"]);
-  await putBroker(join(home, ".ug/omp/underground/state/author/1111aaaa/omp/run/daemons/global/text-predict"), a, "running");
-  await putBroker(join(home, ".ug/omp/underground/state/code-review/2222bbbb/omp/run/daemons/global/text-predict"), b, "failed");
-  await putBroker(join(home, ".ug/omp/underground/state/author/3333cccc/omp/run/daemons/global/text-predict"), stranger, "running");
+  await putBroker(join(home, ".ug/omp/underground/state/1111aaaa/omp/run/daemons/global/text-predict"), a, "running");
+  await putBroker(join(home, ".ug/omp/underground/state/2222bbbb/omp/run/daemons/global/text-predict"), b, "failed");
+  await putBroker(join(home, ".ug/omp/underground/state/3333cccc/omp/run/daemons/global/text-predict"), stranger, "running");
   try {
     const run = spawnSync("/bin/bash", ["-c", `source "$1/install.sh"; stop_role_brokers`, "_", SRC], { env: { HOME: home, PATH: "/usr/bin:/bin" }, encoding: "utf8" });
     assert.equal(run.status, 0, run.stderr);
     assert.match(run.stdout, /stopped 2 omp daemon broker\(s\).*restart open role sessions/);
-    assert.ok(await stopped(a), "the author's daemon broker was not stopped");
-    assert.ok(await stopped(b), "the code-review daemon broker was not stopped");
+    assert.ok(await stopped(a), "the first daemon broker was not stopped");
+    assert.ok(await stopped(b), "the second daemon broker was not stopped");
     assert.ok(alive(stranger), "a process that is not an omp broker was stopped");
   } finally {
     for (const child of [a, b, stranger]) if (child.exitCode === null) child.kill();
@@ -1094,7 +1094,7 @@ test("omp refuses an omp root folder that is a symlink, a file, not yours, or no
   const made = await runOmp(home, repo, []);
   assert.equal(made.status, 0, made.stderr);
   assert.ok(await isMode(join(home, ".ug"), 0o700));
-  for (const dir of ["", "agent", "agent/cache", "underground", "underground/cache", "underground/state", "underground/state/author", "underground/tmp"]) assert.ok(await isMode(join(omp, dir), 0o700), dir);
+  for (const dir of ["", "agent", "agent/cache", "underground", "underground/cache", "underground/state", "underground/tmp"]) assert.ok(await isMode(join(omp, dir), 0o700), dir);
 
   const notOwned = sourceOmp(home, 'make_private_dir "$1"', "/usr");
   assert.equal(notOwned.status, 1);
@@ -1103,7 +1103,7 @@ test("omp refuses an omp root folder that is a symlink, a file, not yours, or no
 
 test("omp makes the state folder of a repo and its omp folder with mode 700, leaves no partial folder, and refuses one that is open or a symlink", { skip }, async () => {
   const { home, repo } = await makeHome();
-  const stateRoot = join(home, ".ug/omp/underground/state/author");
+  const stateRoot = join(home, ".ug/omp/underground/state");
   const first = await runOmp(home, repo, []);
   assert.equal(first.status, 0, first.stderr);
   const state = first.env.XDG_STATE_HOME ?? "";

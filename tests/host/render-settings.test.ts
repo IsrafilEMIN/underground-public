@@ -20,7 +20,7 @@ type Settings = {
   filesystem: { allowRead: string[]; allowWrite: string[]; denyWrite: string[] };
   network: { allowedDomains: string[]; allowUnixSockets: string[] };
 };
-type Fixture = { home: string; repo: string; omp: string; stateRoot: (name: string) => string; sessionsRoot: (name: string) => string; args: (name: string, binding: string) => string[] };
+type Fixture = { home: string; repo: string; omp: string; stateRoot: string; sessionsRoot: string; args: (name: string, binding: string) => string[] };
 type Result = { status: number | null; stdout: string; stderr: string };
 
 async function put(path: string, text: string, mode = 0o644): Promise<void> {
@@ -30,7 +30,7 @@ async function put(path: string, text: string, mode = 0o644): Promise<void> {
 
 async function makeRole(home: string, name: string, binding: string): Promise<void> {
   await put(join(home, ".agents/roles", binding, "network-allowlist"), "@GATEWAY@\n@ENGINE@\n");
-  await mkdir(join(home, ".ug/omp/underground/state", name), { recursive: true });
+  await mkdir(join(home, ".ug/omp/underground/state"), { recursive: true });
   if (binding !== "author") await mkdir(join(home, ".ug/git", name), { recursive: true });
 }
 
@@ -55,16 +55,16 @@ async function makeFixture(): Promise<Fixture> {
   await mkdir(join(repo, ".git"), { recursive: true });
   const repoHash = createHash("sha256").update(repo).digest("hex").slice(0, 8);
   const omp = join(home, ".ug/omp");
-  const stateRoot = (name: string): string => join(omp, "underground/state", name);
-  const sessionsRoot = (name: string): string => join(omp, "agent/sessions", name);
+  const stateRoot = join(omp, "underground/state");
+  const sessionsRoot = join(omp, "agent/sessions");
   const args = (name: string, binding: string): string[] => [
     name,
     binding,
     repo,
     repoHash,
-    join(stateRoot(name), "s1"),
-    join(sessionsRoot(name), "ug-repo"),
-    join(stateRoot(name), "s1/predict.sock"),
+    join(stateRoot, "s1"),
+    join(sessionsRoot, "ug-repo"),
+    join(stateRoot, "s1/predict.sock"),
   ];
   return { home, repo, omp, stateRoot, sessionsRoot, args };
 }
@@ -109,11 +109,11 @@ const covers = (grants: string[], path: string): boolean =>
 
 const writable = (settings: Settings, path: string): boolean => covers(settings.filesystem.allowWrite, path) && !covers(settings.filesystem.denyWrite, path);
 
-test("render-settings grants each role its state folder for reads, writes, and unix sockets, and no broker socket for a repo with no origin", { skip }, async () => {
+test("render-settings grants every role the one state folder and the one session folder of the repo, and no broker socket for a repo with no origin", { skip }, async () => {
   const { home, stateRoot, sessionsRoot, args } = await makeFixture();
   for (const [name, binding] of [["author", "author"], ["code-review", "code-review"]] as const) {
-    const state = join(stateRoot(name), "s1");
-    const sessions = join(sessionsRoot(name), "ug-repo");
+    const state = join(stateRoot, "s1");
+    const sessions = join(sessionsRoot, "ug-repo");
     const predict = join(state, "predict.sock");
     const { settings } = await rendered(home, args(name, binding));
     assert.ok((await stat(state)).isDirectory(), `${name}: state folder made`);
@@ -156,7 +156,7 @@ test("render-settings refuses a missing repo folder, template, omp root, allowli
   await refused(home, args("author", "author"), 1, /omp root is not a folder/, "omp root symlink");
   await rm(omp);
   await rename(join(home, "omp-real"), omp);
-  await mkdir(join(omp, "underground/state/sec2"), { recursive: true });
+  await mkdir(join(omp, "underground/state"), { recursive: true });
   await refused(home, args("sec2", "security-review"), 1, /no network allowlist for role security-review/, "allowlist missing");
   await put(join(home, ".agents/roles/security-review/network-allowlist"), "@GATEWAY@\n");
   await refused(home, args("sec2", "security-review"), 1, /reviewer store folder is not a folder/, "store folder missing");
@@ -213,8 +213,8 @@ test("render-settings refuses an author session when a git path it would grant i
 
 test("render-settings grants a state, session, or worktree folder only when it is a real folder directly in its root", { skip }, async () => {
   const { home, stateRoot, sessionsRoot, args } = await makeFixture();
-  const state = stateRoot("author");
-  const sessions = sessionsRoot("author");
+  const state = stateRoot;
+  const sessions = sessionsRoot;
   await mkdir(join(state, "other"));
   await symlink(join(state, "other"), join(state, "s1"));
   await refused(home, args("author", "author"), "any", /state folder is a symlink/, "state symlink");

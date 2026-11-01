@@ -2,6 +2,10 @@
 
 The owner writes this file. You cannot change it.
 
+## Shared folders
+
+Every role shares one session folder and one state folder per repo. Use only your own broker socket (`UG_BROKER_SOCKET`) and your own sessions. Never open, resume, or edit a session file of another role, and never use an omp daemon broker, token, or socket in the state folder that another role started.
+
 ## Review records
 
 After each push to a PR, check `broker pr-status <owner/repo> <n>`. Its `reviewRecords` list holds every review record of the PR: the role name, the head, the verdict, the reason, and the time. A record with role name `null` is an old record from before role names.
