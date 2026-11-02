@@ -93,7 +93,8 @@ printf 'arena-control\n' >"$arena/control"
 # Run a command in the sandbox with the arena as HOME. The outer env -i keeps the owner's shell
 # out; srt keeps the real HOME for itself and adds its proxy variables; the inner sh sets HOME and
 # TMPDIR for the child and passes the proxy to omp as PI_PROXY, as omp-inner does today.
-# It sets out (stdout and stderr) and rc.
+# It runs in box_cwd (default: the arena root) and sets out (stdout and stderr) and rc.
+box_cwd=$arena
 box() {
   set +e
   out=$(env -i HOME="$HOME" USER="$USER" LOGNAME="${LOGNAME:-$USER}" PATH=/usr/bin:/bin:/usr/sbin:/sbin \
@@ -101,9 +102,9 @@ box() {
     "$node_bin" "$srt_cli" --settings "$settings" -- /bin/sh -c '
       p=${https_proxy:-${HTTPS_PROXY:-}}
       if [ -n "$p" ]; then PI_PROXY=$p; export PI_PROXY; fi
-      HOME=$1; TMPDIR=$1/tmp; export HOME TMPDIR; shift
-      cd "$HOME" && exec "$@"
-    ' sh "$arena" "$@" 2>&1)
+      HOME=$1; TMPDIR=$1/tmp; export HOME TMPDIR; cwd=$2; shift 2
+      cd "$cwd" && exec "$@"
+    ' sh "$arena" "$box_cwd" "$@" 2>&1)
   rc=$?
   set -e
 }
@@ -127,13 +128,30 @@ log_start=$(date '+%Y-%m-%d %H:%M:%S')
 box "$omp_bin" --version
 if [[ $rc -eq 0 && $out == *"$omp_pin"* ]]; then pass version "the pinned omp starts in the sandbox: $(first "$out")"; else fail version "omp --version (rc $rc): $(first "$out")"; fi
 
+# The design runs omp in a git clone in the arena, so the main prompt runs in one. Git runs only
+# inside the sandbox, as the design requires.
+repo="$arena/work/probe/repo"
+box /bin/sh -c 'mkdir -p "$1" && cd "$1" && git init -q' sh "$repo"
+if [[ $rc -eq 0 && -d $repo/.git ]]; then repo_ok=1; else repo_ok=0; fail repo "git init in the arena failed (rc $rc): $(first "$out")"; fi
+
+sleep 1
+log_repo_start=$(date '+%Y-%m-%d %H:%M:%S')
 # The answer is not in the prompt, so an echo of the prompt cannot pass.
+box_cwd=$repo
 box "$omp_bin" -p --no-session --model "$model" "What is seventeen times twenty-three? Reply with the digits only."
+box_cwd=$arena
 if [[ $rc -eq 0 && $out == *391* ]]; then
-  pass prompt "a prompt through the auth gateway works with $model"
+  pass prompt "a prompt through the auth gateway works with $model, in a repo clone"
 else
   fail prompt "omp -p with $model (rc $rc): $(printf '%s' "$out" | tail -3 | tr '\n' ' ')"
 fi
+log_repo_end=$(date '+%Y-%m-%d %H:%M:%S')
+sleep 1
+
+# The same prompt with no repo around it, in the arena root, as omp starts outside any repo.
+log_norepo_start=$(date '+%Y-%m-%d %H:%M:%S')
+box "$omp_bin" -p --no-session --model "$model" "What is seventeen times twenty-three? Reply with the digits only."
+norepo_rc=$rc
 
 omp_files=$(cd "$arena" && find .omp -mindepth 1 ! -path .omp/agent ! -path .omp/agent/models.yml | head -5 | tr '\n' ' ') || true
 if [[ -n $omp_files ]]; then pass home "omp wrote its files in the arena: $omp_files"; else fail home "omp wrote nothing in the arena's .omp"; fi
@@ -228,9 +246,20 @@ if [[ $box_works -eq 1 ]] && command -v log >/dev/null 2>&1; then
   if [[ -z $calibration ]]; then
     inc home-leak "omp's canary deny (omp-read) is not in the log under the filter, so the log cannot show what omp tried"
   else
-    omp_denies=$(log show --style compact --start "$log_start" --end "$log_omp_end" --predicate "eventMessage CONTAINS \"deny\" AND eventMessage CONTAINS \"$HOME/\"" 2>/dev/null | grep -E "$omp_filter" | grep -v -F -e "$probe_root" -e "$sys" | head -3) || true
-    if [[ -z $omp_denies ]]; then pass home-leak "omp tried no path in the real home"
-    else fail home-leak "omp tried paths in the real home, so it ignores HOME somewhere: $(printf '%s' "$omp_denies" | tr '\n' ' ')"; fi
+    omp_denies_in() {
+      log show --style compact --start "$1" --end "$2" --predicate "eventMessage CONTAINS \"deny\" AND eventMessage CONTAINS \"$HOME/\"" 2>/dev/null |
+        grep -E "$omp_filter" | grep -v -F -e "$probe_root" -e "$sys" | sed -E 's/.* deny\([0-9]+\) //' | sort -u | head -5 | tr '\n' ' '
+    }
+    if [[ $repo_ok -eq 0 ]]; then
+      inc home-leak "no repo clone in the arena, so the main case did not run"
+    else
+      denies_repo=$(omp_denies_in "$log_repo_start" "$log_repo_end") || true
+      if [[ -z $denies_repo ]]; then pass home-leak "working in a repo clone, omp tried no path outside the arena"
+      else fail home-leak "working in a repo clone, omp tried paths outside the arena (denied): $denies_repo"; fi
+    fi
+    denies_norepo=$(omp_denies_in "$log_norepo_start" "$log_omp_end") || true
+    if [[ -z $denies_norepo ]]; then info home-norepo "with no repo, omp tried no path outside the arena (rc $norepo_rc)"
+    else info home-norepo "with no repo, omp tried paths outside the arena, and srt denied them: $denies_norepo"; fi
   fi
 else
   inc home-leak "no sandbox or no log tool, so it did not run"
