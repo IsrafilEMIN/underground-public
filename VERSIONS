@@ -1,2 +1,4 @@
 srt=0.0.81
 omp=18.13.2
+omp_sha256=38c3645283ceba06f66462830ae15f27270cc7f84575e40a4c6bd68452a63d0f
+omp_release=https://github.com/can1357/oh-my-pi/releases/download

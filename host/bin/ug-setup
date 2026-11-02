@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+# Setup, first steps: the pinned omp and the pinned srt in the owner zone ~/.ug/sys
+# (docs/SPEC.md, B1 and B2; docs/adr/0012-pinned-omp-and-setup.md). It runs from the
+# owner's checkout of underground and writes only ~/.ug/sys. It does not touch the
+# install in ~/.agents or a running session, so both harnesses can live side by side.
+set -euo pipefail
+
+if [[ $# -ne 0 ]]; then
+  printf 'usage: ug-setup\n' >&2
+  exit 64
+fi
+
+src=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)
+sys="$HOME/.ug/sys"
+node_bin=/opt/homebrew/bin/node
+npm_bin=/opt/homebrew/bin/npm
+srt_package=@anthropic-ai/sandbox-runtime
+
+die() {
+  printf 'ug-setup: %s\n' "$*" >&2
+  exit 1
+}
+
+pin() {
+  local value
+  value=$(sed -n "s/^$1=//p" "$src/VERSIONS")
+  [[ $value =~ $2 ]] || die "bad pin for $1 in VERSIONS"
+  printf '%s\n' "$value"
+}
+
+sha256() {
+  local out
+  out=$(shasum -a 256 "$1") || return 1
+  printf '%s\n' "${out%% *}"
+}
+
+omp_pin=$(pin omp '^[0-9A-Za-z.+-]+$')
+omp_sha=$(pin omp_sha256 '^[0-9a-f]{64}$')
+omp_release=$(pin omp_release '^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/releases/download$')
+srt_pin=$(pin srt '^[0-9A-Za-z.+-]+$')
+
+[[ $(uname -s) == Darwin && $(uname -m) == arm64 ]] || die "the omp pin names omp-darwin-arm64; this mac is $(uname -s) $(uname -m)"
+[[ -x $node_bin ]] || die "missing $node_bin"
+[[ -x $npm_bin ]] || die "missing $npm_bin"
+grep -q "\"$srt_package\": \"$srt_pin\"" "$src/host/srt/package.json" ||
+  die "host/srt/package.json does not pin $srt_package $srt_pin, the srt pin in VERSIONS"
+
+cleanup=()
+trap '[[ ${#cleanup[@]} -eq 0 ]] || rm -rf "${cleanup[@]}"' EXIT
+
+[[ -d $HOME/.ug ]] || install -d -m 700 "$HOME/.ug"
+install -d -m 700 "$sys" "$sys/omp" "$sys/srt"
+
+install_omp() {
+  local dir="$sys/omp/$omp_pin" dest tmp have url
+  dest="$dir/omp"
+  if [[ -f $dest && ! -L $dest ]] && [[ $(sha256 "$dest") == "$omp_sha" ]]; then
+    printf 'omp %s: in place\n' "$omp_pin"
+    return 0
+  fi
+  url="$omp_release/v$omp_pin/omp-darwin-arm64"
+  tmp=$(mktemp "$sys/omp/.download.XXXXXX")
+  cleanup+=("$tmp")
+  curl -fsSL --proto '=https' --retry 3 -o "$tmp" "$url" || die "download of $url failed"
+  have=$(sha256 "$tmp")
+  [[ $have == "$omp_sha" ]] || die "omp $omp_pin from $url has SHA-256 $have, want $omp_sha; nothing changed"
+  chmod 555 "$tmp"
+  install -d -m 700 "$dir"
+  mv -f "$tmp" "$dest"
+  printf 'omp %s: installed in %s\n' "$omp_pin" "$dest"
+}
+
+install_srt() {
+  local dir="$sys/srt/$srt_pin" lock_sha tmp cli have
+  lock_sha=$(sha256 "$src/host/srt/package-lock.json")
+  cli="$dir/node_modules/$srt_package/dist/cli.js"
+  if [[ -f $dir/lock.sha256 && -f $cli ]] && [[ $(<"$dir/lock.sha256") == "$lock_sha" ]]; then
+    printf 'srt %s: in place\n' "$srt_pin"
+    return 0
+  fi
+  tmp=$(mktemp -d "$sys/srt/.install.XXXXXX")
+  cleanup+=("$tmp")
+  cp "$src/host/srt/package.json" "$src/host/srt/package-lock.json" "$tmp/"
+  (cd / && "$npm_bin" ci --prefix "$tmp" --ignore-scripts --no-audit --no-fund >/dev/null) ||
+    die "npm ci of host/srt failed; nothing changed"
+  have=$("$node_bin" "$tmp/node_modules/$srt_package/dist/cli.js" --version 2>/dev/null) || have=""
+  [[ $have == "$srt_pin" ]] || die "srt in the lockfile has version ${have:-unknown}, want $srt_pin; nothing changed"
+  printf '%s\n' "$lock_sha" >"$tmp/lock.sha256"
+  rm -rf "$dir"
+  mv "$tmp" "$dir"
+  printf 'srt %s: installed in %s\n' "$srt_pin" "$dir"
+}
+
+install_omp
+install_srt
