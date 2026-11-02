@@ -19,7 +19,8 @@ const SRT_PIN = pinOf("srt");
 const BUILD = "TEST1A";
 const SOCKET = "/tmp/ug-test-broker/author.sock";
 
-const LEAKY_SRT = `const i = process.argv.indexOf("--");
+const LEAKY_SRT = `process.stdout.write("SRTCWD=" + process.cwd() + "\\n");
+const i = process.argv.indexOf("--");
 const r = require("child_process").spawnSync(process.argv[i + 1], process.argv.slice(i + 2), { stdio: "inherit" });
 process.exit(r.status === null ? 1 : r.status);
 `;
@@ -120,6 +121,10 @@ test("omp-arena: srt may write only the arena, read no part of the real home out
   assert.deepEqual(s.network.allowUnixSockets, [SOCKET, join(arena, ".omp/run")]);
   assert.ok(s.network.allowedDomains.every((d: string) => !d.includes("@")), "a placeholder is left");
   assert.equal(s.allowAppleEvents, false);
+  // srt anchors its built-in write denies at its own working folder, so that must be the run folder:
+  // not / (the denies would cripple git in the arena) and not the arena or the checkout.
+  const srtCwd = /^SRTCWD=(.*)$/m.exec(r.stdout)?.[1] ?? "";
+  assert.ok(srtCwd.startsWith(`${home}/.ug/run/session.`), `srt starts in ${srtCwd}`);
 });
 
 test("omp-arena: a link that an agent planted in the arena does not let the start write outside it", async (t) => {
@@ -153,7 +158,7 @@ test("omp-arena refuses a start inside ~/.ug, so the host runs no git in the are
   const r = run(home, join(arena, "work/Test-Owner/proj"));
   assert.equal(r.status, 64, r.stderr);
   assert.match(r.stderr, /not inside/);
-  assert.ok(!r.stdout.includes("CWD="), "omp started");
+  assert.doesNotMatch(r.stdout, /^CWD=/m, "omp started");
 });
 
 test("omp-arena refuses --role and --profile", async (t) => {
@@ -162,7 +167,7 @@ test("omp-arena refuses --role and --profile", async (t) => {
   for (const args of [["--role", "code-review"], ["--role=author"], ["--profile", "work"], ["--profile=x"]]) {
     const r = run(home, checkout, args);
     assert.equal(r.status, 64, `${args.join(" ")}: ${r.stderr}`);
-    assert.ok(!r.stdout.includes("CWD="), `${args.join(" ")}: omp started`);
+    assert.doesNotMatch(r.stdout, /^CWD=/m, `${args.join(" ")}: omp started`);
   }
 });
 
@@ -173,10 +178,22 @@ test("omp-arena refuses to start on a macOS build that setup did not prove", asy
   const r = run(home, checkout);
   assert.notEqual(r.status, 0);
   assert.match(r.stderr, /setup proved the sandbox on build TEST1A/);
-  assert.ok(!r.stdout.includes("CWD="), "omp started");
+  assert.doesNotMatch(r.stdout, /^CWD=/m, "omp started");
   await writeFile(join(home, "fakebin/build"), `${BUILD}\n`);
   await rm(join(home, ".ug/sys/macos-build"));
   assert.notEqual(run(home, checkout).status, 0, "it starts with no recorded build");
+});
+
+test("omp-arena: a clone that stopped halfway is made again, not used", async (t) => {
+  const { home, checkout, arena } = await fakeHome();
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const clone = join(arena, "work/Test-Owner/proj");
+  await mkdir(clone, { recursive: true });
+  assert.equal(spawnSync("git", ["-C", clone, "init", "-q"]).status, 0);
+  const r = run(home, checkout);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stderr, /not a whole clone; making it again/);
+  assert.equal(spawnSync("git", ["-C", clone, "rev-parse", "--verify", "-q", "HEAD"]).status, 0, "the clone has no commit");
 });
 
 test("omp-arena: a failed sync leaves no half-made clone, and a repo with no GitHub origin starts with no repo", async (t) => {
@@ -185,8 +202,9 @@ test("omp-arena: a failed sync leaves no half-made clone, and a repo with no Git
   await writeFile(join(home, ".ug/sys/agent-bin/fail-sync"), "");
   const failed = run(home, checkout);
   assert.equal(failed.status, 69, failed.stderr);
-  assert.ok(!failed.stdout.includes("CWD="), "omp started");
+  assert.doesNotMatch(failed.stdout, /^CWD=/m, "omp started");
   assert.deepEqual(await readdir(join(arena, "work/Test-Owner")), []);
+  assert.deepEqual((await readdir(join(arena, "work"))).filter((n) => n.startsWith(".new.")), [], "a temp clone is left");
   assert.equal(spawnSync("git", ["-C", checkout, "remote", "set-url", "origin", "https://gitlab.com/x/proj.git"]).status, 0);
   await rm(join(home, ".ug/sys/agent-bin/fail-sync"));
   const plain = run(home, checkout);

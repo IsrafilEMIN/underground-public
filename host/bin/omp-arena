@@ -142,7 +142,12 @@ for name in TERM COLORTERM TERM_PROGRAM TERM_PROGRAM_VERSION LANG LC_ALL LC_CTYP
   [[ -n ${!name:-} ]] && keep+=("$name=${!name}")
 done
 [[ -n $broker_socket ]] && keep+=("UG_BROKER_SOCKET=$broker_socket")
-cd /
+# srt adds write denies for .git/hooks, .git/config, .gitconfig, .bashrc, .zshrc, .vscode and others
+# beneath the folder that it starts in (srt dist/sandbox/macos-sandbox-utils.js,
+# macGetMandatoryDenyEntries). Those protect host tools from agent-written files; the host runs no
+# tool in the arena, so there they only cripple git. srt starts in this session's run folder, which
+# the sandbox cannot write anyway, so the denies cost nothing and the arena works as a normal home.
+cd "$run_dir"
 user=${USER:-$(id -un)}
 exec env -i HOME="$HOME" USER="$user" LOGNAME="${LOGNAME:-$user}" SHELL=/bin/zsh \
   PATH="$sys/agent-bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin" \

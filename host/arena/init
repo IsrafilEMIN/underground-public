@@ -55,20 +55,25 @@ OMP_WORKTREE_DIR=$HOME/.omp/wt/$(printf '%s' "$slug" | tr '/' '-')
 export OMP_WORKTREE_DIR
 mkdir -p "$OMP_WORKTREE_DIR"
 
-if [ ! -d "$clone/.git" ]; then
+# A clone is whole when its HEAD names a commit. One that is not (a start that stopped halfway)
+# is made again. A new clone is built in a temp folder and moved into place only when it is whole.
+if [ -d "$clone" ] && ! git -C "$clone" rev-parse --verify -q HEAD >/dev/null 2>&1; then
+  printf 'ug-arena-init: %s is not a whole clone; making it again\n' "$clone" >&2
+  rm -rf "$clone"
+fi
+if [ ! -d "$clone" ]; then
   if [ -z "${UG_BROKER_SOCKET:-}" ]; then
     printf 'ug-arena-init: %s has no arena clone yet, and this session has no broker to make one\n' "$slug" >&2
     exit 69
   fi
-  rm -rf "$clone"
-  mkdir -p "$clone"
-  cd "$clone"
+  mkdir -p "$(dirname "$clone")"
+  tmp=$(mktemp -d "$HOME/work/.new.XXXXXX")
+  trap 'rm -rf "$tmp"' EXIT
+  cd "$tmp"
   git init -q
   git remote add origin "https://github.com/$slug.git"
   synced=$(broker sync "$slug") || {
     printf 'ug-arena-init: broker sync %s failed; nothing was made\n' "$slug" >&2
-    cd "$HOME/work"
-    rm -rf "$clone"
     exit 69
   }
   branch=$(printf '%s\n' "$synced" | sed -n 's|^origin/\([^ ]*\) is now .*|\1|p')
@@ -77,6 +82,9 @@ if [ ! -d "$clone/.git" ]; then
     exit 69
   fi
   git checkout -q -B "$branch" "origin/$branch"
+  cd "$HOME/work"
+  mv "$tmp" "$clone"
+  trap - EXIT
 fi
 
 cd "$clone"
