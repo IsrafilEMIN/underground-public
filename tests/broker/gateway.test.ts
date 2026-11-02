@@ -60,9 +60,9 @@ test("parseYaml reads block mappings, block and flow lists, quotes, and comments
 test("a model setting outside the gateway providers and the inference engine is refused, wherever it is", async () => {
   const { policyText, models } = await templates();
   const cases: [string, AgentFile[], RegExp][] = [
-    [policyText.replace("web: openai-codex/gpt-6-luna:high", "web: web/perplexity"), [], /modelRoles\.web: web\/perplexity/],
+    [policyText.replace("web: anthropic/claude-haiku-5-5:medium", "web: web/perplexity"), [], /modelRoles\.web: web\/perplexity/],
     [policyText.replace("  default: anthropic/claude-opus-5-5:medium", "  default: claude-opus-5-5"), [], /modelRoles\.default: claude-opus-5-5/],
-    [policyText.replace("    web:\n      - openai-codex/gpt-6.1-sol:medium", "    web:\n      - web/duckduckgo"), [], /retry\.fallbackChains\.web\[0\]: web\/duckduckgo/],
+    [policyText.replace("    vision:\n      - anthropic/claude-haiku-5-5:medium", "    vision:\n      - web/duckduckgo"), [], /retry\.fallbackChains\.vision\[0\]: web\/duckduckgo/],
     [withTask(policyText, "  agentModelOverrides:\n    scout: openrouter/x\n"), [], /task\.agentModelOverrides\.scout: openrouter\/x/],
     [`${policyText}modelPresets:\n  deep:\n    modelRoles:\n      default: anthropic-direct/x\n`, [], /modelPresets\.deep\.modelRoles\.default/],
     [policyText, [{ name: "scout.md", text: "---\nname: scout\nmodel: google/gemini-x, anthropic/claude-haiku-5-5\n---\nbody\n" }], /agents\/scout\.md model: google\/gemini-x/],
@@ -319,7 +319,7 @@ test("gateway-setup writes the installed policy.yml into the one omp root, and r
   const home = await setupHome("author author\n");
   const template = await readFile(join(SRC, "host/roles/policy.yml"), "utf8");
   await put(home, ".ug/omp/agent/policy.yml", "stale: copy\n");
-  await put(home, ".agents/roles/policy.yml", template.replace("web: openai-codex/gpt-6-luna:high", "web: web/perplexity"));
+  await put(home, ".agents/roles/policy.yml", template.replace("web: anthropic/claude-haiku-5-5:medium", "web: web/perplexity"));
   const run = setup(home);
   assert.equal(run.status, 2);
   assert.match(run.stderr, /modelRoles\.web: web\/perplexity is not a model of a gateway provider/);

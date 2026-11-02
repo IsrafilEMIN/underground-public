@@ -559,7 +559,7 @@ test("omp refuses a role with no models.yml, or whose policy.yml selects a model
   const agent = join(ompRoot(home), "agent");
   const policy = join(home, ".agents/roles/policy.yml");
   const template = await readFile(join(SRC, "host/roles/policy.yml"), "utf8");
-  await writeFile(policy, template.replace("web: openai-codex/gpt-6-luna:high", "web: web/perplexity"));
+  await writeFile(policy, template.replace("web: anthropic/claude-haiku-5-5:medium", "web: web/perplexity"));
   recordInstall(home);
   const outside = await runOmp(home, repo, ["--role", "security-review"]);
   assert.notEqual(outside.status, 0);
