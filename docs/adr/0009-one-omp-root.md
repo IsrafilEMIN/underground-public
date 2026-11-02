@@ -15,7 +15,7 @@ Every role name uses one omp root, `~/.ug/omp` (`PI_CONFIG_DIR=.ug/omp`, `host/b
 - Sessions stay per role name: `~/.ug/omp/agent/sessions/<role name>/ug-<repo id>`.
 - Reviewer stores move out of the omp root to `~/.ug/git/<role name>/<path hash>.git`, and a reviewer session starts in `~/.ug/git/<role name>`. srt 0.0.81 emits every write allow before every write deny, and Seatbelt takes the last match (`dist/sandbox/macos-sandbox-utils.js`, `generateWriteRules`), so a deny on `~/.ug/omp/underground/git` could not be reopened for one reviewer's own stores. Outside the omp root, each reviewer gets a write grant on its own folder only, as before, and no author grant covers it. Its working folder outside the omp root also keeps every role from planting an `AGENTS.md` or `.omp` folder in an ancestor that the reviewer's context walk reads.
 - Rules stay per binding role and are not copied into the omp root, because sessions of different roles would race on one `agent/AGENTS.md`. The wrapper passes `~/.agents/roles/<binding role>/AGENTS.md` with `--append-system-prompt` and names it in `UG_ROLE_RULES`, and refuses a caller's own `--append-system-prompt`. omp does not give that text to task subagents (omp docs, `system-prompt-customization.md`, "Inputs by session type", read 2026-11-01). So the owner hook `role-rules.ts` appends the same file to each subagent's system prompt through `before_agent_start`, whose result may carry `systemPrompt` (omp 18.13.2, `emitBeforeAgentStart`).
-- The network allowlist stays per binding role: `render-settings` reads `~/.agents/roles/<binding role>/network-allowlist` where it is. The `binding-role` record goes: the role table decides rules and allowlist at each start.
+- The network allowlist stays per binding role: `render-settings` reads `~/.agents/roles/<binding role>/network-allowlist` where it is. The `binding-role` record goes: the role table decides rules and allowlist at each start. (Superseded 2026-11-02: every role uses one allowlist, `~/.agents/roles/network-allowlist`, `0001-accepted-risks.md`.)
 - The template grants `~/.ug/omp` for writes; `render-settings` denies the owner paths in `agent` and the owner roots, and refuses a template that grants one.
 
 Checked with omp 18.13.2 on 2026-11-01, with a rules file that names a password: the main session answered it, a task subagent answered `NONE` with `--append-system-prompt` alone and the password with the hook, and after `--resume` both the main session and a new subagent answered it.
@@ -29,7 +29,7 @@ Checked with omp 18.13.2 on 2026-11-01, with a rules file that names a password:
 ## What still holds
 
 - The policy pins (`0002-role-homes.md`, `PINNED_SETTINGS` in `host/broker/admin.ts`): no role can turn on memory, autolearn, extra loaders, or turn off an owner source.
-- Per-role rules and per-role network allowlists, both owner-owned in `~/.agents/roles`.
+- Per-role rules, owner-owned in `~/.agents/roles`, and one network allowlist for all roles (amended 2026-11-02).
 - Reviewer store isolation (U32): an author has no grant on `~/.ug/git`; a reviewer writes only `~/.ug/git/<role name>`, never a store's `config` or `hooks`.
 - `~/.omp` stays unreadable to every role, so the auth broker's logins in `~/.omp/agent/agent.db` stay out of reach (`0004-no-local-binding.md`).
 

@@ -8,7 +8,7 @@ Date: 2026-11-01. Owner decision. Amends `0009-one-omp-root.md`: its sessions an
 
 - Every role uses one session folder per repo: `~/.ug/omp/agent/sessions/ug-<repo id>` (`host/bin/omp`, `sessions=`).
 - Every role uses one state folder per repo: `~/.ug/omp/underground/state/<path hash>` (`host/bin/omp`, `state=`), which is `XDG_STATE_HOME`.
-- Still per role: the broker binding and its verbs, the rules and network allowlist of each binding role in `~/.agents/roles`, and each reviewer's store in `~/.ug/git/<role name>`.
+- Still per role: the broker binding and its verbs, the rules of each binding role in `~/.agents/roles`, and each reviewer's store in `~/.ug/git/<role name>`. Every role uses one network allowlist (amended 2026-11-02, `0001-accepted-risks.md`).
 - The rules of every role tell the agent to use only its own broker socket and its own sessions, and never an omp daemon broker or session file of another role.
 
 ## Cost

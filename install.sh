@@ -43,10 +43,7 @@ host/roles/author/AGENTS.md|$HOME/.agents/roles/author/AGENTS.md|644|copy
 host/roles/code-review/AGENTS.md|$HOME/.agents/roles/code-review/AGENTS.md|644|copy
 host/roles/security-review/AGENTS.md|$HOME/.agents/roles/security-review/AGENTS.md|644|copy
 host/roles/risk-review/AGENTS.md|$HOME/.agents/roles/risk-review/AGENTS.md|644|copy
-host/roles/author/network-allowlist|$HOME/.agents/roles/author/network-allowlist|644|copy
-host/roles/code-review/network-allowlist|$HOME/.agents/roles/code-review/network-allowlist|644|copy
-host/roles/security-review/network-allowlist|$HOME/.agents/roles/security-review/network-allowlist|644|copy
-host/roles/risk-review/network-allowlist|$HOME/.agents/roles/risk-review/network-allowlist|644|copy
+host/roles/network-allowlist|$HOME/.agents/roles/network-allowlist|644|copy
 host/roles/hooks/pre/concise-reply.ts|$HOME/.agents/roles/hooks/pre/concise-reply.ts|644|copy
 host/roles/hooks/pre/role-rules.ts|$HOME/.agents/roles/hooks/pre/role-rules.ts|644|copy
 host/launchd/com.underground.broker.plist|$agents_dir/com.underground.broker.plist|644|render

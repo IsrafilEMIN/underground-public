@@ -171,10 +171,10 @@ export function renderSettings(input: SettingsInput): string {
   if (ompRootStat === undefined || ompRootStat.isSymbolicLink() || !ompRootStat.isDirectory()) throw refuse(`omp root is not a folder: ${givenOmpRoot}`);
   const ompRoot = realDir(givenOmpRoot);
   const roleTemplates = join(home, ".agents/roles", role);
-  const allowlist = join(roleTemplates, "network-allowlist");
+  const allowlist = join(home, ".agents/roles/network-allowlist");
   const allowlistStat = lstatOrUndefined(allowlist);
   if (allowlistStat === undefined || allowlistStat.isSymbolicLink() || !allowlistStat.isFile()) {
-    throw refuse(`no network allowlist for role ${role}: ${allowlist}; install.sh puts it there`);
+    throw refuse(`no network allowlist: ${allowlist}; install.sh puts it there`);
   }
   const rulesFile = join(roleTemplates, "AGENTS.md");
   const rules = statSync(rulesFile, { throwIfNoEntry: false })?.isFile() === true ? [rulesFile] : [];

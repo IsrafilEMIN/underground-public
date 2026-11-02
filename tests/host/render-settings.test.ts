@@ -30,7 +30,6 @@ async function put(path: string, text: string, mode = 0o644): Promise<void> {
 }
 
 async function makeRole(home: string, name: string, binding: string): Promise<void> {
-  await put(join(home, ".agents/roles", binding, "network-allowlist"), "@GATEWAY@\n@ENGINE@\n");
   await mkdir(join(home, ".ug/omp/underground/state"), { recursive: true });
   if (binding !== "author") await mkdir(join(home, ".ug/git", name), { recursive: true });
 }
@@ -48,6 +47,7 @@ async function makeFixture(): Promise<Fixture> {
     await put(join(home, ".agents/roles", file), await readFile(join(SRC, "host/roles", file), "utf8"));
   }
   await put(join(home, ".config/underground-broker/addresses"), `gateway=${GATEWAY}\nengine=${ENGINE}\n`, 0o600);
+  await put(join(home, ".agents/roles/network-allowlist"), "@GATEWAY@\n@ENGINE@\n");
   await put(join(home, ".config/underground-broker/roles"), "author author\ncode-review code-review\nsec2 security-review\n", 0o600);
   await put(join(home, "stub-bin/ifconfig"), `#!/bin/sh\nprintf '%s' '${IFCONFIG}'\n`, 0o755);
   for (const name of ["author", "code-review"]) await makeRole(home, name, name);
@@ -193,8 +193,9 @@ test("render-settings refuses a missing repo folder, template, omp root, allowli
   await rm(omp);
   await rename(join(home, "omp-real"), omp);
   await mkdir(join(omp, "underground/state"), { recursive: true });
-  await refused(home, args("sec2", "security-review"), 1, /no network allowlist for role security-review/, "allowlist missing");
-  await put(join(home, ".agents/roles/security-review/network-allowlist"), "@GATEWAY@\n");
+  await rm(join(home, ".agents/roles/network-allowlist"));
+  await refused(home, args("sec2", "security-review"), 1, /no network allowlist: /, "allowlist missing");
+  await put(join(home, ".agents/roles/network-allowlist"), "@GATEWAY@\n");
   await refused(home, args("sec2", "security-review"), 1, /reviewer store folder is not a folder/, "store folder missing");
   await symlink(join(home, ".ug/git/code-review"), join(home, ".ug/git/sec2"));
   await refused(home, args("sec2", "security-review"), 1, /reviewer store folder is not a folder/, "store folder symlink");
@@ -318,7 +319,7 @@ test("render-settings adds the real folder of each skill link under an approved 
 
 test("render-settings accepts a *.domain wildcard on the network allowlist", { skip }, async () => {
   const { home, args } = await makeFixture();
-  await writeFile(join(home, ".agents/roles/author/network-allowlist"), "@GATEWAY@\n*.example.com\n");
+  await writeFile(join(home, ".agents/roles/network-allowlist"), "@GATEWAY@\n*.example.com\n");
   const { settings } = await rendered(home, args("author", "author"));
   assert.deepEqual(settings.network.allowedDomains, [GATEWAY, "*.example.com"]);
 });
