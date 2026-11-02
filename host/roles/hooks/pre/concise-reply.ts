@@ -27,7 +27,6 @@ function promptsSinceReminder(branch: Entry[]): number | undefined {
   for (let i = branch.length - 1; i >= 0; i--) {
     const entry = branch[i];
     if (entry.type === "custom_message" && entry.customType === CUSTOM_TYPE) return prompts;
-    if (entry.type === "compaction") return undefined;
     if (entry.type === "message" && entry.message?.role === "user") prompts++;
   }
   return undefined;

@@ -5,7 +5,6 @@ import { isReminderDue } from "../../host/roles/hooks/pre/concise-reply.ts";
 const user = { type: "message", message: { role: "user" } };
 const assistant = { type: "message", message: { role: "assistant" } };
 const reminder = { type: "custom_message", customType: "concise-reply" };
-const compaction = { type: "compaction" };
 
 function afterReminder(answeredPrompts: number) {
   return [user, reminder, assistant, ...Array.from({ length: answeredPrompts }, () => [user, assistant]).flat()];
@@ -23,8 +22,4 @@ test("the reminder comes back on every tenth prompt, whether or not omp saved th
     assert.equal(isReminderDue(branch(8)), false, `prompt 10, saved first: ${savedFirst}`);
     assert.equal(isReminderDue(branch(9)), true, `prompt 11, saved first: ${savedFirst}`);
   }
-});
-
-test("a compaction after the last reminder brings the reminder back on the next prompt", () => {
-  assert.equal(isReminderDue([...afterReminder(2), compaction]), true);
 });
