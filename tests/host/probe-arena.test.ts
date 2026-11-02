@@ -32,7 +32,6 @@ async function fakeHome(srt: string): Promise<string> {
   const srtDir = join(home, ".ug/sys/srt", SRT_PIN, "node_modules/@anthropic-ai/sandbox-runtime/dist");
   await mkdir(ompDir, { recursive: true });
   await mkdir(srtDir, { recursive: true });
-  await mkdir(join(home, ".ug/omp/agent"), { recursive: true });
   await mkdir(join(home, ".config/underground-broker"), { recursive: true });
   await writeFile(join(srtDir, "cli.js"), srt);
   // A fake omp that does what the probe asks of a working omp, so only the sandbox is under test.
@@ -47,7 +46,8 @@ esac
 `,
   );
   await chmod(join(ompDir, "omp"), 0o755);
-  await writeFile(join(home, ".ug/omp/agent/models.yml"), "providers: {}\n");
+  await mkdir(join(home, ".omp"), { recursive: true });
+  await writeFile(join(home, ".omp/auth-gateway.token"), "test-bearer\n");
   await writeFile(join(home, ".config/underground-broker/addresses"), "gateway=192.0.2.1:4000\nengine=192.0.2.2:8081\n");
   return home;
 }

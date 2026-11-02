@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
-# Setup, first steps: the pinned omp and the pinned srt in the owner zone ~/.ug/sys
-# (docs/SPEC.md, B1 and B2; docs/adr/0012-pinned-omp-and-setup.md). It runs from the
-# owner's checkout of underground and writes only ~/.ug/sys. It does not touch the
-# install in ~/.agents or a running session, so both harnesses can live side by side.
+# Setup (docs/SPEC.md, B1 and B2; docs/adr/0012-pinned-omp-and-setup.md). It runs from the
+# owner's checkout of underground and writes only ~/.ug/sys and ~/.ug/run:
+#   - the pinned omp and the pinned srt
+#   - the arena files: the session start step, the seed config, the broker client
+#   - ~/.ug/sys/bin/omp, a link to the arena wrapper in this checkout
+#   - the proof: it runs scripts/probe-arena.sh and records the macOS build only when the probe
+#     passes; the wrapper refuses to start on any other build
+# It does not touch the install in ~/.agents or a running session.
 set -euo pipefail
 
 if [[ $# -ne 0 ]]; then
@@ -49,7 +53,7 @@ cleanup=()
 trap '[[ ${#cleanup[@]} -eq 0 ]] || rm -rf "${cleanup[@]}"' EXIT
 
 [[ -d $HOME/.ug ]] || install -d -m 700 "$HOME/.ug"
-install -d -m 700 "$sys" "$sys/omp" "$sys/srt"
+install -d -m 700 "$sys" "$sys/omp" "$sys/srt" "$sys/bin" "$sys/agent-bin" "$sys/libexec" "$sys/arena" "$sys/broker" "$HOME/.ug/run"
 
 install_omp() {
   local dir="$sys/omp/$omp_pin" dest tmp have url
@@ -91,5 +95,48 @@ install_srt() {
   printf 'srt %s: installed in %s\n' "$srt_pin" "$dir"
 }
 
+# Write a file in place of the old one, never through it: a new file next to it, then a rename.
+put() {
+  local from=$1 to=$2 mode=$3 tmp
+  tmp=$(mktemp "$(dirname "$to")/.put.XXXXXX")
+  cleanup+=("$tmp")
+  cat "$from" >"$tmp"
+  chmod "$mode" "$tmp"
+  mv -f "$tmp" "$to"
+}
+
+link() {
+  local target=$1 at=$2
+  rm -f "$at"
+  ln -s "$target" "$at"
+}
+
+install_arena_files() {
+  local shim
+  put "$src/host/arena/init" "$sys/libexec/ug-arena-init" 555
+  put "$src/host/arena/config.yml" "$sys/arena/config.yml" 444
+  put "$src/host/broker/client.ts" "$sys/broker/client.ts" 444
+  put "$src/host/broker/protocol.ts" "$sys/broker/protocol.ts" 444
+  shim=$(mktemp "$sys/agent-bin/.shim.XXXXXX")
+  cleanup+=("$shim")
+  printf '#!/bin/sh\nexec '"'"'%s'"'"' '"'"'%s'"'"' "$@"\n' "$node_bin" "$sys/broker/client.ts" >"$shim"
+  put "$shim" "$sys/agent-bin/broker" 555
+  link "$sys/omp/$omp_pin/omp" "$sys/agent-bin/omp"
+  link "$src/host/bin/omp-arena" "$sys/bin/omp"
+  printf 'arena files: installed in %s\n' "$sys"
+}
+
+prove() {
+  local build
+  build=$(sw_vers -buildVersion) || die "sw_vers failed"
+  rm -f "$sys/macos-build"
+  printf 'proof: running scripts/probe-arena.sh on macOS build %s\n' "$build"
+  "$src/scripts/probe-arena.sh" || die "the probe failed, so no macOS build is recorded and the wrapper refuses to start; fix the failure and run ug-setup again"
+  printf '%s\n' "$build" >"$sys/macos-build"
+  printf 'proof: macOS build %s recorded in %s\n' "$build" "$sys/macos-build"
+}
+
 install_omp
 install_srt
+install_arena_files
+prove

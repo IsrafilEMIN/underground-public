@@ -20,9 +20,9 @@
 # file in the home folder, and deletes them at the end (KEEP=1 keeps the arena). It never
 # touches ~/.agents, ~/.ug/omp, ~/.omp, or a running session.
 #
-# PROBE_MODEL picks the model of the prompt check (default opencode-go/deepseek-v4.1-flash).
-# PROBE_MODELS names the models.yml with the gateway providers (default: the one that the
-# current install renders, ~/.ug/omp/agent/models.yml).
+# PROBE_MODEL picks the model of the prompt check (default anthropic/claude-opus-5-5, the default
+# role of host/arena/config.yml). The probe renders models.yml the way the arena wrapper does:
+# host/roles/models.yml with the gateway address and the gateway bearer.
 set -euo pipefail
 
 src=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
@@ -41,8 +41,8 @@ settings="$run_dir/probe-arena.json"
 canary="$HOME/.ug-probe-canary"
 canary_text="ug-probe-canary-$$-$RANDOM"
 write_target="$HOME/.ug-probe-write"
-model=${PROBE_MODEL:-opencode-go/deepseek-v4.1-flash}
-models_src=${PROBE_MODELS:-$HOME/.ug/omp/agent/models.yml}
+model=${PROBE_MODEL:-anthropic/claude-opus-5-5}
+gateway_token_file="$HOME/.omp/auth-gateway.token"
 addresses="$HOME/.config/underground-broker/addresses"
 denied='Operation not permitted'
 
@@ -63,7 +63,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-for need in "$node_bin" "$omp_bin" "$srt_cli" "$models_src" "$addresses"; do
+for need in "$node_bin" "$omp_bin" "$srt_cli" "$gateway_token_file" "$addresses"; do
   [[ -e $need ]] || { printf 'probe-arena: missing %s; run host/bin/ug-setup and the current install first\n' "$need" >&2; exit 1; }
 done
 gateway=$(sed -n 's/^gateway=//p' "$addresses")
@@ -72,13 +72,15 @@ gateway=$(sed -n 's/^gateway=//p' "$addresses")
 
 rm -rf "$probe_root"
 install -d -m 700 "$probe_root" "$arena" "$arena/tmp" "$arena/.omp/agent" "$run_dir"
-cp "$models_src" "$arena/.omp/agent/models.yml"
 printf '%s\n' "$canary_text" >"$canary"
 printf 'arena-control\n' >"$arena/control"
 
 "$node_bin" -e '
   const fs = require("fs");
-  const [file, home, arena, sys, allowlist, gateway] = process.argv.slice(1);
+  const [file, home, arena, sys, allowlist, gateway, template, tokenFile] = process.argv.slice(1);
+  const token = fs.readFileSync(tokenFile, "utf8").trim();
+  fs.writeFileSync(`${arena}/.omp/agent/models.yml`,
+    fs.readFileSync(template, "utf8").replaceAll("@GATEWAY@", gateway).replaceAll("@GATEWAY_TOKEN@", token), { mode: 0o600 });
   const allowedDomains = fs.readFileSync(allowlist, "utf8").replaceAll("@GATEWAY@", gateway)
     .split("\n").map((l) => l.replace(/#.*/, "").trim()).filter((l) => l !== "" && !l.includes("@"));
   const settings = {
@@ -88,7 +90,7 @@ printf 'arena-control\n' >"$arena/control"
     allowPty: true,
   };
   fs.writeFileSync(file, JSON.stringify(settings, null, 2) + "\n", { mode: 0o600 });
-' "$settings" "$HOME" "$arena" "$sys" "$src/host/roles/network-allowlist" "$gateway"
+' "$settings" "$HOME" "$arena" "$sys" "$src/host/roles/network-allowlist" "$gateway" "$src/host/roles/models.yml" "$gateway_token_file"
 
 # Run a command in the sandbox with the arena as HOME. The outer env -i keeps the owner's shell
 # out; srt keeps the real HOME for itself and adds its proxy variables; the inner sh sets HOME and

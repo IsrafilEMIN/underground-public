@@ -1,0 +1,151 @@
+#!/usr/bin/env bash
+# The arena wrapper (docs/SPEC.md, B3; docs/adr/0011-one-agent-arena.md). It starts the pinned omp
+# under the pinned srt with the arena ~/.ug/home as HOME, in the arena clone of the repo that the
+# owner's checkout names. Setup links it as ~/.ug/sys/bin/omp.
+#
+# This first version keeps today's brokers where they are: the GitHub broker and its sockets in
+# ~/.agents/broker, the usage broker on 127.0.0.1:18765, the auth gateway on the tailscale
+# address. Moving them is B5, B6, and B7.
+set -euo pipefail
+
+# Start again with a clean environment, so no variable of the caller (NODE_OPTIONS, GIT_*, a token)
+# reaches even the host steps below. Only the names here pass; PATH stays the caller's for the host
+# commands, and the sandbox gets its own.
+if [[ -z ${UG_ARENA_CLEAN:-} ]]; then
+  pass=(UG_ARENA_CLEAN=1 "HOME=$HOME" "PATH=$PATH" "USER=${USER:-$(id -un)}")
+  for name in LOGNAME TERM COLORTERM TERM_PROGRAM TERM_PROGRAM_VERSION LANG LC_ALL LC_CTYPE TZ UG_TEST_NODE; do
+    [[ -n ${!name:-} ]] && pass+=("$name=${!name}")
+  done
+  exec env -i "${pass[@]}" /bin/bash "${BASH_SOURCE[0]}" "$@"
+fi
+
+self=${BASH_SOURCE[0]}
+while [[ -L $self ]]; do
+  link=$(readlink "$self")
+  [[ $link == /* ]] && self=$link || self="$(dirname "$self")/$link"
+done
+src=$(cd "$(dirname "$self")/../.." && pwd -P)
+
+node_bin=${UG_TEST_NODE:-/opt/homebrew/bin/node}
+ug="$HOME/.ug"
+sys="$ug/sys"
+arena="$ug/home"
+run_root="$ug/run"
+addresses="$HOME/.config/underground-broker/addresses"
+gateway_token_file="$HOME/.omp/auth-gateway.token"
+
+die() {
+  printf 'omp: %s\n' "$*" >&2
+  exit "${code:-1}"
+}
+
+pin() { sed -n "s/^$1=//p" "$src/VERSIONS"; }
+omp_pin=$(pin omp)
+srt_pin=$(pin srt)
+omp_bin="$sys/omp/$omp_pin/omp"
+srt_cli="$sys/srt/$srt_pin/node_modules/@anthropic-ai/sandbox-runtime/dist/cli.js"
+
+for arg in "$@"; do
+  case $arg in
+    --) break ;;
+    --role | --role=*) code=64 die "--role is gone: every session is an author session in the arena" ;;
+    --profile | --profile=*) code=64 die "$arg would move omp off its default root in the arena; remove it" ;;
+  esac
+done
+
+# --- preflight ------------------------------------------------------------------------------------
+
+[[ -x $node_bin ]] || die "missing $node_bin"
+[[ -f $omp_bin && -x $omp_bin && ! -L $omp_bin ]] || die "the pinned omp $omp_bin is missing; run $src/host/bin/ug-setup"
+[[ -f $srt_cli ]] || die "the pinned srt is missing in $sys/srt/$srt_pin; run $src/host/bin/ug-setup"
+[[ -x $sys/libexec/ug-arena-init && -x $sys/agent-bin/broker && -f $sys/arena/config.yml ]] || die "the arena files are missing in $sys; run $src/host/bin/ug-setup"
+want_build=$(cat "$sys/macos-build" 2>/dev/null) || want_build=""
+have_build=$(sw_vers -buildVersion 2>/dev/null) || have_build=""
+[[ -n $want_build && $have_build == "$want_build" ]] ||
+  die "macOS is build ${have_build:-unknown}, but setup proved the sandbox on build ${want_build:-none}; run $src/host/bin/ug-setup"
+for dir in "$ug" "$sys" "$run_root"; do
+  [[ -d $dir && ! -L $dir && -O $dir ]] || die "$dir must be a folder that you own, not a link; run $src/host/bin/ug-setup"
+done
+if [[ -e $arena || -L $arena ]]; then
+  [[ -d $arena && ! -L $arena && -O $arena ]] || die "$arena must be a folder that you own, not a link"
+else
+  install -d -m 700 "$arena"
+fi
+others=$(type -ap omp 2>/dev/null | grep -v -x -F -e "$sys/bin/omp" -e "$src/host/bin/omp-arena" | head -3 | tr '\n' ' ') || true
+[[ -z $others ]] || printf 'omp: warning: another omp is on PATH: %s\n' "$others" >&2
+
+# --- the repo -------------------------------------------------------------------------------------
+
+cwd=$(pwd -P)
+case $cwd/ in
+  "$ug"/*) code=64 die "start omp in your own checkout, not inside $ug: agents write there, and the host runs no git in it" ;;
+esac
+slug=-
+checkout=""
+if checkout=$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null); then
+  url=$(git -C "$checkout" config --get remote.origin.url 2>/dev/null) || url=""
+  re='^(git@github\.com:|ssh://git@github\.com/|https://github\.com/)([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)$'
+  url=${url%/}
+  url=${url%.git}
+  if [[ $url =~ $re ]]; then
+    slug="${BASH_REMATCH[2]}/${BASH_REMATCH[3]}"
+  else
+    printf 'omp: %s has no GitHub origin, so this session starts in the arena with no repo\n' "$checkout" >&2
+    checkout=""
+  fi
+fi
+
+broker_socket=""
+if [[ -n $checkout ]]; then
+  broker_socket=$(cd / && BUN_BE_BUN=1 "$omp_bin" "$src/host/broker/admin.ts" session "$checkout" author 2>/dev/null) || broker_socket=""
+  [[ -n $broker_socket ]] || printf 'omp: the broker did not register %s, so this session has no sync, push, PR, or merge\n' "$slug" >&2
+fi
+
+# --- this session's files in ~/.ug/run ------------------------------------------------------------
+
+find "$run_root" -mindepth 1 -maxdepth 1 -name 'session.*' -mtime +1 -exec rm -rf {} + 2>/dev/null || true
+run_dir=$(mktemp -d "$run_root/session.XXXXXX")
+gateway=$(sed -n 's/^gateway=//p' "$addresses" 2>/dev/null) || gateway=""
+[[ -n $gateway ]] || die "no gateway= line in $addresses"
+[[ -f $gateway_token_file ]] || die "missing the gateway bearer $gateway_token_file"
+cp "$sys/arena/config.yml" "$run_dir/config.yml"
+
+"$node_bin" -e '
+  const fs = require("fs");
+  const [runDir, home, arena, sys, src, gateway, tokenFile, brokerSocket] = process.argv.slice(1);
+  const token = fs.readFileSync(tokenFile, "utf8").trim();
+  const models = fs.readFileSync(`${src}/host/roles/models.yml`, "utf8")
+    .replaceAll("@GATEWAY@", gateway).replaceAll("@GATEWAY_TOKEN@", token);
+  const left = /@[A-Z_]+@/.exec(models);
+  if (left) { console.error(`omp: models.yml has an unknown placeholder ${left[0]}`); process.exit(1); }
+  fs.writeFileSync(`${runDir}/models.yml`, models, { mode: 0o600 });
+  const allowedDomains = fs.readFileSync(`${src}/host/roles/network-allowlist`, "utf8").replaceAll("@GATEWAY@", gateway)
+    .split("\n").map((l) => l.replace(/#.*/, "").trim()).filter((l) => l !== "");
+  const bad = allowedDomains.find((d) => d.includes("@"));
+  if (bad) { console.error(`omp: network-allowlist has an unknown placeholder: ${bad}`); process.exit(1); }
+  const sockets = [`${arena}/.omp/run`];
+  if (brokerSocket) sockets.unshift(brokerSocket);
+  const settings = {
+    filesystem: { denyRead: [home], allowRead: [arena, sys, runDir], allowWrite: [arena], denyWrite: [] },
+    network: { allowedDomains, deniedDomains: [], allowUnixSockets: sockets, allowLocalBinding: true },
+    allowAppleEvents: false,
+    allowPty: true,
+  };
+  fs.writeFileSync(`${runDir}/srt.json`, JSON.stringify(settings, null, 2) + "\n", { mode: 0o600 });
+' "$run_dir" "$HOME" "$arena" "$sys" "$src" "$gateway" "$gateway_token_file" "$broker_socket"
+
+# --- start ----------------------------------------------------------------------------------------
+# A clean environment: only the variables named here reach srt and omp. srt keeps the real HOME
+# for itself and adds its proxy variables; ug-arena-init sets the arena as HOME for omp.
+keep=()
+for name in TERM COLORTERM TERM_PROGRAM TERM_PROGRAM_VERSION LANG LC_ALL LC_CTYPE TZ; do
+  [[ -n ${!name:-} ]] && keep+=("$name=${!name}")
+done
+[[ -n $broker_socket ]] && keep+=("UG_BROKER_SOCKET=$broker_socket")
+cd /
+user=${USER:-$(id -un)}
+exec env -i HOME="$HOME" USER="$user" LOGNAME="${LOGNAME:-$user}" SHELL=/bin/zsh \
+  PATH="$sys/agent-bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin" \
+  OMP_AUTH_BROKER_URL=http://127.0.0.1:18765 OMP_AUTH_BROKER_TOKEN=usage-only \
+  ${keep[@]+"${keep[@]}"} \
+  "$node_bin" "$srt_cli" --settings "$run_dir/srt.json" -- "$sys/libexec/ug-arena-init" "$arena" "$run_dir" "$slug" "$omp_bin" "$@"
