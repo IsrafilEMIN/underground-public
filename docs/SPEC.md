@@ -37,7 +37,7 @@ Source: the earlier onboarding list, checks 1 to 6 (`git show f16005c^:docs/ONBO
 
 **Tests.** The suite in `tests/` uses fake data only: temp homes, local bare repos in place of GitHub, and a fake `gh`. CI runs it on each PR head and each push to `main` (`.github/workflows/ci.yml`). Setup runs it before it writes a file or a service.
 
-**Probes of the redesign.** `scripts/probe-arena.sh` covers the `HOME` check below. It runs after `host/bin/ug-setup`, without touching the current install, and also checks the pin hash, `omp --version` in the sandbox, read and write denies on the real home, a prompt through the auth gateway, omp files in the arena, and whether srt starts on the bun inside omp.
+**Probes of the redesign.** `scripts/probe-arena.sh` covers the `HOME` check below. It runs after `host/bin/ug-setup`, without touching the current install, and also checks the pin hash, `omp --version` in the sandbox, a prompt through the auth gateway, and omp files in the arena. Then it tries to break out: a read and a write of the real home, the same read through omp's runtime, a symlink and a hard link from the arena, the ssh agent socket directly and through a link, and a domain off the allowlist. Every deny check has a control, and a deny counts only with the sandbox's own error; anything else is inconclusive. It reads the system log for denies of omp itself, calibrated by a known deny. `tests/host/probe-arena.test.ts` runs the probe against a leaky and a broken fake srt, and requires a BREACH or no PASS.
 
 - `HOME`: omp, bun, and git on the pinned omp use the arena as home. A tool that ignores `HOME` fails on the srt deny; it does not leak.
 - omp's helper sockets: their paths under `~/.ug/home/.omp/run/daemons`, with `lsof -nP -U | grep '/.ug/home/'`.
