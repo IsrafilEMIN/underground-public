@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The U1 and U2 canary probes of docs/TEST-PLAN.md.
+# The U1 and U2 canary probes of docs/SPEC.md, section Checks.
 #
 #   scripts/probe-u1-u2.sh plant     on the host: plant the canaries
 #   scripts/probe-u1-u2.sh read      on the host, then in a role session: read each canary

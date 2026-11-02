@@ -2,6 +2,8 @@
 
 Date: 2026-10-30. Owner decision.
 
+Holds under the redesign (2026-11-02, `0011-one-agent-arena.md`).
+
 Superseded in part on 2026-10-31 by `docs/adr/0007-broker-github-app.md`: the broker acts as a GitHub App, not a bot account, and the owner's approval no longer merges. So every `broker merge`, not only an auto merge, needs the PR head to be the push record.
 
 The gate accepts an `agent/*` branch in the same repo, but any account with write access can push to that branch (U29).

@@ -2,6 +2,8 @@
 
 Date: 2026-10-30. Owner decision.
 
+Superseded in full on 2026-11-02 by `0011-one-agent-arena.md`: omp runs on its default root in the arena, and the owner part, the role policy, and its pins go. The text below is history.
+
 Superseded on 2026-11-01 by `0009-one-omp-root.md`: every role now uses one omp root, `~/.ug/omp`. The paths below are history. The policy pins of the overlay amendment still hold.
 
 Superseded in part on 2026-10-31 by the amendment at the end: the owner's omp settings moved from `config.yml` to the read-only overlay `policy.yml`, and `config.yml` is now omp state that the role writes.

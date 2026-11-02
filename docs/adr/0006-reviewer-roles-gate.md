@@ -2,6 +2,8 @@
 
 Date: 2026-10-30. Owner decision.
 
+Amended on 2026-11-02 by `0011-one-agent-arena.md`: the three reviewer roles stay, but as a quality step, not a safety wall. Their rules come as skills in the owner's config repo. The holds, attempts, and records stay as built until their review (`../SPEC.md`, Deferred).
+
 Superseded in part on 2026-10-31 by `docs/adr/0007-broker-github-app.md`: the broker acts as a GitHub App, and the owner decided that `broker merge` merges only the auto path. So the owner's approval no longer merges or ends a hold, and the owner change request is no longer checked. A hold refuses `broker merge` for good, and the owner merges that PR on GitHub. The parts marked "superseded" below are the ones that changed.
 
 The gate takes the latest verdict on the head from any reviewer (`mergeRefusal`, `host/broker/protocol.ts:317`), and a review record has no role name (`ReviewRecord`, `host/broker/protocol.ts:34`). With more than one reviewer role, a `pass` from one role can merge a head that another role never saw (U10). All verdicts are in one file, `reviews.json`: each review rewrites it in full and each merge parses it in full (`appendReviewRecord`, `host/broker/server.ts:328` to `:335`; `handleMerge`, `:394`). At hundreds of agents a day, each merge parses every record of every PR, and a damaged file stops every review and merge (`readReviewRecords`, `host/broker/server.ts:309` to `:311`). One file per PR bounds the parse to one PR and the damage to one PR; the records still grow in total, because they stay after the merge.

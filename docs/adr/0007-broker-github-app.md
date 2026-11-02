@@ -2,6 +2,8 @@
 
 Date: 2026-10-31. Owner decision.
 
+Holds under the redesign (2026-11-02). The key moves to `~/.ug/secrets/github-app.pem` (`../SPEC.md`, B7). The onboarding list is now in `../SPEC.md`.
+
 GitHub suspended the bot account that the broker acted as. The cause is unknown. Until now, the broker's token belonged to that bot (`ONBOARDING.md`, check 4, before this change), and the owner's approval of the head was a merge path of the gate (`docs/adr/0006-reviewer-roles-gate.md`). Earlier on 2026-10-31, the first version of this ADR moved the broker to a fine-grained token of the owner's own account. The owner then chose a GitHub App instead.
 
 Decision:

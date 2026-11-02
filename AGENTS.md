@@ -9,10 +9,8 @@ An unattended agent can only do harm that you can undo.
 Open a file only when the task needs it.
 
 - `docs/PRODUCT-BRIEF.md`: the problem and why. Open it when a decision touches scope.
-- `docs/SPEC.md`: what MVP 0.5 builds, and "good enough". Open it before you plan a change.
-- `docs/TEST-PLAN.md`: how we check the build before the live run. Open it before you test a build item.
+- `docs/SPEC.md`: what MVP 0.5 builds, the onboarding checks, and the checks of the build. Open it before you plan or test a change, and when a change touches a workflow file, the repo settings, or the broker app.
 - `docs/THREAT-MODEL.md`: the threats, split by underground and arkan, and by MVP. Open it when a change touches the sandbox, the broker, or the merge gate.
-- `docs/ONBOARDING.md`: the owner's checks on GitHub for each repo before agents merge alone in it. Open it when a change touches a workflow file, the repo settings, or the broker app.
 - `docs/adr/`: why we built a thing one way. Open an ADR when you change the thing it covers.
 - `GLOSSARY.md`: the terms. Open it when you write docs.
 

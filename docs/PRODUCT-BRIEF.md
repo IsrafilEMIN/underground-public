@@ -1,6 +1,6 @@
 # Product brief: underground MVP 0.5 (redesign)
 
-Owner decision, 2026-11-02. This brief replaces the design of the first MVP 0.5. `SPEC.md`, `THREAT-MODEL.md`, and the ADRs in `adr/` still describe the old design. They will be rewritten from this brief.
+Owner decision, 2026-11-02. This brief replaces the design of the first MVP 0.5. `SPEC.md` lists the build work, `THREAT-MODEL.md` the threats and their controls, and `adr/0011-one-agent-arena.md` and `adr/0012-pinned-omp-and-setup.md` the reasons. The code still runs the old design until the spec is built.
 
 ## Summary
 
@@ -112,7 +112,7 @@ Setup runs when a pin changes, a host service changes, or macOS updates. It inst
 - The auth gateway, the auth broker, and the usage broker.
 - The GitHub broker and its merge gate.
 - The macOS build pin.
-- The onboarding list, with one more check: a merge to `main` has no effect that a revert cannot undo.
+- The onboarding checks (`SPEC.md`), including: a merge to `main` has no effect that a revert cannot undo.
 - The reviewer roles. Their rules come as skills.
 
 ## What goes
