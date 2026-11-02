@@ -57,7 +57,7 @@ The role of a broker binding: `author`, or one reviewer role: `code-review`, `se
 _Avoid_: socket type, mode
 
 **Reviewer session**:
-An omp session that the owner starts with `omp --role <name>`, where the roles table maps the name to a reviewer role. It uses the omp root, the rules and network allowlist of its binding role, and the broker binding of that role name. It starts new in its store folder `~/.ug/git/<role name>`, never in a checkout, and reads the PR only with `git -C` on its reviewer store. Its sandbox has no grant on the repo folder or the worktree folder. It never runs PR code.
+An omp session that the owner starts with `omp --role <name>`, where the roles table maps the name to a reviewer role. It uses the omp root, the rules of its binding role, the one network allowlist, and the broker binding of that role name. It starts new in its store folder `~/.ug/git/<role name>`, never in a checkout, and reads the PR only with `git -C` on its reviewer store. Its sandbox has no grant on the repo folder or the worktree folder. It never runs PR code.
 _Avoid_: review agent, bug bot, security bot
 
 **Review verdict**:
@@ -117,7 +117,7 @@ The one omp root of every role name: `~/.ug/omp` (`PI_CONFIG_DIR=.ug/omp`). It h
 _Avoid_: role home, profile, sandbox dir
 
 **Owner part**:
-The files of the omp root that only the owner writes, in `~/.ug/omp/agent`: the role policy `policy.yml`, `prefs.yml`, `models.yml`, the hooks `hooks/pre/concise-reply.ts` and `hooks/pre/role-rules.ts`, and the loader paths that `render-settings` denies (skills, extensions, rule and prompt files). The wrapper and the installer write them from `~/.agents/roles` at each session start and install. The role reads them but cannot write them. Rules and network allowlists are not in it: they stay per binding role in `~/.agents/roles/<binding role>`.
+The files of the omp root that only the owner writes, in `~/.ug/omp/agent`: the role policy `policy.yml`, `prefs.yml`, `models.yml`, the hooks `hooks/pre/concise-reply.ts` and `hooks/pre/role-rules.ts`, and the loader paths that `render-settings` denies (skills, extensions, rule and prompt files). The wrapper and the installer write them from `~/.agents/roles` at each session start and install. The role reads them but cannot write them. Rules and the network allowlist are not in it: rules stay per binding role in `~/.agents/roles/<binding role>`, and `render-settings` reads the allowlist at `~/.agents/roles/network-allowlist`.
 _Avoid_: config dir, read-only part
 
 **Role rules**:
@@ -161,7 +161,7 @@ The owner-only file `~/.config/underground-broker/addresses` (mode 600) with two
 _Avoid_: address config, hosts file
 
 **Network allowlist**:
-The network destinations of one binding role, one per line in the owner-owned `~/.agents/roles/<binding role>/network-allowlist`. `render-settings` reads that file at each session start, puts its lines in the srt `allowedDomains`, and refuses an address without a port. A tailscale entry names the address and the port of one service, never the bare address. The templates name the auth gateway as `@GATEWAY@`; `render-settings` fills `@GATEWAY@` and `@ENGINE@` from the addresses file. A literal address still works. Author roles get the auth gateway, `github.com`, the web search domains, and `registry.npmjs.org`; reviewer roles get the auth gateway and the web search domains. No role gets a model provider domain or the inference engine.
+The network destinations of every role, one per line in the owner-owned `~/.agents/roles/network-allowlist`. `render-settings` reads that file at each session start, puts its lines in the srt `allowedDomains`, and refuses an address without a port. A tailscale entry names the address and the port of one service, never the bare address. The template names the auth gateway as `@GATEWAY@`; `render-settings` fills `@GATEWAY@` and `@ENGINE@` from the addresses file. A literal address still works. Its entries: the auth gateway, `github.com`, the web search domains, and `registry.npmjs.org`. No role gets a model provider domain or the inference engine.
 _Avoid_: domain list, egress list
 
 **Install record**:

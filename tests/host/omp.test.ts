@@ -59,8 +59,8 @@ async function makeHome(parent = tmpdir()): Promise<{ home: string; repo: string
   await put(home, ".agents/roles/models.yml", await readFile(join(SRC, "host/roles/models.yml"), "utf8"));
   for (const role of ["author", ...REVIEWER_ROLES]) {
     await put(home, `.agents/roles/${role}/AGENTS.md`, await readFile(join(SRC, `host/roles/${role}/AGENTS.md`), "utf8"));
-    await put(home, `.agents/roles/${role}/network-allowlist`, await readFile(join(SRC, `host/roles/${role}/network-allowlist`), "utf8"));
   }
+  await put(home, ".agents/roles/network-allowlist", await readFile(join(SRC, "host/roles/network-allowlist"), "utf8"));
   for (const hook of ["concise-reply.ts", "role-rules.ts"]) {
     await put(home, `.agents/roles/hooks/pre/${hook}`, await readFile(join(SRC, "host/roles/hooks/pre", hook), "utf8"));
   }
@@ -591,18 +591,17 @@ test("the shared settings template allows loopback, grants the omp root, and nam
   assert.equal(template.network.allowedDomains, undefined);
 });
 
-test("each role gets the network allowlist of its binding role from the owner template, with loopback allowed", { skip }, async () => {
+test("every role gets the one network allowlist from the owner template, with loopback allowed", { skip }, async () => {
   const { home, repo } = await makeHome();
-  const author = [GATEWAY, "github.com", ...SEARCH, "registry.npmjs.org"];
-  const reviewer = [GATEWAY, ...SEARCH];
-  for (const [name, role, want] of [["author", "author", author], ["code-review", "code-review", reviewer], ["security-review", "security-review", reviewer], ["risk-review", "risk-review", reviewer], ["sec2", "security-review", reviewer]] as const) {
+  const want = [GATEWAY, "github.com", ...SEARCH, "registry.npmjs.org"];
+  for (const name of ["author", ...REVIEWER_ROLES, "sec2"]) {
     const run = await runOmp(home, repo, ["--role", name]);
     assert.equal(run.status, 0, run.stderr);
     assert.equal(run.settings.network.allowLocalBinding, true, name);
     assert.deepEqual(run.settings.network.allowedDomains, want, name);
     for (const domain of MODEL_PROVIDERS) assert.ok(!run.settings.network.allowedDomains.includes(domain), `${name} reaches ${domain}`);
     for (const entry of run.settings.network.allowedDomains.filter((d) => /^\d/.test(d))) assert.match(entry, /^\d+\.\d+\.\d+\.\d+:\d+$/, name);
-    assert.equal(writable(run.settings, join(home, ".agents/roles", role, "network-allowlist")), false, name);
+    assert.equal(writable(run.settings, join(home, ".agents/roles/network-allowlist")), false, name);
   }
 });
 
@@ -620,7 +619,7 @@ test("every model baseUrl of a role is on its network allowlist, and its gateway
 
 test("each start reads the installed allowlist, and omp refuses a bare address or no allowlist", { skip }, async () => {
   const { home, repo } = await makeHome();
-  const template = join(home, ".agents/roles/code-review/network-allowlist");
+  const template = join(home, ".agents/roles/network-allowlist");
   assert.equal((await runOmp(home, repo, ["--role", "code-review"])).status, 0);
   await writeFile(template, `# owner\n${GATEWAY}\n\nexample.com  # search\n`);
   recordInstall(home);
@@ -638,7 +637,7 @@ test("each start reads the installed allowlist, and omp refuses a bare address o
   recordInstall(home);
   const missing = await runOmp(home, repo, ["--role", "code-review"]);
   assert.notEqual(missing.status, 0);
-  assert.match(missing.stderr, /no network allowlist for role code-review: .*\.agents\/roles\/code-review\/network-allowlist/);
+  assert.match(missing.stderr, /no network allowlist: .*\.agents\/roles\/network-allowlist/);
 });
 
 test("render-settings reads the allowlist template where it is, and fills @GATEWAY@ and @ENGINE@ from the addresses file at each session start", { skip }, async () => {
@@ -650,8 +649,8 @@ test("render-settings reads the allowlist template where it is, and fills @GATEW
   await writeFile(join(home, ".config/underground-broker/addresses"), "# moved\ngateway=127.0.0.1:4100\nengine=100.64.0.9:8081\n");
   const moved = await runOmp(home, repo, ["--role", "code-review"]);
   assert.equal(moved.status, 0, moved.stderr);
-  assert.deepEqual(moved.settings.network.allowedDomains, ["127.0.0.1:4100", ...SEARCH]);
-  await writeFile(join(home, ".agents/roles/code-review/network-allowlist"), "100.64.0.99:4000\n100.64.0.99:8081\n");
+  assert.deepEqual(moved.settings.network.allowedDomains, ["127.0.0.1:4100", "github.com", ...SEARCH, "registry.npmjs.org"]);
+  await writeFile(join(home, ".agents/roles/network-allowlist"), "100.64.0.99:4000\n100.64.0.99:8081\n");
   recordInstall(home);
   const literal = await runOmp(home, repo, ["--role", "code-review"]);
   assert.equal(literal.status, 0, literal.stderr);
@@ -673,7 +672,7 @@ test("render-settings refuses to start without a valid addresses file, with a ga
   await writeFile(addresses, "gateway=100.64.0.7:4000\nengine=100.64.0.2:8081\n");
   await refused(/the gateway address 100\.64\.0\.7 in .*addresses is on no interface of this mac/, "gateway elsewhere");
   await writeFile(addresses, ADDRESSES);
-  await writeFile(join(home, ".agents/roles/author/network-allowlist"), "@GATEWAY@\n@ENGINE@\n@PROXY@\n");
+  await writeFile(join(home, ".agents/roles/network-allowlist"), "@GATEWAY@\n@ENGINE@\n@PROXY@\n");
   recordInstall(home);
   await refused(/network-allowlist: unknown placeholder @PROXY@/, "unfilled placeholder");
 });
@@ -798,12 +797,10 @@ test("role templates and auth service jobs preserve their runtime contracts", as
   assert.ok(table.ok);
   assert.deepEqual([...table.value.values()], ["author", "code-review", "security-review", "risk-review"]);
 
-  for (const role of ["author", ...REVIEWER_ROLES]) {
-    const lines = (await readFile(join(SRC, `host/roles/${role}/network-allowlist`), "utf8")).split("\n");
-    assert.deepEqual(lines.slice(0, 1), ["@GATEWAY@"], role);
-    assert.ok(!lines.includes("@ENGINE@"), `${role} reaches the engine only through the gateway`);
-    assert.ok(!lines.some((l) => /^\d/.test(l)), `${role} names no literal address`);
-  }
+  const lines = (await readFile(join(SRC, "host/roles/network-allowlist"), "utf8")).split("\n");
+  assert.deepEqual(lines.slice(0, 1), ["@GATEWAY@"]);
+  assert.ok(!lines.includes("@ENGINE@"), "every role reaches the engine only through the gateway");
+  assert.ok(!lines.some((l) => /^\d/.test(l)), "the allowlist names no literal address");
   for (const label of ["com.underground.auth-broker", "com.underground.auth-gateway"]) {
     const plist = spawnSync("python3", ["-c", "import json, plistlib, sys; print(json.dumps(plistlib.load(open(sys.argv[1], 'rb'))))", join(SRC, "host/launchd", `${label}.plist`)], { encoding: "utf8" });
     assert.equal(plist.status, 0, plist.stderr);
