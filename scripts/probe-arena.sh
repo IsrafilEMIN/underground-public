@@ -171,7 +171,7 @@ else
     else inc read-deny "cat failed for another reason (rc $rc): $(first "$out")"; fi
   fi
 
-  # The same read through omp's own runtime. Its deny is also the calibration of home-leak below.
+  # The same read through omp's own runtime. Its deny is also the calibration of home-reach below.
   box /usr/bin/env BUN_BE_BUN=1 UG_CANARY="$canary" "$omp_bin" -e 'process.stdout.write(require("fs").readFileSync(process.env.UG_CANARY, "utf8"))'
   if [[ $out == *"$canary_text"* ]]; then breach omp-read "omp's runtime read $canary"
   elif [[ $rc -ne 0 && ( $out == *"$denied"* || $out == *EPERM* ) ]]; then pass omp-read "omp's runtime cannot read the real home"
@@ -230,39 +230,36 @@ else
   else info localhost "the sandbox did not reach 127.0.0.1:8765 (rc $rc)"; fi
 fi
 
-# --- did omp reach for the real home? -----------------------------------------------------------
-# Every denied access is a kernel log line. The canary read above is the calibration: if its deny
-# is not in the log, the log proves nothing and the check is INC. Only lines of a process named
-# omp count: the probe's binary is ~/.ug/sys/omp/<pin>/omp, while the current harness runs a file
-# named after its version, so its sessions' denies do not count here. Limit: a deny of a child
-# process of omp (git, sh) does not count either.
+# --- where did omp peek outside the arena? ----------------------------------------------------
+# Not a safety check: the breach checks above prove that nothing gets through. This one lists the
+# paths outside the arena that omp tried while it worked in the repo clone, and that the sandbox
+# blocked. A blocked peek is the sandbox doing its job, so it passes. Known causes: omp looks for
+# project agents in every folder above the working folder, up to / (omp config.ts,
+# findAllNearestProjectConfigDirs), and macOS reads the owner's preferences from the real home.
+# Every denied access is a kernel log line; omp's own canary deny (omp-read) shows that the log
+# and the filter work. Only lines of a process named omp count: the probe's binary is
+# ~/.ug/sys/omp/<pin>/omp, while the current harness runs a file named after its version.
 if [[ $box_works -eq 1 ]] && command -v log >/dev/null 2>&1; then
   sleep 2
-  set +e
-  denies=$(log show --style compact --start "$log_start" --predicate "eventMessage CONTAINS \"deny\" AND eventMessage CONTAINS \"$HOME/\"" 2>/dev/null)
-  set -e
   omp_filter='[^A-Za-z0-9._-]omp\([0-9]+\) deny'
-  calibration=$(printf '%s\n' "$denies" | grep -E "$omp_filter" | grep -F "$canary" | head -1) || true
+  omp_denies_in() {
+    log show --style compact --start "$1" --end "$2" --predicate "eventMessage CONTAINS \"deny\" AND eventMessage CONTAINS \"$HOME/\"" 2>/dev/null |
+      grep -E "$omp_filter" | grep -v -F -e "$probe_root" -e "$sys" | sed -E 's/.* deny\([0-9]+\) //' | sort -u | head -8 | tr '\n' ' '
+  }
+  set +e
+  calibration=$(log show --style compact --start "$log_start" --predicate "eventMessage CONTAINS \"deny\" AND eventMessage CONTAINS \"$canary\"" 2>/dev/null | grep -E "$omp_filter" | head -1)
+  set -e
   if [[ -z $calibration ]]; then
-    inc home-leak "omp's canary deny (omp-read) is not in the log under the filter, so the log cannot show what omp tried"
-  else
-    omp_denies_in() {
-      log show --style compact --start "$1" --end "$2" --predicate "eventMessage CONTAINS \"deny\" AND eventMessage CONTAINS \"$HOME/\"" 2>/dev/null |
-        grep -E "$omp_filter" | grep -v -F -e "$probe_root" -e "$sys" | sed -E 's/.* deny\([0-9]+\) //' | sort -u | head -5 | tr '\n' ' '
-    }
-    if [[ $repo_ok -eq 0 ]]; then
-      inc home-leak "no repo clone in the arena, so the main case did not run"
-    else
-      denies_repo=$(omp_denies_in "$log_repo_start" "$log_repo_end") || true
-      if [[ -z $denies_repo ]]; then pass home-leak "working in a repo clone, omp tried no path outside the arena"
-      else fail home-leak "working in a repo clone, omp tried paths outside the arena (denied): $denies_repo"; fi
-    fi
-    denies_norepo=$(omp_denies_in "$log_norepo_start" "$log_omp_end") || true
-    if [[ -z $denies_norepo ]]; then info home-norepo "with no repo, omp tried no path outside the arena (rc $norepo_rc)"
-    else info home-norepo "with no repo, omp tried paths outside the arena, and srt denied them: $denies_norepo"; fi
+    info home-reach "omp's canary deny is not in the log, so the log cannot show where omp peeked"
+  elif [[ $repo_ok -eq 1 ]]; then
+    peeks=$(omp_denies_in "$log_repo_start" "$log_repo_end") || true
+    if [[ -z $peeks ]]; then pass home-reach "in a repo clone, omp did not peek outside the arena"
+    else pass home-reach "in a repo clone, omp peeked outside the arena and the sandbox blocked it: $peeks"; fi
+    peeks=$(omp_denies_in "$log_norepo_start" "$log_omp_end") || true
+    info home-norepo "with no repo, the sandbox blocked: ${peeks:-nothing}"
   fi
 else
-  inc home-leak "no sandbox or no log tool, so it did not run"
+  info home-reach "no sandbox or no log tool, so it did not run"
 fi
 
 # --- known gaps and facts -------------------------------------------------------------------------

@@ -78,7 +78,7 @@ test("probe-arena reports a BREACH for every deny check when srt runs commands w
     assert.match(result(name), /^FAIL\s+\S+\s+BREACH:/, `${name}\n${run.stdout}${run.stderr}`);
   }
   assert.doesNotMatch(result("egress"), /^PASS /, run.stdout);
-  assert.doesNotMatch(result("home-leak"), /^PASS /, run.stdout);
+  assert.doesNotMatch(result("home-reach"), /^PASS /, run.stdout);
   assert.notEqual(run.status, 0, run.stdout);
 });
 
