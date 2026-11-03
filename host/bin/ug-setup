@@ -9,8 +9,9 @@
 #     the auth broker and the auth gateway run the pinned omp
 #   - the proof: it runs scripts/probe-arena.sh and records the macOS build only when the probe
 #     passes; the wrapper refuses to start on any other build
-# Until the broker rebuild, the broker keeps its files in ~/.agents/broker and
-# ~/.config/underground-broker, and the auth broker keeps its logins in ~/.omp.
+# The auth broker and the auth gateway keep their logins and tokens in ~/.ug/host/auth; setup
+# moves them there once from ~/.omp. Until the broker rebuild, the GitHub broker keeps its files in
+# ~/.agents/broker and ~/.config/underground-broker.
 set -euo pipefail
 
 if [[ $# -ne 0 ]]; then
@@ -36,7 +37,9 @@ labels="com.underground.broker com.underground.auth-broker com.underground.auth-
 agents_dir="$HOME/Library/LaunchAgents"
 broker_config="$HOME/.config/underground-broker"
 addresses_file="$broker_config/addresses"
-gateway_token_file="$HOME/.omp/auth-gateway.token"
+host_zone="$HOME/.ug/host"
+auth_root="$host_zone/auth"
+gateway_token_file="$auth_root/auth-gateway.token"
 engine_default=100.64.0.99:8081
 tailscale_app=/Applications/Tailscale.app/Contents/MacOS/Tailscale
 
@@ -158,6 +161,7 @@ install_arena_files() {
   put "$shim" "$sys/agent-bin/broker" 555
   link "$sys/omp/$omp_pin/omp" "$sys/agent-bin/omp"
   link "$src/host/bin/omp-arena" "$sys/bin/omp"
+  link "$src/host/bin/ug-auth" "$sys/bin/ug-auth"
   printf 'arena files: installed in %s\n' "$sys"
 }
 
@@ -207,9 +211,31 @@ restart_service() {
   die "launchctl bootstrap of $label failed: $err"
 }
 
+# The auth broker and the auth gateway keep their root in ~/.ug/host/auth (PI_CONFIG_DIR in their
+# plists), so a raw omp, which looks in ~/.omp, finds no login and no token. Once, with both stopped,
+# this moves the logins and the two tokens from ~/.omp; the old files go to a backup in the host zone.
+move_logins() {
+  local old="$HOME/.omp" backup="$auth_root/from-dot-omp" file moved=0
+  install -d -m 700 "$host_zone" "$auth_root" "$auth_root/agent"
+  [[ -e $old/agent/agent.db && ! -e $auth_root/agent/agent.db ]] || return 0
+  launchctl bootout "gui/$UID/com.underground.auth-gateway" >/dev/null 2>&1 || true
+  launchctl bootout "gui/$UID/com.underground.auth-broker" >/dev/null 2>&1 || true
+  sleep 1
+  install -d -m 700 "$backup" "$backup/agent"
+  for file in agent/agent.db agent/agent.db-wal agent/agent.db-shm auth-broker.token auth-gateway.token; do
+    [[ -f $old/$file && ! -L $old/$file ]] || continue
+    cp -p "$old/$file" "$auth_root/$file"
+    chmod 600 "$auth_root/$file"
+    mv -n "$old/$file" "$backup/$file"
+    moved=$((moved + 1))
+  done
+  printf 'logins: moved %s files from %s to %s; the old copies are in %s\n' "$moved" "$old" "$auth_root" "$backup"
+}
+
 install_services() {
   local gateway engine label rendered left
-  install -d -m 700 "$broker_config" "$HOME/.agents/auth" "$HOME/.agents/broker/run" "$HOME/.agents/broker/tmp" "$HOME/.omp"
+  move_logins
+  install -d -m 700 "$broker_config" "$HOME/.agents/broker/run" "$HOME/.agents/broker/tmp"
   install -d "$HOME/.agents/broker" "$HOME/.agents/broker/repos" "$agents_dir"
   [[ -e $broker_config/roles ]] || put "$src/host/roles/roles" "$broker_config/roles" 600
   write_addresses

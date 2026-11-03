@@ -34,3 +34,10 @@ test("the auth services run the pinned omp, and the brokers run the checkout's c
   assert.deepEqual(await args("com.underground.broker"), ["/opt/homebrew/bin/node", "@SRC@/host/broker/server.ts"]);
   assert.deepEqual(await args("com.underground.usage-broker"), ["/opt/homebrew/bin/node", "@SRC@/host/broker/usage-broker.ts"]);
 });
+
+test("the auth services keep their logins and tokens in ~/.ug/host/auth, not in ~/.omp", async () => {
+  for (const label of ["com.underground.auth-broker", "com.underground.auth-gateway"]) {
+    const text = await readFile(join(DIR, `${label}.plist`), "utf8");
+    assert.match(text, /<key>PI_CONFIG_DIR<\/key>\s*<string>\.ug\/host\/auth<\/string>/, label);
+  }
+});

@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# The owner's door to the auth broker and the auth gateway (docs/SPEC.md, B6): the pinned omp with
+# its root in ~/.ug/host/auth, where those two services keep the logins and the tokens.
+#
+#   ug-auth auth-broker login [<provider>]     add or renew a login
+#   ug-auth auth-broker token --regenerate     rotate the broker bearer, then restart the broker
+#   ug-auth auth-gateway token --regenerate    rotate the gateway bearer, then restart the gateway
+#
+# Only those two command groups run here: a session or anything else would start omp with no
+# sandbox and every login. Setup links it as ~/.ug/sys/bin/ug-auth.
+set -euo pipefail
+
+case ${1:-} in
+  auth-broker | auth-gateway) ;;
+  *)
+    printf 'usage: ug-auth auth-broker|auth-gateway <args>\n' >&2
+    exit 64
+    ;;
+esac
+
+self=${BASH_SOURCE[0]}
+while [[ -L $self ]]; do
+  link=$(readlink "$self")
+  [[ $link == /* ]] && self=$link || self="$(dirname "$self")/$link"
+done
+src=$(cd "$(dirname "$self")/../.." && pwd -P)
+pin=$(sed -n 's/^omp=//p' "$src/VERSIONS")
+omp="$HOME/.ug/sys/omp/$pin/omp"
+[[ -x $omp ]] || { printf 'ug-auth: the pinned omp %s is missing; run host/bin/ug-setup\n' "$omp" >&2; exit 1; }
+
+export PI_CONFIG_DIR=.ug/host/auth
+exec "$omp" "$@"

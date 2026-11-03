@@ -65,7 +65,8 @@ async function fakeHome() {
   await exe(join(home, "fakebin/sw_vers"), `#!/bin/sh\ncat "$(dirname "$0")/build"\n`);
   await writeFile(join(home, "fakebin/build"), `${BUILD}\n`);
   await writeFile(join(home, ".config/underground-broker/addresses"), "gateway=192.0.2.1:4000\nengine=192.0.2.2:8081\n");
-  await writeFile(join(home, ".omp/auth-gateway.token"), "test-bearer\n");
+  await mkdir(join(home, ".ug/host/auth"), { recursive: true });
+  await writeFile(join(home, ".ug/host/auth/auth-gateway.token"), "test-bearer\n");
   const checkout = join(home, "code/proj");
   await mkdir(checkout);
   for (const args of [["init", "-q"], ["remote", "add", "origin", "git@github.com:Test-Owner/proj.git"]]) {

@@ -33,7 +33,7 @@ sys="$ug/sys"
 arena="$ug/home"
 run_root="$ug/run"
 addresses="$HOME/.config/underground-broker/addresses"
-gateway_token_file="$HOME/.omp/auth-gateway.token"
+gateway_token_file="$HOME/.ug/host/auth/auth-gateway.token"
 
 die() {
   printf 'omp: %s\n' "$*" >&2

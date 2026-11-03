@@ -47,7 +47,8 @@ esac
   );
   await chmod(join(ompDir, "omp"), 0o755);
   await mkdir(join(home, ".omp"), { recursive: true });
-  await writeFile(join(home, ".omp/auth-gateway.token"), "test-bearer\n");
+  await mkdir(join(home, ".ug/host/auth"), { recursive: true });
+  await writeFile(join(home, ".ug/host/auth/auth-gateway.token"), "test-bearer\n");
   await writeFile(join(home, ".config/underground-broker/addresses"), "gateway=192.0.2.1:4000\nengine=192.0.2.2:8081\n");
   return home;
 }
@@ -78,6 +79,8 @@ test("probe-arena reports a BREACH for every deny check when srt runs commands w
     assert.match(result(name), /^FAIL\s+\S+\s+BREACH:/, `${name}\n${run.stdout}${run.stderr}`);
   }
   assert.doesNotMatch(result("egress"), /^PASS /, run.stdout);
+  // The fake omp answers any prompt, so a raw omp on the host answers too: that must be a breach.
+  assert.match(result("raw-omp"), /^FAIL\s+\S+\s+BREACH:/, run.stdout);
   assert.doesNotMatch(result("home-reach"), /^PASS /, run.stdout);
   assert.notEqual(run.status, 0, run.stdout);
 });

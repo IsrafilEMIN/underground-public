@@ -69,8 +69,12 @@ A version and a SHA-256 in `VERSIONS`. The omp pin names the release file `omp-d
 _Avoid_: lock, current version
 
 **Raw omp**:
-The pinned omp binary started by its full path, without the wrapper. It runs without the sandbox, but it finds no login, so it cannot call a model.
+The pinned omp binary started by its full path, without the wrapper. It runs without the sandbox, but its home `~/.omp` holds no login and no token, so it cannot call a model. The probe tries one each time setup runs.
 _Avoid_: plain omp, unwrapped session
+
+**ug-auth**:
+The owner's command for the auth services: the pinned omp with its root in `~/.ug/host/auth`, limited to `auth-broker` and `auth-gateway`, for example `ug-auth auth-broker login anthropic` or `ug-auth auth-broker token --regenerate`. Setup links it as `~/.ug/sys/bin/ug-auth`.
+_Avoid_: raw omp, admin omp
 
 **Setup**:
 The host script that does what `git pull` cannot: install the pinned omp and srt, make the zones and their modes, register and restart the launchd services, put the wrapper on `PATH`, run the U1 and U2 probes, and record the macOS build. It runs when a pin changes, a host service changes, or macOS updates. It replaces the install (`docs/adr/0012-pinned-omp-and-setup.md`).
@@ -149,7 +153,7 @@ _Avoid_: onboarding list, repo setup
 ### Models
 
 **Auth broker**:
-The host service `omp auth-broker serve` (launchd `com.underground.auth-broker`, on `127.0.0.1:8765`). It holds the owner's model logins in its own root in the host zone and does every OAuth refresh. Only the auth gateway talks to it; no session is a broker client, because a broker client receives access tokens and API keys.
+The host service `omp auth-broker serve` (launchd `com.underground.auth-broker`, on `127.0.0.1:8765`). It holds the owner's model logins in its own root, `~/.ug/host/auth` (`PI_CONFIG_DIR=.ug/host/auth` in its plist), and does every OAuth refresh. The owner reaches it with `ug-auth`. Only the auth gateway talks to it; no session is a broker client, because a broker client receives access tokens and API keys.
 _Avoid_: credential store, vault
 
 **Auth gateway**:

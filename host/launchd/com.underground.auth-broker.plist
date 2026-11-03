@@ -16,13 +16,15 @@
   <key>KeepAlive</key>
   <true/>
   <key>StandardOutPath</key>
-  <string>@HOME@/.agents/auth/auth-broker.log</string>
+  <string>@HOME@/.ug/host/auth/auth-broker.log</string>
   <key>StandardErrorPath</key>
-  <string>@HOME@/.agents/auth/auth-broker.log</string>
+  <string>@HOME@/.ug/host/auth/auth-broker.log</string>
   <key>EnvironmentVariables</key>
   <dict>
     <key>PATH</key>
     <string>/opt/homebrew/bin:/usr/bin:/bin</string>
+    <key>PI_CONFIG_DIR</key>
+    <string>.ug/host/auth</string>
   </dict>
 </dict>
 </plist>

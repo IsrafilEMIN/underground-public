@@ -44,7 +44,7 @@ canary="$HOME/.ug-probe-canary"
 canary_text="ug-probe-canary-$$-$RANDOM"
 write_target="$HOME/.ug-probe-write"
 model=${PROBE_MODEL:-anthropic/claude-opus-5-5}
-gateway_token_file="$HOME/.omp/auth-gateway.token"
+gateway_token_file="$HOME/.ug/host/auth/auth-gateway.token"
 addresses="$HOME/.config/underground-broker/addresses"
 denied='Operation not permitted'
 
@@ -267,8 +267,24 @@ fi
 
 # --- known gaps and facts -------------------------------------------------------------------------
 
-if [[ -e $HOME/.omp/agent/agent.db ]]; then
-  gap raw-omp "$HOME/.omp/agent/agent.db exists, so a raw omp by full path may find the logins (B6 not built)"
+# A raw omp: the pinned binary by full path, on the host, with no sandbox and the real home, as an
+# owner's slip or a stray script would start it. It must get no answer: its home ~/.omp holds no
+# login and no token, because the auth services keep theirs in ~/.ug/host/auth. Its --version is the
+# control. A raw run that answers is a session outside the sandbox (U36).
+raw() {
+  set +e
+  out=$(cd / && env -i HOME="$HOME" USER="$USER" PATH=/usr/bin:/bin:/usr/sbin:/sbin LANG="${LANG:-en_US.UTF-8}" \
+    perl -e 'alarm shift; exec @ARGV' 120 "$omp_bin" "$@" 2>&1)
+  rc=$?
+  set -e
+}
+raw --version
+if [[ $rc -ne 0 || $out != *"$omp_pin"* ]]; then
+  inc raw-omp "the raw omp does not start (rc $rc), so the check proves nothing: $(first "$out")"
+else
+  raw -p --no-session --model "$model" "What is seventeen times twenty-three? Reply with the digits only."
+  if [[ $rc -eq 0 && $out == *391* ]]; then breach raw-omp "a raw omp by full path answered with no sandbox; it found a login or a token"
+  else pass raw-omp "a raw omp by full path gets no answer (rc $rc): $(first "$out")"; fi
 fi
 if out=$(BUN_BE_BUN=1 "$omp_bin" "$srt_cli" --version 2>&1) && [[ $out == "$srt_pin" ]]; then
   info srt-on-bun "srt starts on the bun inside omp; a sandboxed run on it is not tested yet"
