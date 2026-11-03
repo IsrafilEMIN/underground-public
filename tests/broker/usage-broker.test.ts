@@ -304,3 +304,40 @@ test("the usage broker service listens on loopback only", async (t) => {
   const lan = lanAddress();
   if (lan !== undefined) assert.equal(await reachable(lan, address.port), false, `reachable on ${lan}`);
 });
+
+// A /login in a wrapped session: omp in broker mode saves a login only on the broker, with the
+// writes of omp's api-key login (omp auth-broker/remote-store.ts:972 to :1003, omp 18.13.2): it
+// turns off the old rows, then uploads the new one. The usage broker is that broker in every
+// session, so the login must fail, keep nothing, and never reach the gateway.
+test("over HTTP, a /login's writes answer 404, and the key reaches no later reply and no gateway", async (t) => {
+  const seen: (string | undefined)[] = [];
+  const gateway = createServer((req, res) => {
+    seen.push(req.url);
+    res.end("[]");
+  });
+  const gatewayAt = await listen(gateway);
+  t.after(() => gateway.close());
+  const dir = await tempDir(join(tmpdir(), "ugub-"));
+  await writeFile(join(dir, "addresses"), `gateway=${gatewayAt}\nengine=127.0.0.1:9\n`);
+  await writeFile(join(dir, "token"), `${TOKEN}\n`);
+  const server = createUsageBroker({ addressesFile: join(dir, "addresses"), gatewayTokenFile: join(dir, "token"), fetchImpl: fetch });
+  const base = `http://${await listen(server)}`;
+  t.after(() => server.close());
+
+  const key = "sk-pasted-into-a-session-0123456789";
+  const writes: [string, string, unknown][] = [
+    ["POST", "/v1/credential/1/disable", { cause: "replaced by newer credential" }],
+    ["POST", "/v1/credential", { provider: "opencode-go", credential: { type: "api_key", key } }],
+    ["POST", "/v1/credential", { provider: "anthropic", credential: { type: "oauth", access: key, refresh: key, expires: 1 } }],
+  ];
+  for (const [method, path, body] of writes) {
+    const reply = await fetch(`${base}${path}`, { method, headers: { authorization: "Bearer usage-only", "content-type": "application/json" }, body: JSON.stringify(body) });
+    assert.equal(reply.status, 404, `${method} ${path}`);
+    assert.ok(!(await reply.text()).includes(key), `${path} echoed the key`);
+  }
+  const snapshot = await fetch(`${base}/v1/snapshot`);
+  const text = await snapshot.text();
+  assert.deepEqual(JSON.parse(text).credentials, []);
+  assert.ok(!text.includes(key), "the snapshot holds the key");
+  assert.deepEqual(seen, [], "a write reached the gateway");
+});
