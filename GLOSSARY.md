@@ -77,7 +77,7 @@ The owner's command for the auth services: the pinned omp with its root in `~/.u
 _Avoid_: raw omp, admin omp
 
 **Setup**:
-The host script that does what `git pull` cannot: install the pinned omp and srt, make the zones and their modes, register and restart the launchd services, put the wrapper on `PATH`, run the U1 and U2 probes, and record the macOS build. It runs when a pin changes, a host service changes, or macOS updates. It replaces the install (`docs/adr/0012-pinned-omp-and-setup.md`).
+The host script that does what `git pull` cannot: install the pinned omp and srt, make the zones and their modes, register and restart the launchd services, put the wrapper on `PATH`, run the arena probe, and record the macOS build. The owner runs the U1 and U2 probes by hand (`docs/SPEC.md`, Checks). It runs when a pin changes, a host service changes, or macOS updates. It replaces the install (`docs/adr/0012-pinned-omp-and-setup.md`).
 _Avoid_: install, installer, bootstrap
 
 **Preflight**:

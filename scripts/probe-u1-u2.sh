@@ -34,6 +34,10 @@ remove() {
 # The arena wrapper sets the arena ~/.ug/home as HOME inside the sandbox (host/arena/init).
 in_sandbox() { [[ ${HOME:-} == */.ug/home ]]; }
 
+# The owner's real home, where the secrets are. In the sandbox HOME is the arena, so a probe of
+# $HOME only finds the arena and proves nothing; the real home is the arena path without /.ug/home.
+real_home() { if in_sandbox; then printf '%s' "${HOME%/.ug/home}"; else printf '%s' "$HOME"; fi; }
+
 # kind is canary (read means the output has the canary), exit (read means exit 0), or answer
 # (read means exit 0 with output).
 classify() {
@@ -72,12 +76,15 @@ opens() {
 }
 
 read_all() {
-  local shot
+  local shot home
+  home=$(real_home)
   probe "U1 keychain" canary security find-generic-password -s "$service" -w
-  probe "U1 keychain-file" canary opens "$HOME/Library/Keychains/login.keychain-db"
-  probe "U1 ssh-dir" exit ls "$HOME/.ssh"
+  probe "U1 keychain-path" canary security find-generic-password -s "$service" -w "$home/Library/Keychains/login.keychain-db"
+  probe "U1 keychain-file" canary opens "$home/Library/Keychains/login.keychain-db"
+  probe "U1 ssh-dir" exit ls "$home/.ssh"
   probe "U2 preference" canary defaults read "$domain" canary
-  probe "U2 preference-file" canary opens "$HOME/Library/Preferences/$domain.plist"
+  probe "U2 preference-path" canary defaults read "$home/Library/Preferences/$domain" canary
+  probe "U2 preference-file" canary opens "$home/Library/Preferences/$domain.plist"
   probe "U2 clipboard" canary pbpaste
   probe "U2 apple-events" answer osascript -e 'tell application "Finder" to get name of startup disk'
   shot=${TMPDIR:-/tmp}/ug-probe-screen.png
