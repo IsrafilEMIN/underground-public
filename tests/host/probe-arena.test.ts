@@ -42,6 +42,24 @@ case "$1" in
   --version) echo "omp ${OMP_PIN}" ;;
   -p) mkdir -p "$HOME/.omp/agent/sessions" && touch "$HOME/.omp/agent/sessions/probe" && echo 391 ;;
   -e) exec "${process.execPath}" -e "$2" ;;
+  auth-gateway)
+    # The stdio gateway: it lists the ids in ~/.ug/fake-models, one per line, plus strata/qwen when
+    # STRATA_API_KEY is set; ~/.ug/fake-models-broken makes it answer with no list.
+    [ "$2" = stdio ] || exit 64
+    exec "${process.execPath}" -e '
+      const fs = require("fs");
+      fs.readFileSync(0);
+      const dir = process.env.HOME + "/.ug/";
+      console.log(JSON.stringify({ ready: true, version: "${OMP_PIN}" }));
+      if (fs.existsSync(dir + "fake-models-broken")) {
+        console.log(JSON.stringify({ id: 1, status: 500, body: { error: "boom" } }));
+        process.exit(0);
+      }
+      const ids = fs.existsSync(dir + "fake-models") ? fs.readFileSync(dir + "fake-models", "utf8").split("\\n").filter(Boolean) : [];
+      if (process.env.STRATA_API_KEY) ids.push("strata/qwen");
+      console.log(JSON.stringify({ id: 1, status: 200, body: { object: "list", data: ids.map((id) => ({ id })) } }));
+    '
+    ;;
 esac
 `,
   );
@@ -81,6 +99,7 @@ test("probe-arena reports a BREACH for every deny check when srt runs commands w
   assert.doesNotMatch(result("egress"), /^PASS /, run.stdout);
   // The fake omp answers any prompt, so a raw omp on the host answers too: that must be a breach.
   assert.match(result("raw-omp"), /^FAIL\s+\S+\s+BREACH:/, run.stdout);
+  assert.match(result("raw-models"), /^PASS /, run.stdout);
   assert.doesNotMatch(result("home-reach"), /^PASS /, run.stdout);
   assert.notEqual(run.status, 0, run.stdout);
 });
@@ -91,8 +110,31 @@ test("probe-arena passes no check when srt cannot start, because the control fai
   const { run, lines, result } = runProbe(home);
   assert.match(result("control"), /^FAIL /, run.stdout + run.stderr);
   assert.match(result("breaches"), /^INC /, run.stdout);
-  assert.deepEqual(lines.filter((l) => l.startsWith("PASS ") && !l.startsWith("PASS   pin")), [], run.stdout);
+  // pin and raw-models run on the host with no srt, and each has its own control.
+  const hostChecks = ["pin", "raw-models"];
+  assert.deepEqual(lines.filter((l) => l.startsWith("PASS ") && !hostChecks.includes(l.split(/\s+/)[1])), [], run.stdout);
   assert.notEqual(run.status, 0, run.stdout);
+});
+
+test("probe-arena lists every model that a raw omp can call, in the caller's own environment", async (t) => {
+  const home = await fakeHome(LEAKY);
+  t.after(() => rm(home, { recursive: true, force: true }));
+  await writeFile(join(home, ".ug/fake-models"), "apple/on-device\nlm-studio/qwen\n");
+  const keyless = runProbe(home).result("raw-models");
+  assert.match(keyless, /^FAIL\s+\S+\s+BREACH:.*apple\/on-device lm-studio\/qwen;/, keyless);
+  await rm(join(home, ".ug/fake-models"));
+  // A key in the owner's shell reaches a raw omp, so the check must not start from env -i.
+  const shell = runProbe(home, { STRATA_API_KEY: "from-the-shell" });
+  assert.match(shell.result("raw-models"), /^FAIL\s+\S+\s+BREACH:.*strata\/qwen/, shell.run.stdout);
+  assert.match(runProbe(home).result("raw-models"), /^PASS /);
+});
+
+test("probe-arena: a raw omp's model list that does not come back is inconclusive, not a pass", async (t) => {
+  const home = await fakeHome(LEAKY);
+  t.after(() => rm(home, { recursive: true, force: true }));
+  await writeFile(join(home, ".ug/fake-models-broken"), "");
+  const { run, result } = runProbe(home);
+  assert.match(result("raw-models"), /^INC\s+\S+\s+the raw omp gave no model list/, run.stdout);
 });
 
 test("probe-arena leaves no canary, write target, or probe arena behind", async (t) => {

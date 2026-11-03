@@ -288,6 +288,39 @@ else
   if [[ $rc -eq 0 && $out == *391* ]]; then breach raw-omp "a raw omp by full path answered with no sandbox; it found a login or a token"
   else pass raw-omp "a raw omp by full path gets no answer (rc $rc): $(first "$out")"; fi
 fi
+
+# Every model that a raw omp can call, not one: omp auth-gateway stdio answers /v1/models from the
+# same logins, models.yml, and settings as any omp command, and lists only the models that have a
+# credential or need none (omp docs/auth-broker-gateway.md, stdio and /v1/models, omp 18.13.2). It
+# runs in the caller's own environment, not env -i, because a key in the owner's shell reaches a
+# raw omp too, and it covers the keyless built-in providers (apple, lm-studio, ollama, llama.cpp),
+# which disabledProviders in the config repo's raw-omp/config.yml turns off (docs/SPEC.md, B2).
+# The stdio reply is the control: no list in it proves nothing.
+set +e
+out=$(cd / && printf '%s\n' '{"id":1,"path":"/v1/models"}' | perl -e 'alarm shift; exec @ARGV' 120 "$omp_bin" auth-gateway stdio 2>&1)
+rc=$?
+models=$(printf '%s\n' "$out" | "$node_bin" -e '
+  const lines = require("fs").readFileSync(0, "utf8").split("\n");
+  for (const line of lines) {
+    let reply;
+    try { reply = JSON.parse(line); } catch { continue; }
+    if (reply?.id !== 1) continue;
+    const data = reply.body?.data;
+    if (reply.status !== 200 || !Array.isArray(data)) process.exit(1);
+    process.stdout.write(data.map((m) => String(m?.id)).join(" "));
+    process.exit(0);
+  }
+  process.exit(1);
+')
+listed=$?
+set -e
+if [[ $listed -ne 0 ]]; then
+  inc raw-models "the raw omp gave no model list (rc $rc), so the check proves nothing: $(first "$out")"
+elif [[ -n $models ]]; then
+  breach raw-models "a raw omp by full path, in your own environment, can call: $models; turn each off with disabledProviders in the config repo's raw-omp/config.yml, or take away its key"
+else
+  pass raw-models "a raw omp by full path, in your own environment, lists no model"
+fi
 if out=$(BUN_BE_BUN=1 "$omp_bin" "$srt_cli" --version 2>&1) && [[ $out == "$srt_pin" ]]; then
   info srt-on-bun "srt starts on the bun inside omp; a sandboxed run on it is not tested yet"
 else
