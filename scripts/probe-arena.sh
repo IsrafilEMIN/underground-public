@@ -102,10 +102,14 @@ printf 'arena-control\n' >"$arena/control"
 # out; srt keeps the real HOME for itself and adds its proxy variables; the inner sh sets HOME and
 # TMPDIR for the child and passes the proxy to omp as PI_PROXY, as host/arena/init does.
 # It runs in box_cwd (default: the arena root) and sets out (stdout and stderr) and rc.
+# srt itself starts in ~/.ug/run, as the wrapper starts it in the session's run folder: srt adds
+# write denies for .git/hooks, .git/config, .bashrc and others beneath the folder that it starts in
+# (srt dist/sandbox/macos-sandbox-utils.js, macGetMandatoryDenyEntries). Started from the caller's
+# folder, a run from ~ would put the arena under those denies, and git in it would fail.
 box_cwd=$arena
 box() {
   set +e
-  out=$(env -i HOME="$HOME" USER="$USER" LOGNAME="${LOGNAME:-$USER}" PATH=/usr/bin:/bin:/usr/sbin:/sbin \
+  out=$(cd "$run_dir" && env -i HOME="$HOME" USER="$USER" LOGNAME="${LOGNAME:-$USER}" PATH=/usr/bin:/bin:/usr/sbin:/sbin \
     LANG="${LANG:-en_US.UTF-8}" TERM="${TERM:-xterm-256color}" \
     "$node_bin" "$srt_cli" --settings "$settings" -- /bin/sh -c '
       p=${https_proxy:-${HTTPS_PROXY:-}}
