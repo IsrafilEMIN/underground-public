@@ -437,3 +437,85 @@ test("omp-arena refuses a config repo with models.yaml, whose gateway markers it
   assert.doesNotMatch(r.stdout, /^CWD=/m, "omp started");
   assert.equal(existsSync(agentFile(arena, "models.yaml")), false);
 });
+
+// --- the raw omp's config (docs/SPEC.md, B2) ----------------------------------------------------------
+
+const RAW = "disabledProviders: [apple, lm-studio, ollama, llama.cpp, strata]\n";
+const rawConfig = (home: string) => join(home, ".omp/agent/config.yml");
+
+test("omp-arena writes the config repo's raw-omp/config.yml to ~/.omp/agent, keeps the first old file, and keeps it out of the arena", async (t) => {
+  const { home, checkout, arena, repo } = await fakeHome();
+  t.after(() => rm(home, { recursive: true, force: true }));
+  await mkdir(join(repo, "raw-omp"));
+  await writeFile(join(repo, "raw-omp/config.yml"), RAW);
+  await mkdir(join(home, ".omp/agent"));
+  await writeFile(rawConfig(home), "theme: owner\n");
+  const r = run(home, checkout);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /^CWD=/m, "omp did not start");
+  assert.equal(await readFile(rawConfig(home), "utf8"), RAW);
+  assert.equal((await lstat(rawConfig(home))).mode & 0o777, 0o600);
+  assert.equal(await readFile(`${rawConfig(home)}.before-ug`, "utf8"), "theme: owner\n");
+  assert.doesNotMatch(r.stderr, /raw-omp/);
+  assert.equal(existsSync(agentFile(arena, "raw-omp")), false, "raw-omp reached the arena");
+  // A raw omp changes its file; the next start puts the repo's copy back and keeps the first backup.
+  await writeFile(rawConfig(home), "disabledProviders: []\n");
+  assert.equal(run(home, checkout).status, 0);
+  assert.equal(await readFile(rawConfig(home), "utf8"), RAW);
+  assert.equal(await readFile(`${rawConfig(home)}.before-ug`, "utf8"), "theme: owner\n");
+});
+
+test("omp-arena makes ~/.omp/agent for the raw omp's config when it is missing", async (t) => {
+  const { home, checkout, repo } = await fakeHome();
+  t.after(() => rm(home, { recursive: true, force: true }));
+  await rm(join(home, ".omp"), { recursive: true });
+  await mkdir(join(repo, "raw-omp"));
+  await writeFile(join(repo, "raw-omp/config.yml"), RAW);
+  const r = run(home, checkout);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(await readFile(rawConfig(home), "utf8"), RAW);
+  assert.equal((await lstat(join(home, ".omp"))).mode & 0o777, 0o700);
+  assert.equal(existsSync(`${rawConfig(home)}.before-ug`), false);
+});
+
+test("omp-arena warns when the config repo has no raw-omp/config.yml, or one with no disabledProviders, and leaves ~/.omp as it is", async (t) => {
+  const { home, checkout, repo } = await fakeHome();
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const none = run(home, checkout);
+  assert.equal(none.status, 0, none.stderr);
+  assert.match(none.stderr, /has no raw-omp\/config\.yml, so a raw omp by full path keeps its own settings/);
+  assert.equal(existsSync(join(home, ".omp/agent")), false, "the wrapper made ~/.omp/agent with nothing to put there");
+  await mkdir(join(repo, "raw-omp"));
+  await writeFile(join(repo, "raw-omp/config.yml"), "theme: dark\n");
+  const bare = run(home, checkout);
+  assert.equal(bare.status, 0, bare.stderr);
+  assert.match(bare.stderr, /has no disabledProviders line/);
+  assert.equal(await readFile(rawConfig(home), "utf8"), "theme: dark\n");
+});
+
+test("omp-arena refuses a link at raw-omp/config.yml, at ~/.omp/agent, or at its config.yml, and writes through none", async (t) => {
+  for (const label of ["repo file", "agent dir", "target file"]) {
+    const { home, checkout, repo } = await fakeHome();
+    t.after(() => rm(home, { recursive: true, force: true }));
+    await mkdir(join(repo, "raw-omp"));
+    const outside = join(home, "outside");
+    await mkdir(outside);
+    await writeFile(join(outside, "config.yml"), "owner file\n");
+    if (label === "repo file") {
+      await symlink(join(outside, "config.yml"), join(repo, "raw-omp/config.yml"));
+    } else {
+      await writeFile(join(repo, "raw-omp/config.yml"), RAW);
+      if (label === "agent dir") {
+        await symlink(outside, join(home, ".omp/agent"));
+      } else {
+        await mkdir(join(home, ".omp/agent"));
+        await symlink(join(outside, "config.yml"), rawConfig(home));
+      }
+    }
+    const r = run(home, checkout);
+    assert.notEqual(r.status, 0, label);
+    assert.match(r.stderr, /must be a (file|folder that you own), not a link/, label);
+    assert.doesNotMatch(r.stdout, /^CWD=/m, `${label}: omp started`);
+    assert.equal(await readFile(join(outside, "config.yml"), "utf8"), "owner file\n", `${label}: wrote through the link`);
+  }
+});

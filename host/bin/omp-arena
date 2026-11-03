@@ -53,6 +53,37 @@ die() {
   exit "${code:-1}"
 }
 
+# The raw omp (GLOSSARY.md): the pinned omp by full path, with no sandbox, reads ~/.omp/agent. The
+# config repo's raw-omp/config.yml replaces ~/.omp/agent/config.yml at each start, so its
+# disabledProviders line turns off the keyless built-in providers there (omp model-registry.ts,
+# omp 18.13.2). The first file that it replaces stays as config.yml.before-ug. The sandbox never
+# sees this file: raw-omp is not in config_names.
+write_raw_config() {
+  local from="$config_repo/raw-omp/config.yml" omp_root="$HOME/.omp" dir="$HOME/.omp/agent" to tmp
+  to="$dir/config.yml"
+  if [[ ! -e $from && ! -L $from ]]; then
+    printf 'omp: warning: the config repo %s has no raw-omp/config.yml, so a raw omp by full path keeps its own settings, and its keyless providers stay on\n' "$config_repo" >&2
+    return 0
+  fi
+  [[ -f $from && ! -L $from ]] || die "the config repo's raw-omp/config.yml must be a file, not a link"
+  grep -q '^disabledProviders:' "$from" ||
+    printf 'omp: warning: the config repo'\''s raw-omp/config.yml has no disabledProviders line, so the keyless providers of a raw omp stay on\n' >&2
+  for d in "$omp_root" "$dir"; do
+    if [[ -e $d || -L $d ]]; then
+      [[ -d $d && ! -L $d && -O $d ]] || die "$d must be a folder that you own, not a link"
+    else
+      install -d -m 700 "$d"
+    fi
+  done
+  [[ ! -L $to && ( ! -e $to || -f $to ) ]] || die "$to must be a file, not a link"
+  cmp -s "$from" "$to" && return 0
+  [[ ! -f $to || -e $to.before-ug ]] || cp -p "$to" "$to.before-ug"
+  tmp=$(mktemp "$dir/.config.yml.XXXXXX")
+  cp "$from" "$tmp"
+  chmod 600 "$tmp"
+  mv -f "$tmp" "$to"
+}
+
 pin() { sed -n "s/^$1=//p" "$src/VERSIONS"; }
 omp_pin=$(pin omp)
 srt_pin=$(pin srt)
@@ -167,6 +198,7 @@ else
     fi
   done
   rm -f "$secret_values"
+  write_raw_config
   [[ -n $models_src ]] || printf 'omp: warning: the config repo %s has no models.yml, so omp reaches no model through the gateway\n' "$config_repo" >&2
   printf '%s\n' "${config_names[@]}" >"$run_dir/config-names"
 fi
