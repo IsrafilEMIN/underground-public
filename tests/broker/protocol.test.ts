@@ -14,7 +14,7 @@ const VALID = {
   "pr-create": { verb: "pr-create", repo: REPO, head: "agent/task", title: "Fix the thing", body: "Body text." },
   "pr-status": { verb: "pr-status", repo: REPO, number: 7 },
   "ci-log": { verb: "ci-log", repo: REPO, number: 7 },
-  review: { verb: "review", repo: REPO, number: 7, sha: HEAD, verdict: "block", reason: "planted defect" },
+  review: { verb: "review", repo: REPO, number: 7, sha: HEAD, role: "security-review", verdict: "block", reason: "planted defect" },
   merge: { verb: "merge", repo: REPO, number: 7 },
 } as const;
 
@@ -124,21 +124,33 @@ test("review refuses a sha that is not 40 lowercase hex characters", () => {
 
 test("review refuses a verdict other than pass, manual or block", () => {
   for (const verdict of ["approve", "PASS", "", undefined]) refuses(withField("review", "verdict", verdict), /verdict must be pass, manual or block/);
-  for (const verdict of ["pass", "manual", "block"]) accepts(withField("review", "verdict", verdict));
+  for (const verdict of ["pass", "block"]) accepts(withField("review", "verdict", verdict));
+  accepts({ ...VALID.review, role: "risk-review", verdict: "manual", reason: "needs a human" });
+});
+
+// Since 2026-11-03 a review names its reviewer role in the request: no socket says who asks.
+test("review refuses a role that is not one of the three reviewer roles", () => {
+  for (const role of ["author", "Code-Review", "codereview", "", undefined, 7]) refuses(withField("review", "role", role), /role must be code-review, security-review, risk-review/);
+  for (const role of ["code-review", "security-review"]) accepts(withField("review", "role", role));
+});
+
+test("review refuses a verdict that its role cannot give", () => {
+  for (const role of ["code-review", "security-review"]) refuses({ ...VALID.review, role, verdict: "manual" }, new RegExp(`${role} cannot give manual: use pass or block`));
+  refuses({ ...VALID.review, role: "risk-review", verdict: "block" }, /risk-review cannot give block: use pass or manual/);
 });
 
 test("review refuses a manual or block with a blank reason, and accepts a pass with an empty reason", () => {
-  for (const verdict of ["manual", "block"]) {
-    for (const reason of ["", "  \n "]) refuses({ ...VALID.review, verdict, reason }, /invalid reason/);
-    accepts({ ...VALID.review, verdict, reason: "why" });
+  for (const [role, verdict] of [["risk-review", "manual"], ["security-review", "block"]]) {
+    for (const reason of ["", "  \n "]) refuses({ ...VALID.review, role, verdict, reason }, /invalid reason/);
+    accepts({ ...VALID.review, role, verdict, reason: "why" });
   }
   accepts({ ...VALID.review, verdict: "pass", reason: "" });
 });
 
 test("review refuses a reason over 2000 characters, with NUL, or not a string, for every verdict", () => {
-  for (const verdict of ["pass", "manual", "block"]) {
-    for (const reason of ["x".repeat(2001), "a\0b", 7, undefined]) refuses({ ...VALID.review, verdict, reason }, /invalid reason/);
-    accepts({ ...VALID.review, verdict, reason: "x".repeat(2000) });
+  for (const [role, verdict] of [["code-review", "pass"], ["risk-review", "manual"], ["security-review", "block"]]) {
+    for (const reason of ["x".repeat(2001), "a\0b", 7, undefined]) refuses({ ...VALID.review, role, verdict, reason }, /invalid reason/);
+    accepts({ ...VALID.review, role, verdict, reason: "x".repeat(2000) });
   }
 });
 

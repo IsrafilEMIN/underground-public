@@ -37,7 +37,7 @@ A session often ends before the owner merges its PR. So at the start of each ses
 
 If the broker refuses, stop and report the exact error. Never run `host/bin/ug-setup`: it changes the host, and only the owner runs it.
 
-There are no reviewer sessions: `omp --role` is gone (`docs/SPEC.md`, B8). Until the merge gate gets its review, no session writes a verdict, so `broker merge` refuses every PR and the owner merges each one on GitHub.
+There are no reviewer sessions: `omp --role` is gone (`docs/SPEC.md`, B8). A reviewer is a skill. It reads a PR with `broker sync <owner/repo> --pr <n>` and names its role in `broker review <owner/repo> <n> <sha> <role> <verdict> [reason]`. Until the merge gate gets its review, no skill writes a verdict, so `broker merge` refuses every PR and the owner merges each one on GitHub.
 
 ## Evidence
 

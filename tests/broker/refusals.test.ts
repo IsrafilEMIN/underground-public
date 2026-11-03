@@ -5,12 +5,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
 import { REVIEWER_ROLES } from "../../host/broker/protocol.ts";
-import type { Binding, Reply } from "../../host/broker/protocol.ts";
+import type { Reply } from "../../host/broker/protocol.ts";
 import { readPushRecord, writePushRecord } from "../../host/broker/push-record.ts";
 import { appendReviewRecord } from "../../host/broker/review-records.ts";
-import { defaultConfig, handleRequest } from "../../host/broker/server.ts";
+import { defaultConfig } from "../../host/broker/server.ts";
 import type { ServerConfig } from "../../host/broker/server.ts";
 import { fakeTokens, tokenRemote } from "./fake-app.ts";
+import { handleAs } from "./session.ts";
+import type { Session as Binding } from "./session.ts";
 import { tempDir } from "../temp.ts";
 
 const REPO = "o/r";
@@ -54,7 +56,7 @@ async function commit(branch: string, file: string): Promise<string> {
 }
 
 function request(input: Record<string, unknown>, binding: Binding = AUTHOR): Promise<Reply> {
-  return handleRequest(config, binding, { repo: REPO, ...input }, new AbortController().signal);
+  return handleAs(config, binding, { repo: REPO, ...input }, new AbortController().signal);
 }
 
 function push(branch: string, sha: string): Promise<Reply> {
@@ -101,10 +103,7 @@ beforeEach(async () => {
   root = await tempDir(join(tmpdir(), "ug-refusals-"));
   config = {
     ...defaultConfig(),
-    runDir: join(root, "run"),
-    bindingsFile: join(root, "bindings.json"),
-    reposFile: join(root, "repos"),
-    rolesFile: join(root, "roles"),
+    socketPath: join(root, "run", "broker.sock"),
     reposRoot: join(root, "bare"),
     reviewsDir: join(root, "reviews"),
     legacyReviewsFile: join(root, "reviews.json"),
@@ -117,8 +116,6 @@ beforeEach(async () => {
   };
   await mkdir(config.home);
   await writeFile(join(config.home, "default-branch"), "main");
-  await writeFile(config.reposFile, `${REPO}\n${OTHER_REPO}\n`);
-  await writeFile(config.rolesFile, "author author\n");
   await writeFile(config.ghPath, FAKE_GH, { mode: 0o755 });
   remote = join(root, "remote.git");
   execFileSync(config.gitPath, ["init", "--bare", "--quiet", remote], { env: GIT_ENV });
@@ -226,17 +223,28 @@ test("an author's pr-create opens a PR from its agent branch with its title and 
   assert.equal(await readHome("created-body"), "Line one\nLine two\n");
 });
 
-test("a binding refuses a request for a repo other than its own, and calls no gh and pushes nothing there", async () => {
+// The broker has no repo list since 2026-11-03: a repo works when the broker app is installed on it.
+// The app gets no token for any other repo, so nothing reaches GitHub or the broker's records.
+test("a repo where the broker app is not installed gets no token, so no gh call, push, merge, or record happens", async () => {
   const head = await commit(BRANCH, "a.txt");
   const bundle = execFileSync(config.gitPath, ["bundle", "create", "-", `refs/heads/${BRANCH}`], { cwd: work, env: GIT_ENV }).toString("base64");
   const signal = new AbortController().signal;
+  const installed = config.github;
+  config.github = {
+    token: (repo, s) => (repo === REPO ? installed.token(repo, s) : Promise.reject(new Error(`the app is not installed on ${repo}`))),
+    drop: (repo) => installed.drop(repo),
+  };
 
   for (const input of [
+    { verb: "sync", repo: OTHER_REPO },
     { verb: "push", repo: OTHER_REPO, branch: BRANCH, sha: head, bundle_b64: bundle },
     { verb: "pr-create", repo: OTHER_REPO, head: BRANCH, title: "t", body: "" },
+    { verb: "pr-status", repo: OTHER_REPO, number: 7 },
     { verb: "merge", repo: OTHER_REPO, number: 7 },
   ]) {
-    assertRefused(await handleRequest(config, AUTHOR, input, signal));
+    const reply = await handleAs(config, AUTHOR, input, signal);
+    assert.notEqual(reply.exit, 0, `${input.verb}: ${JSON.stringify(reply)}`);
+    assert.match(JSON.stringify(reply), /not installed on|cannot get a GitHub App token/, input.verb);
   }
   assert.equal(await readHome("gh-calls"), "");
   assert.equal(await readHome("merged"), "");

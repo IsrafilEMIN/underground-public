@@ -13,22 +13,11 @@ export type Verdict = (typeof VERDICTS)[number];
 
 export const REVIEWER_ROLES = ["code-review", "security-review", "risk-review"] as const;
 export type ReviewerRole = (typeof REVIEWER_ROLES)[number];
-export const ROLES = ["author", ...REVIEWER_ROLES] as const;
-export type Role = (typeof ROLES)[number];
-const REVIEWER_VERBS: readonly Verb[] = ["sync", "pr-status", "review"];
-export const ROLE_VERBS: Record<Role, readonly Verb[]> = {
-  author: ["sync", "push", "pr-create", "pr-status", "ci-log", "merge"],
-  "code-review": REVIEWER_VERBS,
-  "security-review": REVIEWER_VERBS,
-  "risk-review": REVIEWER_VERBS,
-};
 export const ROLE_VERDICTS: Record<ReviewerRole, readonly Verdict[]> = {
   "code-review": ["pass", "block"],
   "security-review": ["pass", "block"],
   "risk-review": ["pass", "manual"],
 };
-
-export type RoleTable = ReadonlyMap<string, Role>;
 
 export type SyncRequest = { verb: "sync"; repo: string; pr?: number };
 export type PushRequest = { verb: "push"; repo: string; branch: string; sha: string; bundle_b64: string };
@@ -36,7 +25,9 @@ export type PrCreateRequest = { verb: "pr-create"; repo: string; head: string; t
 export type PrStatusRequest = { verb: "pr-status"; repo: string; number: number };
 export type CiLogRequest = { verb: "ci-log"; repo: string; number: number };
 export type MergeRequest = { verb: "merge"; repo: string; number: number };
-export type ReviewRequest = { verb: "review"; repo: string; number: number; sha: string; verdict: Verdict; reason: string };
+// Every session shares one trust level, so the request names the reviewer role it speaks for
+// (docs/adr/0011-one-agent-arena.md). The reviewers are a quality step, not a safety wall.
+export type ReviewRequest = { verb: "review"; repo: string; number: number; sha: string; role: ReviewerRole; verdict: Verdict; reason: string };
 export type Request =
   | SyncRequest
   | PushRequest
@@ -60,20 +51,13 @@ export type Reply = ResultReply | RefusedReply;
 
 export type Checked<T> = { ok: true; value: T } | { ok: false; reason: string };
 
-export const MAX_SOCKET_PATH_BYTES = 103;
-export const ADMIN_SOCKET_NAME = "admin.sock";
-
-export type Binding = { repo: string; role_name: string; role: Role };
-export type RegisterRequest = { verb: "register"; repo_id: string; role_name: string; repo: string };
-export type AdminRequest = RegisterRequest;
-export type RegisterReply = ResultReply & { socket: string };
-
 const REPO_RE = /^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/;
 const AGENT_BRANCH_RE = /^agent\/[A-Za-z0-9._-]+(\/[A-Za-z0-9._-]+)*$/;
 const SHA_RE = /^[0-9a-f]{40}$/;
 const BASE64_RE = /^[A-Za-z0-9+/]*={0,2}$/;
 const DEFAULT_BRANCH_RE = /^[A-Za-z0-9_][A-Za-z0-9._/-]*$/;
 export const MAX_ROLE_NAME_CHARS = 32;
+// The name in a review record. Records before 2026-11-03 carry a role name from the old role table.
 const ROLE_NAME_RE = new RegExp(`^[a-z][a-z0-9-]{0,${MAX_ROLE_NAME_CHARS - 1}}$`);
 
 export function isVerb(value: unknown): value is Verb {
@@ -124,10 +108,6 @@ export function isDefaultBranchName(value: unknown): value is string {
 
 export function isVerdict(value: unknown): value is Verdict {
   return typeof value === "string" && (VERDICTS as readonly string[]).includes(value);
-}
-
-export function isRole(value: unknown): value is Role {
-  return typeof value === "string" && (ROLES as readonly string[]).includes(value);
 }
 
 export function isReviewerRole(value: unknown): value is ReviewerRole {
@@ -185,12 +165,14 @@ export function validateRequest(input: unknown): Checked<Request> {
       return { ok: true, value: { verb, repo, number } };
     }
     case "review": {
-      const { number, sha, verdict, reason } = input;
+      const { number, sha, role, verdict, reason } = input;
       if (!isPrNumber(number)) return fail("invalid PR number");
       if (!isSha(sha)) return fail("invalid sha");
+      if (!isReviewerRole(role)) return fail(`role must be ${REVIEWER_ROLES.join(", ")}`);
       if (!isVerdict(verdict)) return fail("verdict must be pass, manual or block");
+      if (!ROLE_VERDICTS[role].includes(verdict)) return fail(`${role} cannot give ${verdict}: use ${ROLE_VERDICTS[role].join(" or ")}`);
       if (!isReason(verdict, reason)) return fail(`invalid reason (required for manual and block, at most ${MAX_REASON_CHARS} characters)`);
-      return { ok: true, value: { verb, repo, number, sha, verdict, reason } };
+      return { ok: true, value: { verb, repo, number, sha, role, verdict, reason } };
     }
     case "merge": {
       const { number } = input;
@@ -198,31 +180,6 @@ export function validateRequest(input: unknown): Checked<Request> {
       return { ok: true, value: { verb, repo, number } };
     }
   }
-}
-
-export function parseReposFile(text: string): Set<string> {
-  const repos = new Set<string>();
-  for (const line of text.split("\n")) {
-    const entry = line.trim();
-    if (isRepo(entry)) repos.add(entry);
-  }
-  return repos;
-}
-
-export function parseRolesFile(text: string): Checked<RoleTable> {
-  const roles = new Map<string, Role>();
-  for (const [index, line] of text.split("\n").entries()) {
-    const entry = line.replace(/#.*/, "").trim();
-    if (entry === "") continue;
-    const [name, role, ...rest] = entry.split(/\s+/);
-    const where = `roles file line ${index + 1}`;
-    if (rest.length > 0 || !isRoleName(name) || !isRole(role)) {
-      return fail(`${where}: want "<role name> <${ROLES.join("|")}>", a role name is a-z, 0-9 and -, up to ${MAX_ROLE_NAME_CHARS} characters`);
-    }
-    if (roles.has(name)) return fail(`${where}: role name ${name} is listed twice`);
-    roles.set(name, role);
-  }
-  return { ok: true, value: roles };
 }
 
 export function isReply(value: unknown): value is Reply {
@@ -255,25 +212,6 @@ export function isSyncPrReply(value: unknown): value is SyncPrReply {
 export function isMergeReply(value: unknown): value is MergeReply {
   if (!isReply(value) || "refused" in value || !isRecord(value) || !isRecord(value.merged)) return false;
   return isAgentBranch(value.merged.branch) && isSha(value.merged.head);
-}
-
-function isOkReply(value: unknown): value is ResultReply & Record<string, unknown> {
-  return isReply(value) && !("refused" in value) && isRecord(value) && value.exit === 0;
-}
-
-const GITHUB_URL_RES = [
-  /^https:\/\/github\.com\/([^/]+\/[^/]+?)(?:\.git)?\/?$/,
-  /^git@github\.com:([^/]+\/[^/]+?)(?:\.git)?\/?$/,
-  /^ssh:\/\/git@github\.com\/([^/]+\/[^/]+?)(?:\.git)?\/?$/,
-];
-
-export function githubRepoFromUrl(url: string): string | undefined {
-  const value = url.trim();
-  for (const re of GITHUB_URL_RES) {
-    const repo = re.exec(value)?.[1];
-    if (isRepo(repo)) return repo;
-  }
-  return undefined;
 }
 
 export type PushRecord = { kind: "pushed"; sha: string } | { kind: "none" } | { kind: "unreadable" };
@@ -396,7 +334,8 @@ export function holds(records: ReviewRecord[], protectedFiles: string[]): Hold[]
 }
 
 function reviewerName(record: ReviewRecord): string {
-  return record.role_name === null ? "an old record with no role name" : `${record.role_name} (role ${record.role})`;
+  if (record.role_name === null) return "an old record with no role name";
+  return record.role_name === record.role ? record.role : `${record.role_name} (role ${record.role})`;
 }
 
 function holdRefusal(hold: Hold): string {
@@ -441,29 +380,6 @@ export function mergeRefusal(input: MergeInputs): string | undefined {
   return headVerdictRefusal(records, input.head);
 }
 
-const BINDING_PART_RE = /^[A-Za-z0-9_-][A-Za-z0-9._-]{0,63}$/;
-
-export function isBindingPart(value: unknown): value is string {
-  return typeof value === "string" && BINDING_PART_RE.test(value) && !value.includes("..");
-}
-
-export function isBinding(value: unknown): value is Binding {
-  return isRecord(value) && isRepo(value.repo) && isRoleName(value.role_name) && isRole(value.role);
-}
-
-export function bindingRefusal(binding: Binding, req: Request): string | undefined {
-  if (req.repo !== binding.repo) return `repo ${req.repo} is not the repo of this broker socket`;
-  if (!ROLE_VERBS[binding.role].includes(req.verb)) return `${binding.role_name} sessions (role ${binding.role}) cannot use ${req.verb}`;
-  return undefined;
-}
-
-export function roleTableRefusal(table: RoleTable, binding: Binding): string | undefined {
-  const role = table.get(binding.role_name);
-  if (role === undefined) return `role name ${binding.role_name} is not in the roles file`;
-  if (role !== binding.role) return `role name ${binding.role_name} maps to ${role} in the roles file, not to ${binding.role} as when this broker socket was made`;
-  return undefined;
-}
-
 export function prHeadRefusal(pr: Record<string, unknown>): string | undefined {
   if (pr.isCrossRepository !== false) return "pull request head is not in the same repo";
   if (!isAgentBranch(pr.headRefName)) return "pull request head is not an agent branch";
@@ -505,43 +421,4 @@ export function reviewHeadRefusal(pr: Record<string, unknown>, sha: string): str
   if (!isSha(pr.headRefOid)) return "cannot read pull request head commit";
   if (pr.headRefOid !== sha) return `PR head is ${pr.headRefOid}, not the reviewed ${sha}`;
   return undefined;
-}
-
-export function validateAdminRequest(input: unknown): Checked<AdminRequest> {
-  if (!isRecord(input)) return fail("request is not a JSON object");
-  const { verb, repo_id, role_name } = input;
-  if (!isBindingPart(repo_id)) return fail("invalid repo id");
-  if (!isRoleName(role_name)) return fail("invalid role name");
-  if (verb !== "register") return fail("unknown admin verb");
-  const { repo } = input;
-  if (!isRepo(repo)) return fail("invalid repo");
-  return { ok: true, value: { verb, repo_id, role_name, repo } };
-}
-
-export function isRegisterReply(value: unknown): value is RegisterReply {
-  return isOkReply(value) && typeof value.socket === "string" && value.socket.startsWith("/");
-}
-
-function originUrlFromGitConfig(text: string): string | undefined {
-  let inOrigin = false;
-  for (const raw of text.split("\n")) {
-    const line = raw.trim();
-    if (line.startsWith("[")) {
-      const header = /^\[\s*([A-Za-z0-9.-]+)\s+"((?:[^"\\]|\\.)*)"\s*\]/.exec(line);
-      inOrigin = header !== null && header[1].toLowerCase() === "remote" && header[2] === "origin";
-      continue;
-    }
-    if (!inOrigin) continue;
-    const entry = /^url\s*=\s*(.*)$/i.exec(line);
-    if (entry === null) continue;
-    const value = entry[1];
-    const quoted = /^"([^"]*)"/.exec(value);
-    return quoted !== null ? quoted[1] : value.replace(/\s+[#;].*$/, "").trim();
-  }
-  return undefined;
-}
-
-export function githubRepoFromGitConfig(text: string): string | undefined {
-  const url = originUrlFromGitConfig(text);
-  return url === undefined ? undefined : githubRepoFromUrl(url);
 }

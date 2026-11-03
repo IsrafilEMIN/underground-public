@@ -180,15 +180,11 @@ repo_from_checkout() {
   printf '%s\n' "$repo"
 }
 
-author_binding() {
-  "$1" -e 'const [file, repo, run] = process.argv.slice(1); const bindings = JSON.parse(require("fs").readFileSync(file, "utf8")); const key = Object.keys(bindings).find((k) => bindings[k].repo.toLowerCase() === repo.toLowerCase() && bindings[k].role === "author"); if (key !== undefined) console.log(`${bindings[key].repo}\n${run}/${key}.sock`);' "$2" "$3" "$4"
-}
-
 run_wizard() {
 
 TOTAL_STAGES=6
 
-CONFIG_DIR="$HOME/.config/underground-broker"
+CONFIG_DIR="$HOME/.ug/host"
 APP_JSON="$CONFIG_DIR/github-app.json"
 APP_PEM="$CONFIG_DIR/github-app.pem"
 OLD_GH_DIR="$CONFIG_DIR/gh"
@@ -287,14 +283,12 @@ stage "Install the broker and check it"
 say "Setup installs the broker from this checkout, $SCRIPT_CHECKOUT, and restarts it."
 confirm "Run setup now?" || { SKIPPED+=("Run: $SCRIPT_CHECKOUT/host/bin/ug-setup, then in an omp session: broker sync $REPO"); finish; exit 1; }
 "$SCRIPT_CHECKOUT/host/bin/ug-setup"
-BINDING=$(author_binding /opt/homebrew/bin/node "$HOME/.agents/broker/bindings.json" "$REPO" "$HOME/.agents/broker/run" 2>/dev/null || true)
-BROKER_SOCKET=${BINDING#*$'\n'}
-if [[ -z $BROKER_SOCKET || ! -S $BROKER_SOCKET ]]; then
-  SKIPPED+=("Start omp once in your checkout of $REPO, then run inside it: broker sync $REPO")
+BROKER_SOCKET="$HOME/.ug/run/broker.sock"
+if [[ ! -S $BROKER_SOCKET ]]; then
+  SKIPPED+=("The broker socket $BROKER_SOCKET is missing; check the launchd job com.underground.broker, then run in your checkout: UG_BROKER_SOCKET=$BROKER_SOCKET ~/.ug/sys/agent-bin/broker sync $REPO")
   finish
   exit 1
 fi
-REPO=${BINDING%%$'\n'*}
 (cd "$CHECKOUT" && UG_BROKER_SOCKET="$BROKER_SOCKET" "$HOME/.ug/sys/agent-bin/broker" sync "$REPO")
 say "A pass: the sync above prints 'origin/main is now <commit>', so the broker got an app token for $REPO."
 SKIPPED+=("Onboarding check 4: open https://github.com/settings/apps/$APP_SLUG/permissions and https://github.com/settings/installations, and confirm the app's permissions and repos")

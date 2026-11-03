@@ -96,19 +96,3 @@ run_wizard
   assert.equal(run.stdout.split("ask:CHECKOUT\n").length, 2);
   assert.ok(run.stdout.endsWith("ask:APP_CLIENT_ID\n"), run.stdout);
 });
-
-test("wizard finds the author binding without case sensitivity and returns its configured spelling", async (t) => {
-  const checkout = await tempDir(join(tmpdir(), "repo-wizard-"));
-  t.after(() => rm(checkout, { recursive: true, force: true }));
-  await writeFile(join(checkout, "bindings.json"), JSON.stringify({
-    reviewer: { repo: "Configured-Owner/Repo", role: "code-review" },
-    other: { repo: "Different-Owner/Repo", role: "author" },
-    author: { repo: "Configured-Owner/Repo", role: "author" },
-  }));
-  const run = source(checkout, 'author_binding "$3" "$2/bindings.json" "configured-owner/REPO" "$2/run"');
-  assert.equal(run.status, 0, run.stderr);
-  assert.equal(run.stdout, `Configured-Owner/Repo\n${checkout}/run/author.sock\n`);
-  const missing = source(checkout, 'author_binding "$3" "$2/bindings.json" "absent-owner/repo" "$2/run"');
-  assert.equal(missing.status, 0, missing.stderr);
-  assert.equal(missing.stdout, "");
-});

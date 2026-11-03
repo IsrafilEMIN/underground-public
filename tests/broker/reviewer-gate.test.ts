@@ -4,20 +4,22 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
-import type { Binding, Reply } from "../../host/broker/protocol.ts";
+import type { Reply } from "../../host/broker/protocol.ts";
 import { readReviewRecords } from "../../host/broker/review-records.ts";
-import { defaultConfig, handleRequest } from "../../host/broker/server.ts";
+import { defaultConfig } from "../../host/broker/server.ts";
 import type { ServerConfig } from "../../host/broker/server.ts";
 import { fakeTokens, tokenRemote } from "./fake-app.ts";
+import { handleAs } from "./session.ts";
+import type { Session } from "./session.ts";
 import { tempDir } from "../temp.ts";
 
 const REPO = "o/r";
 const BRANCH = "agent/x";
-const AUTHOR: Binding = { repo: REPO, role_name: "author", role: "author" };
-const CODE: Binding = { repo: REPO, role_name: "code-review", role: "code-review" };
-const SECURITY: Binding = { repo: REPO, role_name: "sec-a", role: "security-review" };
-const SECURITY_B: Binding = { repo: REPO, role_name: "sec-b", role: "security-review" };
-const RISK: Binding = { repo: REPO, role_name: "risk-review", role: "risk-review" };
+const AUTHOR: Session = { repo: REPO, role_name: "author", role: "author" };
+const CODE: Session = { repo: REPO, role_name: "code-review", role: "code-review" };
+const SECURITY: Session = { repo: REPO, role_name: "sec-a", role: "security-review" };
+const SECURITY_B: Session = { repo: REPO, role_name: "sec-b", role: "security-review" };
+const RISK: Session = { repo: REPO, role_name: "risk-review", role: "risk-review" };
 const REVIEWERS = [CODE, SECURITY, RISK];
 const GIT_ENV = { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" };
 const HOLD = "a hold refuses, so the owner merges this PR on GitHub";
@@ -45,8 +47,8 @@ function git(cwd: string, ...args: string[]): string {
   }).trim();
 }
 
-function request(binding: Binding, input: Record<string, unknown>): Promise<Reply> {
-  return handleRequest(config, binding, { repo: REPO, ...input }, new AbortController().signal);
+function request(session: Session, input: Record<string, unknown>): Promise<Reply> {
+  return handleAs(config, session, { repo: REPO, ...input }, new AbortController().signal);
 }
 
 async function pushedHead(files: string[] = ["a.txt"], checks = "SUCCESS"): Promise<string> {
@@ -74,18 +76,18 @@ async function pushedHead(files: string[] = ["a.txt"], checks = "SUCCESS"): Prom
   return head;
 }
 
-async function review(binding: Binding, sha: string, verdict: string, reason = ""): Promise<void> {
-  const reply = await request(binding, { verb: "review", number: 7, sha, verdict, reason });
+async function review(session: Session, sha: string, verdict: string, reason = ""): Promise<void> {
+  const reply = await request(session, { verb: "review", number: 7, sha, verdict, reason });
   assert.equal(reply.exit, 0, JSON.stringify(reply));
 }
 
 async function passAll(head: string): Promise<void> {
-  for (const binding of REVIEWERS) await review(binding, head, "pass");
+  for (const session of REVIEWERS) await review(session, head, "pass");
 }
 
-async function blockedHead(bindings: Binding[]): Promise<string> {
+async function blockedHead(sessions: Session[]): Promise<string> {
   const head = await pushedHead();
-  for (const binding of bindings) await review(binding, head, "block", `bug in ${head}`);
+  for (const session of sessions) await review(session, head, "block", `bug in ${head}`);
   return head;
 }
 
@@ -115,10 +117,7 @@ beforeEach(async () => {
   root = await tempDir(join(tmpdir(), "ug-b10-"));
   config = {
     ...defaultConfig(),
-    runDir: join(root, "run"),
-    bindingsFile: join(root, "bindings.json"),
-    reposFile: join(root, "repos"),
-    rolesFile: join(root, "roles"),
+    socketPath: join(root, "run", "broker.sock"),
     reposRoot: join(root, "bare"),
     reviewsDir: join(root, "reviews"),
     legacyReviewsFile: join(root, "reviews.json"),
@@ -130,8 +129,6 @@ beforeEach(async () => {
     tempRoot: join(root, "tmp"),
   };
   await mkdir(config.home);
-  await writeFile(config.reposFile, `${REPO}\n`);
-  await writeFile(config.rolesFile, "author author\ncode-review code-review\nsec-a security-review\nsec-b security-review\nrisk-review risk-review\n");
   await writeFile(config.ghPath, FAKE_GH, { mode: 0o755 });
   const remote = join(root, "remote.git");
   execFileSync(config.gitPath, ["init", "--bare", "--quiet", remote], { env: GIT_ENV });
@@ -146,24 +143,15 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-test("a reviewer binding refuses push and pr-create", async () => {
-  for (const binding of [CODE, SECURITY, SECURITY_B, RISK]) {
-    const push = await request(binding, { verb: "push", branch: BRANCH, sha: "a".repeat(40), bundle_b64: "AAAA" });
-    assert.deepEqual(push, { exit: 2, refused: `${binding.role_name} sessions (role ${binding.role}) cannot use push` });
-    const create = await request(binding, { verb: "pr-create", head: BRANCH, title: "t", body: "" });
-    assert.deepEqual(create, { exit: 2, refused: `${binding.role_name} sessions (role ${binding.role}) cannot use pr-create` });
-  }
-});
-
 test("code-review and security-review give pass or block, and risk-review gives pass or manual", async () => {
   const head = await pushedHead();
-  for (const [binding, verdict] of [
+  for (const [session, verdict] of [
     [CODE, "manual"],
     [SECURITY, "manual"],
     [RISK, "block"],
   ] as const) {
-    const reply = await request(binding, { verb: "review", number: 7, sha: head, verdict, reason: "r" });
-    assert.match("refused" in reply ? reply.refused : "", new RegExp(`${binding.role_name} sessions \\(role ${binding.role}\\) cannot give ${verdict}`));
+    const reply = await request(session, { verb: "review", number: 7, sha: head, verdict, reason: "r" });
+    assert.match("refused" in reply ? reply.refused : "", new RegExp(`${session.role} cannot give ${verdict}`));
   }
   assert.deepEqual(await readReviewRecords(config.reviewsDir, { repo: REPO, pr: 7 }), { kind: "records", records: [] });
 });
@@ -191,22 +179,14 @@ test("a missing role verdict refuses and names the role", async () => {
   await assertMerges(head);
 });
 
-test("two role names that map to one reviewer role count as that role", async () => {
-  const head = await pushedHead();
-  await review(CODE, head, "pass");
-  await review(SECURITY_B, head, "pass");
-  await review(RISK, head, "pass");
-  await assertMerges(head);
-});
-
 test("a block on the head refuses and names the role, and a later pass on the same head does not clear it", async () => {
   const head = await pushedHead();
   await passAll(head);
   await review(SECURITY_B, head, "block", "token in log");
-  await assertRefuses("sec-b (role security-review) blocks it: token in log");
+  await assertRefuses("security-review blocks it: token in log");
   await review(SECURITY_B, head, "pass");
   await review(SECURITY, head, "pass");
-  await assertRefuses("sec-b (role security-review) blocks it: token in log");
+  await assertRefuses("security-review blocks it: token in log");
 });
 
 test("after a new head an old pass does not count, and an old block does not refuse", async () => {
@@ -227,7 +207,7 @@ test("a manual on any head is a hold on every later head", async () => {
   await review(RISK, first, "manual", "touches billing");
   const second = await pushedHead();
   await passAll(second);
-  const hold = new RegExp(`^${HOLD}: risk-review \\(role risk-review\\) asked for manual review of ${first} at .*: touches billing$`);
+  const hold = new RegExp(`^${HOLD}: risk-review asked for manual review of ${first} at .*: touches billing$`);
   await assertRefuses(hold);
 });
 
@@ -245,7 +225,7 @@ test("a block on the fourth distinct blocked head is a hold, and two roles that 
   const fourth = await blockedHead([SECURITY_B]);
   const last = await pushedHead();
   await passAll(last);
-  const hold = new RegExp(`^${HOLD}: attempt 4 \\(${fourth}\\) got a block at .* from sec-b \\(role security-review\\): bug in ${fourth}$`);
+  const hold = new RegExp(`^${HOLD}: attempt 4 \\(${fourth}\\) got a block at .* from security-review: bug in ${fourth}$`);
   await assertRefuses(hold);
 });
 

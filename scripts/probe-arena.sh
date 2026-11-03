@@ -45,7 +45,7 @@ canary_text="ug-probe-canary-$$-$RANDOM"
 write_target="$HOME/.ug-probe-write"
 model=${PROBE_MODEL:-anthropic/claude-opus-5-5}
 gateway_token_file="$HOME/.ug/host/auth/auth-gateway.token"
-addresses="$HOME/.config/underground-broker/addresses"
+addresses="$HOME/.ug/host/addresses"
 denied='Operation not permitted'
 
 fails=0

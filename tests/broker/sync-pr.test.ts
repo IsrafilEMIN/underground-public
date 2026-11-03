@@ -1,6 +1,8 @@
+// sync --pr brings a PR head into the session's own repo as origin/pr/<n>, where reviewers read
+// it (docs/SPEC.md, B8). Until 2026-11-03 it went into a separate reviewer store.
 import assert from "node:assert/strict";
 import { execFile, execFileSync } from "node:child_process";
-import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import type { Server } from "node:net";
 import { tmpdir } from "node:os";
@@ -8,7 +10,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, test } from "node:test";
 import { isSyncPrReply, validateRequest } from "../../host/broker/protocol.ts";
-import type { Binding, Reply } from "../../host/broker/protocol.ts";
+import type { Reply } from "../../host/broker/protocol.ts";
 import { defaultConfig, handleRequest, serveConnection } from "../../host/broker/server.ts";
 import type { ServerConfig } from "../../host/broker/server.ts";
 import { fakeTokens, tokenRemote } from "./fake-app.ts";
@@ -16,8 +18,6 @@ import { tempDir } from "../temp.ts";
 
 const REPO = "o/r";
 const CLIENT = join(import.meta.dirname, "../../host/broker/client.ts");
-const AUTHOR: Binding = { repo: REPO, role_name: "author", role: "author" };
-const REVIEWER: Binding = { repo: REPO, role_name: "security-review", role: "security-review" };
 // git 2.47+ ends fetch, commit and push with a detached `git maintenance run --auto`, which can still write in a
 // repo after the command exits; afterEach then fails with ENOTEMPTY when it removes the repo. No test here needs it.
 const NO_AUTO_MAINTENANCE = { GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "maintenance.auto", GIT_CONFIG_VALUE_0: "false" };
@@ -36,7 +36,7 @@ let root: string;
 let config: ServerConfig;
 let remote: string;
 let work: string;
-let store: string;
+let session: string;
 let server: Server | undefined;
 
 function git(dir: string, ...args: string[]): string {
@@ -68,10 +68,10 @@ async function openPr(head: string, pushed = head): Promise<void> {
   await writeFile(join(config.home, "pr.json"), JSON.stringify({ headRefOid: head }));
 }
 
-async function listen(binding: Binding, edit: (reply: Reply) => Reply = (reply) => reply): Promise<string> {
+async function listen(edit: (reply: Reply) => Reply = (reply) => reply): Promise<string> {
   const path = join(root, "b.sock");
   server = createServer({ allowHalfOpen: true }, (socket) =>
-    serveConnection(socket, async (input, signal) => edit(await handleRequest(config, binding, input, signal))),
+    serveConnection(socket, async (input, signal) => edit(await handleRequest(config, input, signal))),
   );
   const listening = Promise.withResolvers<void>();
   server.listen(path, () => listening.resolve());
@@ -85,7 +85,7 @@ async function client(cwd: string, env: Record<string, string>, ...args: string[
   try {
     const { stdout, stderr } = await execFileAsync(process.execPath, [CLIENT, ...args], {
       cwd,
-      env: { ...GIT_ENV, UG_REVIEW_STORE: "", ...env },
+      env: { ...GIT_ENV, ...env },
       encoding: "utf8",
     });
     return { code: 0, stdout, stderr };
@@ -99,10 +99,7 @@ beforeEach(async () => {
   root = await tempDir(join(process.env.XDG_STATE_HOME ?? tmpdir(), "ug-b2b-"));
   config = {
     ...defaultConfig(),
-    runDir: join(root, "run"),
-    bindingsFile: join(root, "bindings.json"),
-    reposFile: join(root, "repos"),
-    rolesFile: join(root, "roles"),
+    socketPath: join(root, "run", "broker.sock"),
     reposRoot: join(root, "bare"),
     reviewsDir: join(root, "reviews"),
     legacyReviewsFile: join(root, "reviews.json"),
@@ -114,8 +111,6 @@ beforeEach(async () => {
     tempRoot: join(root, "tmp"),
   };
   await mkdir(config.home);
-  await writeFile(config.reposFile, `${REPO}\n`);
-  await writeFile(config.rolesFile, "author author\nsecurity-review security-review\n");
   await writeFile(config.ghPath, FAKE_GH, { mode: 0o755 });
   remote = join(root, "remote.git");
   execFileSync(config.gitPath, ["init", "--bare", "--quiet", remote], { env: GIT_ENV });
@@ -128,8 +123,8 @@ beforeEach(async () => {
   await commit("base.txt");
   git(work, "push", "--quiet", remote, "main:main");
   git(work, "checkout", "--quiet", "-b", "agent/x");
-  store = join(root, "store.git");
-  execFileSync(config.gitPath, ["init", "--bare", "--quiet", store], { env: GIT_ENV });
+  session = join(root, "session");
+  execFileSync(config.gitPath, ["init", "--quiet", "-b", "main", session], { env: GIT_ENV });
 });
 
 afterEach(async () => {
@@ -142,67 +137,43 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-test("sync --pr makes origin/pr/<n> in the reviewer store at headRefOid", async () => {
+test("sync --pr makes origin/pr/<n> in the session's repo at headRefOid, and moves it with the PR", async () => {
   const head = await commit("a.txt");
   await openPr(head);
-  const socket = await listen(REVIEWER);
+  const socket = await listen();
 
-  const run = await client(root, { UG_BROKER_SOCKET: socket, UG_REVIEW_STORE: store }, "sync", REPO, "--pr", "7");
+  const run = await client(session, { UG_BROKER_SOCKET: socket }, "sync", REPO, "--pr", "7");
   assert.equal(run.code, 0, run.stderr);
-  assert.equal(run.stdout, `origin/pr/7 is now ${head} in ${store}\n`);
-  assert.equal(git(store, "rev-parse", "refs/remotes/origin/pr/7"), head);
-  assert.equal(git(store, "for-each-ref", "--format=%(refname)"), "refs/remotes/origin/pr/7");
+  assert.equal(run.stdout, `origin/pr/7 is now ${head}\n`);
+  assert.equal(git(session, "rev-parse", "refs/remotes/origin/pr/7"), head);
+  assert.equal(git(session, "for-each-ref", "--format=%(refname)"), "refs/remotes/origin/pr/7");
   assert.equal(git(join(config.reposRoot, `${REPO}.git`), "for-each-ref", "refs/broker"), "");
 
   const next = await commit("b.txt");
   await openPr(next);
-  const again = await client(root, { UG_BROKER_SOCKET: socket, UG_REVIEW_STORE: store }, "sync", REPO, "--pr", "7");
+  const again = await client(session, { UG_BROKER_SOCKET: socket }, "sync", REPO, "--pr", "7");
   assert.equal(again.code, 0, again.stderr);
-  assert.equal(git(store, "rev-parse", "refs/remotes/origin/pr/7"), next);
-});
-
-test("a plain sync in a reviewer session imports the default branch into the store", async () => {
-  const socket = await listen(REVIEWER);
-  const run = await client(root, { UG_BROKER_SOCKET: socket, UG_REVIEW_STORE: store }, "sync", REPO);
-  assert.equal(run.code, 0, run.stderr);
-  assert.equal(git(store, "rev-parse", "refs/remotes/origin/main"), git(work, "rev-parse", "main"));
+  assert.equal(git(session, "rev-parse", "refs/remotes/origin/pr/7"), next);
 });
 
 test("sync --pr fails and leaves no origin/pr/<n> when the imported commit is not headRefOid", async () => {
   const head = await commit("a.txt");
   await openPr(head);
   const other = await commit("b.txt");
-  const socket = await listen(REVIEWER, (reply) => (isSyncPrReply(reply) ? { ...reply, head: other } : reply));
-  git(work, "push", "--quiet", store, `${head}:refs/remotes/origin/pr/7`);
+  const socket = await listen((reply) => (isSyncPrReply(reply) ? { ...reply, head: other } : reply));
+  git(work, "push", "--quiet", session, `${head}:refs/remotes/origin/pr/7`);
 
-  const run = await client(root, { UG_BROKER_SOCKET: socket, UG_REVIEW_STORE: store }, "sync", REPO, "--pr", "7");
+  const run = await client(session, { UG_BROKER_SOCKET: socket }, "sync", REPO, "--pr", "7");
   assert.equal(run.code, 1);
   assert.match(run.stderr, new RegExp(`the imported commit ${head} is not the PR head ${other}`));
-  assert.equal(gitStatus(store, "rev-parse", "--verify", "--quiet", "refs/remotes/origin/pr/7"), 1);
-});
-
-test("the reviewer's store commands write neither the store config nor its hooks, which the sandbox denies", async () => {
-  const snapshot = async (): Promise<unknown[]> => {
-    const [file, hooks] = await Promise.all([stat(join(store, "config")), stat(join(store, "hooks"))]);
-    return [await readFile(join(store, "config"), "utf8"), file.ino, file.mtimeMs, hooks.ino, hooks.mtimeMs, await readdir(join(store, "hooks"))];
-  };
-  const before = await snapshot();
-  let wrongHead: string | undefined;
-  const socket = await listen(REVIEWER, (reply) => (isSyncPrReply(reply) && wrongHead !== undefined ? { ...reply, head: wrongHead } : reply));
-  const env = { UG_BROKER_SOCKET: socket, UG_REVIEW_STORE: store };
-  assert.equal((await client(root, env, "sync", REPO)).code, 0);
-  await openPr(await commit("a.txt"));
-  assert.equal((await client(root, env, "sync", REPO, "--pr", "7")).code, 0);
-  wrongHead = await commit("b.txt");
-  assert.equal((await client(root, env, "sync", REPO, "--pr", "7")).code, 1);
-  assert.deepEqual(await snapshot(), before);
+  assert.equal(gitStatus(session, "rev-parse", "--verify", "--quiet", "refs/remotes/origin/pr/7"), 1);
 });
 
 test("the broker refuses a PR sync when GitHub sends a commit that is not headRefOid", async () => {
   const head = await commit("a.txt");
   const stale = await commit("b.txt");
   await openPr(head, stale);
-  const reply = await handleRequest(config, REVIEWER, { verb: "sync", repo: REPO, pr: 7 }, new AbortController().signal);
+  const reply = await handleRequest(config, { verb: "sync", repo: REPO, pr: 7 }, new AbortController().signal);
   assert.deepEqual(reply, {
     exit: 2,
     refused: `PR 7 head moved during the sync: headRefOid is ${head}, GitHub sent ${stale}; run sync again`,
@@ -210,23 +181,19 @@ test("the broker refuses a PR sync when GitHub sends a commit that is not headRe
   assert.equal(git(join(config.reposRoot, `${REPO}.git`), "for-each-ref", "refs/broker"), "");
 });
 
-test("sync --pr without a reviewer store refuses before it asks the broker", async () => {
-  const run = await client(work, { UG_BROKER_SOCKET: join(root, "none.sock") }, "sync", REPO, "--pr", "7");
-  assert.equal(run.code, 64);
-  assert.match(run.stderr, /this session has no reviewer git store \(UG_REVIEW_STORE is not set/);
-  const usage = await client(work, { UG_BROKER_SOCKET: join(root, "none.sock") }, "sync", REPO, "--pr");
+test("sync --pr without a PR number, or with a bad one, is a usage error", async () => {
+  const usage = await client(session, { UG_BROKER_SOCKET: join(root, "none.sock") }, "sync", REPO, "--pr");
   assert.equal(usage.code, 64);
   assert.equal(validateRequest({ verb: "sync", repo: REPO, pr: 0 }).ok, false);
   assert.equal(validateRequest({ verb: "sync", repo: REPO, pr: "7" }).ok, false);
 });
 
-test("sync without --pr imports origin/<default> into the author's repo as before", async () => {
+test("sync without --pr imports origin/<default> into the session's repo, and no PR ref", async () => {
   const main = git(work, "rev-parse", "main");
   await commit("local.txt");
-  const socket = await listen(AUTHOR);
-  const run = await client(work, { UG_BROKER_SOCKET: socket }, "sync", REPO);
+  const socket = await listen();
+  const run = await client(session, { UG_BROKER_SOCKET: socket }, "sync", REPO);
   assert.equal(run.code, 0, run.stderr);
   assert.equal(run.stdout, `origin/main is now ${main}\n`);
-  assert.equal(git(work, "rev-parse", "refs/remotes/origin/main"), main);
-  assert.equal(git(store, "for-each-ref"), "");
+  assert.equal(git(session, "for-each-ref", "--format=%(refname) %(objectname)"), `refs/remotes/origin/main ${main}`);
 });

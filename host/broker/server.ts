@@ -1,45 +1,30 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { chmod, lstat, mkdir, mkdtemp, readFile, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, mkdtemp, readFile, rm, stat, unlink, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import type { Server, Socket } from "node:net";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import {
-  ADMIN_SOCKET_NAME,
   MAX_CI_LOG_BYTES,
   MAX_REQUEST_BYTES,
-  MAX_SOCKET_PATH_BYTES,
-  ROLE_VERDICTS,
-  bindingRefusal,
   failedPullRequestRuns,
-  isBinding,
-  isBindingPart,
   isAgentBranch,
   isRecord,
   isSha,
   mergeRefusal,
-  isReviewerRole,
   parseProtectedPaths,
   reviewHeadRefusal,
   isDefaultBranchName,
-  parseReposFile,
-  parseRolesFile,
   prHeadRefusal,
-  roleTableRefusal,
   tailLog,
-  validateAdminRequest,
   validateRequest,
 } from "./protocol.ts";
 import type {
-  AdminRequest,
-  Binding,
   CiLogRequest,
-  Checked,
   MergeRequest,
   PrCreateRequest,
   PrStatusRequest,
-  RoleTable,
   PushRequest,
   ReviewRecord,
   ReviewRequest,
@@ -56,11 +41,11 @@ import type { GithubTokens } from "./github-app.ts";
 import { dropPushRecord, readPushRecord, writePushRecord } from "./push-record.ts";
 import { appendReviewRecord, moveLegacyReviews, readReviewRecords } from "./review-records.ts";
 
+// One socket serves every arena session, and every request stands on its own: there are no
+// bindings, no roles, and no list of repos. A repo works when the broker app is installed on it,
+// because the app gets no token for any other (docs/SPEC.md, B7 and the onboarding checks).
 export type ServerConfig = {
-  runDir: string;
-  bindingsFile: string;
-  reposFile: string;
-  rolesFile: string;
+  socketPath: string;
   reposRoot: string;
   reviewsDir: string;
   legacyReviewsFile: string;
@@ -86,22 +71,22 @@ function defaultGitPath(): string {
   return "/usr/bin/git";
 }
 
+// The socket sits in ~/.ug/run, which the sandbox may use but not write. Everything else is in the
+// host zone ~/.ug/host, which the sandbox cannot reach at all.
 export function defaultConfig(): ServerConfig {
+  const host = join(HOME, ".ug/host");
   return {
-    runDir: join(HOME, ".agents/broker/run"),
-    bindingsFile: join(HOME, ".agents/broker/bindings.json"),
-    reposFile: join(HOME, ".config/underground-broker/repos"),
-    rolesFile: join(HOME, ".config/underground-broker/roles"),
-    reposRoot: join(HOME, ".agents/broker/repos"),
-    reviewsDir: join(HOME, ".agents/broker/reviews"),
-    legacyReviewsFile: join(HOME, ".agents/broker/reviews.json"),
-    pushesDir: join(HOME, ".agents/broker/pushes"),
-    protectedDir: join(HOME, ".config/underground-broker/protected-paths"),
+    socketPath: join(HOME, ".ug/run/broker.sock"),
+    reposRoot: join(host, "broker/repos"),
+    reviewsDir: join(host, "broker/reviews"),
+    legacyReviewsFile: join(host, "broker/reviews.json"),
+    pushesDir: join(host, "broker/pushes"),
+    protectedDir: join(host, "protected-paths"),
     ghPath: "/opt/homebrew/bin/gh",
     gitPath: defaultGitPath(),
     github: createAppTokens({ files: appFiles(HOME) }),
     home: HOME,
-    tempRoot: join(HOME, ".agents/broker/tmp"),
+    tempRoot: join(host, "broker/tmp"),
   };
 }
 
@@ -217,24 +202,6 @@ function gitRemote(
   signal: AbortSignal,
 ): Promise<ChildResult> {
   return asApp(config, repo, access, signal, (token) => git(config, bare, args(`https://x-access-token:${token}@github.com/${repo}.git`), signal));
-}
-
-async function readAllowedRepos(config: ServerConfig): Promise<Set<string> | undefined> {
-  try {
-    return parseReposFile(await readFile(config.reposFile, "utf8"));
-  } catch {
-    return undefined;
-  }
-}
-
-async function readRoleTable(config: ServerConfig): Promise<Checked<RoleTable>> {
-  let text: string;
-  try {
-    text = await readFile(config.rolesFile, "utf8");
-  } catch {
-    return { ok: false, reason: "roles file missing" };
-  }
-  return parseRolesFile(text);
 }
 
 async function defaultBranch(config: ServerConfig, repo: string, signal: AbortSignal): Promise<string | ResultReply> {
@@ -460,11 +427,7 @@ function changedFiles(items: unknown[], expected: unknown): string[] | undefined
   return files;
 }
 
-async function handleReview(config: ServerConfig, binding: Binding, req: ReviewRequest, signal: AbortSignal): Promise<Reply> {
-  if (!isReviewerRole(binding.role)) return refused(`${binding.role_name} sessions (role ${binding.role}) cannot use review`);
-  if (!ROLE_VERDICTS[binding.role].includes(req.verdict)) {
-    return refused(`${binding.role_name} sessions (role ${binding.role}) cannot give ${req.verdict}: use ${ROLE_VERDICTS[binding.role].join(" or ")}`);
-  }
+async function handleReview(config: ServerConfig, req: ReviewRequest, signal: AbortSignal): Promise<Reply> {
   const view = await viewPr(config, req.repo, req.number, "headRefName,isCrossRepository,headRefOid", signal);
   if ("reply" in view) return view.reply;
   const headRefusal = reviewHeadRefusal(view.pr, req.sha);
@@ -472,8 +435,8 @@ async function handleReview(config: ServerConfig, binding: Binding, req: ReviewR
   const record: ReviewRecord = {
     repo: req.repo,
     pr: req.number,
-    role_name: binding.role_name,
-    role: binding.role,
+    role_name: req.role,
+    role: req.role,
     head: req.sha,
     verdict: req.verdict,
     reason: req.reason,
@@ -588,7 +551,7 @@ async function cleanUpMergedBranch(
   return { exit, stdout, stderr, merged: { branch: target.branch, head: target.head } };
 }
 
-function dispatch(config: ServerConfig, binding: Binding, req: Request, signal: AbortSignal): Promise<Reply> {
+function dispatch(config: ServerConfig, req: Request, signal: AbortSignal): Promise<Reply> {
   switch (req.verb) {
     case "sync":
       return handleSync(config, req, signal);
@@ -601,25 +564,16 @@ function dispatch(config: ServerConfig, binding: Binding, req: Request, signal: 
     case "ci-log":
       return handleCiLog(config, req, signal);
     case "review":
-      return handleReview(config, binding, req, signal);
+      return handleReview(config, req, signal);
     case "merge":
       return handleMerge(config, req, signal);
   }
 }
 
-export async function handleRequest(config: ServerConfig, binding: Binding, input: unknown, signal: AbortSignal): Promise<Reply> {
+export async function handleRequest(config: ServerConfig, input: unknown, signal: AbortSignal): Promise<Reply> {
   const checked = validateRequest(input);
   if (!checked.ok) return refused(checked.reason);
-  const roles = await readRoleTable(config);
-  if (!roles.ok) return refused(roles.reason);
-  const roleReason = roleTableRefusal(roles.value, binding);
-  if (roleReason !== undefined) return refused(roleReason);
-  const bindingReason = bindingRefusal(binding, checked.value);
-  if (bindingReason !== undefined) return refused(bindingReason);
-  const allowed = await readAllowedRepos(config);
-  if (allowed === undefined) return refused("repos file missing");
-  if (!allowed.has(checked.value.repo)) return refused("repo not allowed");
-  return dispatch(config, binding, checked.value, signal);
+  return dispatch(config, checked.value, signal);
 }
 
 type Handler = (input: unknown, signal: AbortSignal) => Promise<Reply>;
@@ -737,121 +691,17 @@ function closeServer(server: Server): Promise<void> {
   return closed.promise;
 }
 
-export type Broker = {
-  config: ServerConfig;
-  bindings: Map<string, Binding>;
-  servers: Map<string, Server>;
-  adminQueue: Promise<unknown>;
-  admin?: Server;
-};
-
-export function adminSocketPath(config: ServerConfig): string {
-  return join(config.runDir, ADMIN_SOCKET_NAME);
-}
-
-export function bindingSocketPath(config: ServerConfig, key: string): string {
-  return join(config.runDir, `${key}.sock`);
-}
-
-async function readBindings(config: ServerConfig): Promise<Map<string, Binding>> {
-  const bindings = new Map<string, Binding>();
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(await readFile(config.bindingsFile, "utf8"));
-  } catch {
-    return bindings;
-  }
-  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return bindings;
-  const roles = await readRoleTable(config);
-  if (!roles.ok) {
-    process.stdout.write(`${new Date().toISOString()} restored no binding: ${roles.reason}\n`);
-    return bindings;
-  }
-  for (const [key, value] of Object.entries(parsed)) {
-    const parts = key.split("/");
-    if (!(parts.length === 2 && parts.every(isBindingPart) && isBinding(value))) {
-      process.stdout.write(`${new Date().toISOString()} skipped invalid binding ${JSON.stringify(key)}\n`);
-      continue;
-    }
-    const binding = { repo: value.repo, role_name: value.role_name, role: value.role };
-    const reason = roleTableRefusal(roles.value, binding);
-    if (reason !== undefined) {
-      process.stdout.write(`${new Date().toISOString()} skipped binding ${JSON.stringify(key)}: ${reason}\n`);
-      continue;
-    }
-    bindings.set(key, binding);
-  }
-  return bindings;
-}
-
-export async function writeBindings(config: ServerConfig, bindings: Map<string, Binding>): Promise<void> {
-  const temp = `${config.bindingsFile}.${process.pid}.tmp`;
-  await writeFile(temp, `${JSON.stringify(Object.fromEntries(bindings), null, 2)}\n`, { mode: 0o600 });
-  await rename(temp, config.bindingsFile);
-}
-
-function listenBinding(broker: Broker, key: string): Promise<Server> {
-  return listenUnix(bindingSocketPath(broker.config, key), (input, signal) => {
-    const binding = broker.bindings.get(key);
-    if (binding === undefined) return Promise.resolve(refused("this broker socket has no binding"));
-    return handleRequest(broker.config, binding, input, signal);
-  });
-}
-
-async function handleAdmin(broker: Broker, req: AdminRequest): Promise<Reply> {
-  const { config } = broker;
-  const key = `${req.repo_id}/${req.role_name}`;
-  const path = bindingSocketPath(config, key);
-  if (Buffer.byteLength(path) > MAX_SOCKET_PATH_BYTES) return refused(`socket path ${path} is longer than ${MAX_SOCKET_PATH_BYTES} bytes`);
-  const roles = await readRoleTable(config);
-  if (!roles.ok) return refused(roles.reason);
-  const role = roles.value.get(req.role_name);
-  if (role === undefined) return refused(`role name ${req.role_name} is not in the roles file`);
-  const allowed = await readAllowedRepos(config);
-  if (allowed === undefined) return refused("repos file missing");
-  if (!allowed.has(req.repo)) return refused("repo not allowed");
-  if (!broker.servers.has(key)) broker.servers.set(key, await listenBinding(broker, key));
-  broker.bindings.set(key, { repo: req.repo, role_name: req.role_name, role });
-  await writeBindings(config, broker.bindings);
-  return { exit: 0, stdout: "", stderr: "", socket: path };
-}
-
-function adminSerial<T>(broker: Broker, work: () => Promise<T>): Promise<T> {
-  const next = broker.adminQueue.then(work);
-  broker.adminQueue = next.catch(() => {});
-  return next;
-}
-
-function adminRequest(broker: Broker, input: unknown): Promise<Reply> {
-  const checked = validateAdminRequest(input);
-  if (!checked.ok) return Promise.resolve(refused(checked.reason));
-  return adminSerial(broker, () => handleAdmin(broker, checked.value));
-}
+export type Broker = { config: ServerConfig; server: Server };
 
 export async function startServer(config: ServerConfig): Promise<Broker> {
-  await mkdir(config.runDir, { recursive: true, mode: 0o700 });
-  await chmod(config.runDir, 0o700);
-  await removeStaleSocket(join(config.runDir, "broker.sock"));
   const moved = await moveLegacyReviews(config.legacyReviewsFile, config.reviewsDir);
   if (moved.kind === "failed") process.stdout.write(`${new Date().toISOString()} cannot move review records: ${moved.reason}\n`);
   if (moved.kind === "moved") process.stdout.write(`${new Date().toISOString()} moved ${moved.count} review records into ${config.reviewsDir}\n`);
-  const broker: Broker = { config, bindings: await readBindings(config), servers: new Map(), adminQueue: Promise.resolve() };
-  for (const key of broker.bindings.keys()) {
-    try {
-      broker.servers.set(key, await listenBinding(broker, key));
-    } catch (error) {
-      process.stdout.write(`${new Date().toISOString()} cannot listen for binding ${key}: ${error instanceof Error ? error.message : String(error)}\n`);
-    }
-  }
-  broker.admin = await listenUnix(adminSocketPath(config), (input) => adminRequest(broker, input));
-  return broker;
+  return { config, server: await listenUnix(config.socketPath, (input, signal) => handleRequest(config, input, signal)) };
 }
 
 export async function stopServer(broker: Broker): Promise<void> {
-  const servers = [...broker.servers.values()];
-  if (broker.admin !== undefined) servers.push(broker.admin);
-  broker.servers.clear();
-  await Promise.all(servers.map(closeServer));
+  await closeServer(broker.server);
 }
 
 if (import.meta.main) {

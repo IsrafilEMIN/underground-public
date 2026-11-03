@@ -3,9 +3,9 @@
 # under the pinned srt with the arena ~/.ug/home as HOME, in the arena clone of the repo that the
 # owner's checkout names. Setup links it as ~/.ug/sys/bin/omp.
 #
-# This first version keeps today's brokers where they are: the GitHub broker and its sockets in
-# ~/.agents/broker, the usage broker on 127.0.0.1:18765, the auth gateway on the tailscale
-# address. Moving them is B5, B6, and B7.
+# Every session uses the one GitHub broker socket, ~/.ug/run/broker.sock, with no registration
+# (docs/SPEC.md, B7). The usage broker is on 127.0.0.1:18765, the auth gateway on the tailscale
+# address.
 # shellcheck disable=SC2016  # single quotes hold node -e code that must not expand here
 set -euo pipefail
 
@@ -32,7 +32,7 @@ ug="$HOME/.ug"
 sys="$ug/sys"
 arena="$ug/home"
 run_root="$ug/run"
-addresses="$HOME/.config/underground-broker/addresses"
+addresses="$HOME/.ug/host/addresses"
 gateway_token_file="$HOME/.ug/host/auth/auth-gateway.token"
 
 die() {
@@ -96,10 +96,10 @@ if checkout=$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null); then
   fi
 fi
 
-broker_socket=""
-if [[ -n $checkout ]]; then
-  broker_socket=$(cd / && BUN_BE_BUN=1 "$omp_bin" "$src/host/broker/admin.ts" session "$checkout" author 2>/dev/null) || broker_socket=""
-  [[ -n $broker_socket ]] || printf 'omp: the broker did not register %s, so this session has no sync, push, PR, or merge\n' "$slug" >&2
+broker_socket="$run_root/broker.sock"
+if [[ ! -S $broker_socket ]]; then
+  printf 'omp: the broker socket %s is missing, so this session has no sync, push, PR, or merge; check the launchd job com.underground.broker\n' "$broker_socket" >&2
+  broker_socket=""
 fi
 
 # --- this session's files in ~/.ug/run ------------------------------------------------------------

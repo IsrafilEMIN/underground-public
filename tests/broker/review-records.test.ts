@@ -4,11 +4,13 @@ import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
-import type { Binding, Reply, ReviewRecord } from "../../host/broker/protocol.ts";
+import type { Reply, ReviewRecord } from "../../host/broker/protocol.ts";
 import { appendReviewRecord, movedLegacyPath, moveLegacyReviews, readReviewRecords, reviewRecordsPath } from "../../host/broker/review-records.ts";
-import { defaultConfig, handleRequest, startServer, stopServer } from "../../host/broker/server.ts";
+import { defaultConfig, startServer, stopServer } from "../../host/broker/server.ts";
 import type { ServerConfig } from "../../host/broker/server.ts";
 import { fakeTokens, tokenRemote } from "./fake-app.ts";
+import { handleAs } from "./session.ts";
+import type { Session as Binding } from "./session.ts";
 import { tempDir } from "../temp.ts";
 
 const REPO = "o/r";
@@ -55,7 +57,7 @@ function bundleB64(): string {
 }
 
 function request(binding: Binding, input: Record<string, unknown>): Promise<Reply> {
-  return handleRequest(config, binding, { repo: REPO, ...input }, new AbortController().signal);
+  return handleAs(config, binding, { repo: REPO, ...input }, new AbortController().signal);
 }
 
 async function pushedPr(file: string): Promise<string> {
@@ -116,10 +118,7 @@ beforeEach(async () => {
   root = await tempDir(join(tmpdir(), "ug-b11-"));
   config = {
     ...defaultConfig(),
-    runDir: join(root, "run"),
-    bindingsFile: join(root, "bindings.json"),
-    reposFile: join(root, "repos"),
-    rolesFile: join(root, "roles"),
+    socketPath: join(root, "run", "broker.sock"),
     reposRoot: join(root, "bare"),
     reviewsDir: join(root, "reviews"),
     legacyReviewsFile: join(root, "reviews.json"),
@@ -131,8 +130,6 @@ beforeEach(async () => {
     tempRoot: join(root, "tmp"),
   };
   await mkdir(config.home);
-  await writeFile(config.reposFile, `${REPO}\n`);
-  await writeFile(config.rolesFile, "author author\ncode-review code-review\nsec-a security-review\nrisk-review risk-review\n");
   await writeFile(config.ghPath, FAKE_GH, { mode: 0o755 });
   remote = join(root, "remote.git");
   execFileSync(config.gitPath, ["init", "--bare", "--quiet", remote], { env: GIT_ENV });
@@ -143,7 +140,8 @@ beforeEach(async () => {
   execFileSync(config.gitPath, ["init", "--quiet", "-b", "main", work], { env: GIT_ENV });
 });
 
-test("broker review appends one line to the file of its PR, with the role name of the binding", async () => {
+// Since 2026-11-03 the record's role name is the reviewer role that the request names.
+test("broker review appends one line to the file of its PR, with the reviewer role it names", async () => {
   const head = await pushedPr("a.txt");
   const first = await review(CODE, head, "pass");
   assert.equal(first.exit, 0, JSON.stringify(first));
@@ -160,13 +158,13 @@ test("broker review appends one line to the file of its PR, with the role name o
   const secondRecord = JSON.parse(second.stdout);
   assert.deepEqual(await prLines(), [
     { repo: REPO, pr: 7, role_name: "code-review", role: "code-review", head, verdict: "pass", reason: "", at: firstRecord.at },
-    { repo: REPO, pr: 7, role_name: "sec-a", role: "security-review", head, verdict: "block", reason: "token in log", at: secondRecord.at },
+    { repo: REPO, pr: 7, role_name: "security-review", role: "security-review", head, verdict: "block", reason: "token in log", at: secondRecord.at },
   ]);
 });
 
 test("on first start the broker moves reviews.json into the PR files, and a second start moves nothing", async () => {
   const run = await tempDir(join(process.env.XDG_STATE_HOME ?? tmpdir(), "ugt-"));
-  const started = { ...config, runDir: join(run, "run") };
+  const started = { ...config, socketPath: join(run, "broker.sock") };
   const records = [legacy(7, "a".repeat(40), "block", "bug"), legacy(8, "a".repeat(40), "pass", "")];
   await writeFile(config.legacyReviewsFile, JSON.stringify(records));
   try {
@@ -183,10 +181,10 @@ test("on first start the broker moves reviews.json into the PR files, and a seco
   }
 });
 
-test("an author binding cannot review, and its attempt writes no record", async () => {
+test("a review that names no reviewer role is refused, and writes no record", async () => {
   const head = await pushedPr("a.txt");
   const reply = await review(AUTHOR, head, "pass");
-  assert.deepEqual(reply, { exit: 2, refused: "author sessions (role author) cannot use review" });
+  assert.deepEqual(reply, { exit: 2, refused: "role must be code-review, security-review, risk-review" });
   assert.deepEqual(await readReviewRecords(config.reviewsDir, { repo: REPO, pr: 7 }), { kind: "records", records: [] });
 });
 
@@ -205,7 +203,7 @@ test("pr-status shows every record of the PR with role, verdict, and reason", as
     status.reviewRecords.map((r: ReviewRecord) => [r.role_name, r.role, r.verdict, r.reason]),
     [
       ["code-review", "code-review", "pass", ""],
-      ["sec-a", "security-review", "block", "token in log"],
+      ["security-review", "security-review", "block", "token in log"],
     ],
   );
 

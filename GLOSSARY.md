@@ -23,11 +23,11 @@ The folder `~/.ug/sys`: the pinned omp binary, the pinned srt, and `bin/omp`, th
 _Avoid_: install dir, owner part
 
 **Sockets folder**:
-The folder `~/.ug/run`: the broker sockets and the rendered srt settings. The sandbox can use only the sockets that its settings list, and cannot write the folder, so it cannot plant a socket or a link here.
+The folder `~/.ug/run`: the broker socket `broker.sock`, the session folders, and the rendered srt settings. The sandbox can use only the sockets that its settings list, and cannot write the folder, so it cannot plant a socket or a link here.
 _Avoid_: run dir, socket dir
 
 **Host zone**:
-The folder `~/.ug/host`: everything the sandbox gets nothing of. The broker app's private key, the auth broker's own root with the model logins, the broker's records, and the owner's hand-edited broker files, such as the addresses file (owner decision, 2026-11-03). Until the broker rebuild, these still sit in `~/.agents`, `~/.config/underground-broker`, and `~/.omp`.
+The folder `~/.ug/host`: everything the sandbox gets nothing of. The broker app's private key, the auth broker's own root with the model logins, the broker's records, and the owner's hand-edited broker files, such as the addresses file (owner decision, 2026-11-03). Setup moved them there from `~/.agents/broker`, `~/.config/underground-broker`, and `~/.omp` (`docs/SPEC.md`, B6 and B7).
 _Avoid_: vault, keys dir
 
 **Owner's zone**:
@@ -95,27 +95,15 @@ _Avoid_: domain list, egress list
 ### GitHub and the merge
 
 **Broker**:
-The host service that does GitHub operations for the sandbox. It holds the only GitHub credential that agents use.
+The host service that does GitHub operations for the sandbox (launchd `com.underground.broker`). It holds the only GitHub credential that agents use. One socket, `~/.ug/run/broker.sock`, serves every session; the wrapper passes it as `UG_BROKER_SOCKET`. The broker has no roles and no list of repos: it serves each repo where the broker app is installed (`docs/SPEC.md`, B7).
 _Avoid_: gh-broker, agent-gh, proxy
 
-**Broker binding**:
-One repo and one role name that one broker socket serves. Its socket moves to the sockets folder (`docs/SPEC.md`, B5). The binding holds the role name and the binding role that the role table maps it to. It allows the verbs of its binding role on that repo only. On each request and at a broker restart, the broker refuses a binding whose role name left the role table or now maps to another binding role.
-_Avoid_: ticket token, shared socket, scope
-
-**Binding role**:
-The role of a broker binding: `author`, or one reviewer role: `code-review`, `security-review`, or `risk-review`. An author binding can use `sync`, `push`, `pr-create`, `pr-status`, `ci-log`, and `merge`. A reviewer binding can use `sync`, `pr-status`, and `review`.
-_Avoid_: socket type, mode
-
-**Role table**:
-The owner-only file that maps each role name to its binding role, for example `security-review security-review`. A role name is `a-z`, `0-9`, and `-`, up to 32 characters. The wrapper and the broker refuse a name that is not in it. `omp` with no `--role` uses the name `author`. It moves from `~/.config/underground-broker/roles` under `~/.ug`; its exact place is open (`docs/SPEC.md`, B9).
-_Avoid_: role list, profile list
-
-**Reviewer session**:
-An omp session that the owner starts with `omp --role <name>`, where the role table maps the name to a reviewer role. It shares the arena and the trust level of every other session. Its rules come as a skill from the config repo. It reads the PR in the arena clone, through `broker sync --pr`, and writes its verdict with `broker review`. It is a quality step, not a safety wall (`docs/adr/0011-one-agent-arena.md`).
-_Avoid_: review agent, bug bot, security bot
+**Reviewer role**:
+One of `code-review`, `security-review`, and `risk-review`. A reviewer is a skill from the config repo, not a separate session: any omp session can run it, with the arena and the trust level of every other session. It reads the PR with `broker sync <owner/repo> --pr <n>`, which fetches the head into the repo of the current folder, and writes its verdict with `broker review`, which names the role. It is a quality step, not a safety wall (`docs/adr/0011-one-agent-arena.md`).
+_Avoid_: reviewer session, review agent, bug bot, security bot
 
 **Review verdict**:
-A record that a reviewer session writes with `broker review` for one PR and one full head sha: `pass`, `manual`, or `block`, with a reason for `manual` and `block`, and the role name and binding role of the session. `code-review` and `security-review` give `pass` or `block`; `risk-review` gives `pass` (auto) or `manual`. The broker appends each verdict as one line to the file of its PR on the host and keeps the file after the merge. A verdict from before role names has role name `null`: its `block` and `manual` count, and its `pass` counts for no role.
+A record that a reviewer writes with `broker review <owner/repo> <n> <sha> <role> <verdict> [reason]` for one PR and one full head sha: `pass`, `manual`, or `block`, with a reason for `manual` and `block`, and the reviewer role. The broker refuses a verdict that the role cannot give. `code-review` and `security-review` give `pass` or `block`; `risk-review` gives `pass` (auto) or `manual`. The broker appends each verdict as one line to the file of its PR in `~/.ug/host/broker/reviews` and keeps the file after the merge. A verdict from before role names has role name `null`: its `block` and `manual` count, and its `pass` counts for no role.
 _Avoid_: reviewer result, finding, approval
 
 **Attempt**:
@@ -127,7 +115,7 @@ A state of a PR that makes `broker merge` refuse with a reason that says the own
 _Avoid_: lock, freeze
 
 **Protected path**:
-A path that the auto merge never accepts: `.github/**`, every `CODEOWNERS` file, and each glob in the owner's protected-paths list of the repo. A rename counts its old path and its new path.
+A path that the auto merge never accepts: `.github/**`, every `CODEOWNERS` file, and each glob in the owner's protected-paths list of the repo, `~/.ug/host/protected-paths/<owner>/<repo>`. A rename counts its old path and its new path.
 _Avoid_: manual path, sensitive path
 
 **Auto merge**:
@@ -135,11 +123,11 @@ The only merge that `broker merge` does: green checks, a head that is the push r
 _Avoid_: auto tier, bot merge, owner-approved merge
 
 **Push record**:
-The commit that the broker last pushed to one branch of one repo. A later push replaces it. The broker keeps it on the host, with the `/` in the branch name written as `%2F`.
+The commit that the broker last pushed to one branch of one repo. A later push replaces it. The broker keeps it in `~/.ug/host/broker/pushes`, with the `/` in the branch name written as `%2F`.
 _Avoid_: push log, provenance record
 
 **Broker app**:
-The GitHub App that the broker acts as. The owner's personal account owns it, and it is installed only on the selected repos, with Contents and Pull requests read and write, Metadata, Checks, and Commit statuses read, and no Workflows or Administration permission. Its private key moves to `~/.ug/host/github-app.pem` (`docs/SPEC.md`, B7). GitHub shows the broker's actions as `<app slug>[bot]` (`docs/adr/0007-broker-github-app.md`).
+The GitHub App that the broker acts as. The owner's personal account owns it, and it is installed only on the selected repos, with Contents and Pull requests read and write, Metadata, Checks, and Commit statuses read, and no Workflows or Administration permission. Its private key is `~/.ug/host/github-app.pem`, mode 600, beside `github-app.json` (`docs/SPEC.md`, B7). GitHub shows the broker's actions as `<app slug>[bot]` (`docs/adr/0007-broker-github-app.md`).
 _Avoid_: bot account, bot token, broker token, machine user, service account
 
 **Installation token**:
@@ -177,7 +165,7 @@ The model server on `v100-server`, another box on the tailnet, at the `engine=` 
 _Avoid_: local model, llama
 
 **Addresses file**:
-The owner-only file with two lines: `gateway=<ip>:<port>`, the auth gateway on the tailscale address of this mac, and `engine=<ip>:<port>`, the inference engine. Setup writes it only when it is missing, from the first line of `tailscale ip -4` with port `4000`; the owner edits it later. It moves from `~/.config/underground-broker/addresses` under `~/.ug`; its exact place is open (`docs/SPEC.md`, B9).
+The owner-only file with two lines: `gateway=<ip>:<port>`, the auth gateway on the tailscale address of this mac, and `engine=<ip>:<port>`, the inference engine. Setup writes it only when it is missing, from the first line of `tailscale ip -4` with port `4000`; the owner edits it later. It is `~/.ug/host/addresses`; setup moved it there once from `~/.config/underground-broker/addresses` (`docs/SPEC.md`, B7).
 _Avoid_: address config, hosts file
 
 ### Decisions
