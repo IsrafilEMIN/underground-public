@@ -19,6 +19,15 @@ if [[ $# -ne 0 ]]; then
 fi
 
 src=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)
+ug_real=$(cd "$HOME/.ug" 2>/dev/null && pwd -P) || ug_real="$HOME/.ug"
+# Setup points the launchd services, which run with no sandbox and hold the GitHub key, at the
+# code in $src. Agents write everything under ~/.ug, so a checkout there would hand them the host.
+case $src/ in
+  "$HOME/.ug/"* | "$ug_real/"*)
+    printf 'ug-setup: %s is inside ~/.ug, where agents write; run setup from your own checkout\n' "$src" >&2
+    exit 64
+    ;;
+esac
 sys="$HOME/.ug/sys"
 node_bin=/opt/homebrew/bin/node
 npm_bin=/opt/homebrew/bin/npm

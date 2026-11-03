@@ -104,7 +104,8 @@ test("omp-arena: no variable of the caller's shell reaches omp, and omp starts i
   assert.equal(r.envOf("OMP_WORKTREE_DIR"), join(arena, ".omp/wt/Test-Owner-proj"));
   assert.match(r.stdout, new RegExp(`^CWD=${join(arena, "work/Test-Owner/proj")}$`, "m"));
   assert.match(r.stdout, /^ARGS=--model x$/m);
-  const remote = spawnSync("git", ["-C", join(arena, "work/Test-Owner/proj"), "remote", "get-url", "origin"], { encoding: "utf8" });
+  // The stored value, not `remote get-url`: that one applies the tester's own insteadOf rules.
+  const remote = spawnSync("git", ["-C", join(arena, "work/Test-Owner/proj"), "config", "--get", "remote.origin.url"], { encoding: "utf8" });
   assert.equal(remote.stdout.trim(), "https://github.com/Test-Owner/proj.git");
 });
 
