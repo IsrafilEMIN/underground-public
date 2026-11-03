@@ -39,7 +39,7 @@ import type {
 import { appFiles, createAppTokens, redactTokens } from "./github-app.ts";
 import type { GithubTokens } from "./github-app.ts";
 import { dropPushRecord, readPushRecord, writePushRecord } from "./push-record.ts";
-import { appendReviewRecord, moveLegacyReviews, readReviewRecords } from "./review-records.ts";
+import { appendReviewRecord, readReviewRecords } from "./review-records.ts";
 
 // One socket serves every arena session, and every request stands on its own: there are no
 // bindings, no roles, and no list of repos. A repo works when the broker app is installed on it,
@@ -48,7 +48,6 @@ export type ServerConfig = {
   socketPath: string;
   reposRoot: string;
   reviewsDir: string;
-  legacyReviewsFile: string;
   pushesDir: string;
   protectedDir: string;
   ghPath: string;
@@ -79,7 +78,6 @@ export function defaultConfig(): ServerConfig {
     socketPath: join(HOME, ".ug/run/broker.sock"),
     reposRoot: join(host, "broker/repos"),
     reviewsDir: join(host, "broker/reviews"),
-    legacyReviewsFile: join(host, "broker/reviews.json"),
     pushesDir: join(host, "broker/pushes"),
     protectedDir: join(host, "protected-paths"),
     ghPath: "/opt/homebrew/bin/gh",
@@ -407,15 +405,6 @@ async function readOptional(path: string): Promise<string | undefined> {
   }
 }
 
-async function legacyReviewsLeft(config: ServerConfig): Promise<boolean> {
-  try {
-    await lstat(config.legacyReviewsFile);
-    return true;
-  } catch (error) {
-    return !(isRecord(error) && error.code === "ENOENT");
-  }
-}
-
 function changedFiles(items: unknown[], expected: unknown): string[] | undefined {
   if (items.length !== expected) return undefined;
   const files: string[] = [];
@@ -476,7 +465,7 @@ async function handleMerge(config: ServerConfig, req: MergeRequest, signal: Abor
     head: pr.headRefOid,
     pushed: await readPushRecord(config.pushesDir, { repo: req.repo, branch: pr.headRefName }),
     checks: pr.statusCheckRollup,
-    records: (await legacyReviewsLeft(config)) ? { kind: "unreadable" } : await readReviewRecords(config.reviewsDir, { repo: req.repo, pr: req.number }),
+    records: await readReviewRecords(config.reviewsDir, { repo: req.repo, pr: req.number }),
     files: "items" in listed ? changedFiles(listed.items, pr.changedFiles) : undefined,
     protectedGlobs: parseProtectedPaths(protectedText),
   });
@@ -693,9 +682,6 @@ function closeServer(server: Server): Promise<void> {
 export type Broker = { config: ServerConfig; server: Server };
 
 export async function startServer(config: ServerConfig): Promise<Broker> {
-  const moved = await moveLegacyReviews(config.legacyReviewsFile, config.reviewsDir);
-  if (moved.kind === "failed") process.stdout.write(`${new Date().toISOString()} cannot move review records: ${moved.reason}\n`);
-  if (moved.kind === "moved") process.stdout.write(`${new Date().toISOString()} moved ${moved.count} review records into ${config.reviewsDir}\n`);
   return { config, server: await listenUnix(config.socketPath, (input, signal) => handleRequest(config, input, signal)) };
 }
 

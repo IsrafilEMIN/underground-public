@@ -51,7 +51,6 @@ beforeEach(async () => {
     socketPath: join(root, "run", "broker.sock"),
     reposRoot: join(root, "bare"),
     reviewsDir: join(root, "reviews"),
-    legacyReviewsFile: join(root, "reviews.json"),
     pushesDir: join(root, "pushes"),
     protectedDir: join(root, "protected"),
     ghPath: join(root, "gh"),
