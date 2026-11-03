@@ -90,7 +90,7 @@ run_tests() {
 run_tests
 
 [[ -d $HOME/.ug ]] || install -d -m 700 "$HOME/.ug"
-install -d -m 700 "$sys" "$sys/omp" "$sys/srt" "$sys/bin" "$sys/agent-bin" "$sys/libexec" "$sys/arena" "$sys/broker" "$HOME/.ug/run"
+install -d -m 700 "$sys" "$sys/omp" "$sys/srt" "$sys/bin" "$sys/agent-bin" "$sys/libexec" "$sys/broker" "$HOME/.ug/run"
 
 install_omp() {
   local dir="$sys/omp/$omp_pin" dest tmp have url
@@ -151,7 +151,8 @@ link() {
 install_arena_files() {
   local shim
   put "$src/host/arena/init" "$sys/libexec/ug-arena-init" 555
-  put "$src/host/arena/config.yml" "$sys/arena/config.yml" 444
+  # The seed config.yml is gone: the config repo holds config.yml (docs/SPEC.md, B3).
+  rm -rf "$sys/arena"
   put "$src/host/broker/client.ts" "$sys/broker/client.ts" 444
   put "$src/host/broker/protocol.ts" "$sys/broker/protocol.ts" 444
   shim=$(mktemp "$sys/agent-bin/.shim.XXXXXX")

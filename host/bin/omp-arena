@@ -5,7 +5,8 @@
 #
 # Every session uses the one GitHub broker socket, ~/.ug/run/broker.sock, with no registration
 # (docs/SPEC.md, B7). The usage broker is on 127.0.0.1:18765, the auth gateway on the tailscale
-# address.
+# address. The owner's config repo, named in ~/.ug/host/config-repo, holds the agent's rules,
+# skills, and settings; each start copies it into the arena (docs/SPEC.md, B3).
 # shellcheck disable=SC2016  # single quotes hold node -e code that must not expand here
 set -euo pipefail
 
@@ -34,6 +35,15 @@ arena="$ug/home"
 run_root="$ug/run"
 addresses="$HOME/.ug/host/addresses"
 gateway_token_file="$HOME/.ug/host/auth/auth-gateway.token"
+broker_token_file="$HOME/.ug/host/auth/auth-broker.token"
+config_repo_file="$HOME/.ug/host/config-repo"
+# The names in omp's ~/.omp/agent that the config repo owns (omp docs, config-usage.md, hooks.md,
+# omp 18.13.2). Each start replaces each of them in the arena with the repo's copy, and removes one
+# that the repo does not have. omp's own data (sessions, agent.db, caches) and secrets
+# (secrets.yml, .env) are not on the list.
+config_names=(AGENTS.md RULES.md APPEND_SYSTEM.md PERSONALITY.md SYSTEM_TEMPLATE.md WATCHDOG.md TITLE_SYSTEM.md
+  config.yml models.yml keybindings.yml lsp.json mcp.json
+  agents commands extensions hooks rules skills themes tools)
 
 die() {
   printf 'omp: %s\n' "$*" >&2
@@ -59,7 +69,7 @@ done
 [[ -x $node_bin ]] || die "missing $node_bin"
 [[ -f $omp_bin && -x $omp_bin && ! -L $omp_bin ]] || die "the pinned omp $omp_bin is missing; run $src/host/bin/ug-setup"
 [[ -f $srt_cli ]] || die "the pinned srt is missing in $sys/srt/$srt_pin; run $src/host/bin/ug-setup"
-[[ -x $sys/libexec/ug-arena-init && -x $sys/agent-bin/broker && -f $sys/arena/config.yml ]] || die "the arena files are missing in $sys; run $src/host/bin/ug-setup"
+[[ -x $sys/libexec/ug-arena-init && -x $sys/agent-bin/broker ]] || die "the arena files are missing in $sys; run $src/host/bin/ug-setup"
 want_build=$(cat "$sys/macos-build" 2>/dev/null) || want_build=""
 have_build=$(sw_vers -buildVersion 2>/dev/null) || have_build=""
 [[ -n $want_build && $have_build == "$want_build" ]] ||
@@ -109,17 +119,64 @@ run_dir=$(mktemp -d "$run_root/session.XXXXXX")
 gateway=$(sed -n 's/^gateway=//p' "$addresses" 2>/dev/null) || gateway=""
 [[ -n $gateway ]] || die "no gateway= line in $addresses"
 [[ -f $gateway_token_file ]] || die "missing the gateway bearer $gateway_token_file"
-cp "$sys/arena/config.yml" "$run_dir/config.yml"
+
+# --- the config repo ------------------------------------------------------------------------------
+# The wrapper copies the repo's items into this session's run folder, which the sandbox can read but
+# not write; the start step inside the sandbox then puts them in the arena. Everything that it copies
+# becomes readable by the agent, so a link (it could point at ~/.ssh), a special file, or a file
+# with a token shape or the auth broker's bearer stops the start. models.yml keeps its
+# @GATEWAY@ and @GATEWAY_TOKEN@ markers in the repo; the wrapper fills them below.
+config_repo=""
+if [[ -f $config_repo_file ]]; then
+  config_repo=$(sed -n '1p' "$config_repo_file")
+  # A leading ~/ in the file means the home folder.
+  # shellcheck disable=SC2088  # the ~ is the literal text of the file, not a path to expand here
+  [[ ${config_repo:0:2} == "~/" ]] && config_repo="$HOME/${config_repo:2}"
+fi
+models_src=""
+if [[ -z $config_repo ]]; then
+  printf 'omp: warning: no config repo is named in %s, so this session keeps the rules, skills, settings, and models.yml that the arena has\n' "$config_repo_file" >&2
+elif [[ ! -d $config_repo || -L $config_repo ]]; then
+  printf 'omp: warning: the config repo %s is not a folder, so this session keeps the rules, skills, settings, and models.yml that the arena has\n' "$config_repo" >&2
+else
+  mkdir "$run_dir/config"
+  secret_values="$run_dir/secret-values"
+  trap 'rm -f "$secret_values"' EXIT
+  : >"$secret_values"
+  if [[ -f $broker_token_file ]]; then
+    value=$(tr -d '[:space:]' <"$broker_token_file")
+    [[ ${#value} -lt 12 ]] || printf '%s\n' "$value" >"$secret_values"
+  fi
+  for name in "${config_names[@]}"; do
+    item="$config_repo/$name"
+    [[ -e $item || -L $item ]] || continue
+    odd=$(find "$item" \( -type l -o ! -type f ! -type d \) -print 2>/dev/null | head -1)
+    [[ -z $odd ]] || die "the config repo has a link or a special file, which could bring a file from outside into the sandbox: $odd"
+    leak=$(grep -r -l -a -E -f "$src/host/secret-patterns" "$item" 2>/dev/null | head -1) || true
+    [[ -n $leak || ! -s $secret_values ]] || leak=$(grep -r -l -a -F -f "$secret_values" "$item" 2>/dev/null | head -1) || true
+    [[ -z $leak ]] || die "the config repo file $leak holds a token or a key; the agent can read every file of the config repo, so take it out"
+    if [[ $name == models.yml ]]; then
+      [[ -f $item ]] || die "the config repo's models.yml is not a file"
+      models_src=$item
+    else
+      cp -R "$item" "$run_dir/config/$name"
+    fi
+  done
+  rm -f "$secret_values"
+  [[ -n $models_src ]] || printf 'omp: warning: the config repo %s has no models.yml, so omp reaches no model through the gateway\n' "$config_repo" >&2
+  printf '%s\n' "${config_names[@]}" >"$run_dir/config-names"
+fi
 
 "$node_bin" -e '
   const fs = require("fs");
-  const [runDir, home, arena, sys, src, gateway, tokenFile, brokerSocket] = process.argv.slice(1);
-  const token = fs.readFileSync(tokenFile, "utf8").trim();
-  const models = fs.readFileSync(`${src}/host/roles/models.yml`, "utf8")
-    .replaceAll("@GATEWAY@", gateway).replaceAll("@GATEWAY_TOKEN@", token);
-  const left = /@[A-Z_]+@/.exec(models);
-  if (left) { console.error(`omp: models.yml has an unknown placeholder ${left[0]}`); process.exit(1); }
-  fs.writeFileSync(`${runDir}/models.yml`, models, { mode: 0o600 });
+  const [runDir, home, arena, sys, src, gateway, tokenFile, brokerSocket, modelsSrc] = process.argv.slice(1);
+  if (modelsSrc) {
+    const token = fs.readFileSync(tokenFile, "utf8").trim();
+    const models = fs.readFileSync(modelsSrc, "utf8").replaceAll("@GATEWAY@", gateway).replaceAll("@GATEWAY_TOKEN@", token);
+    const left = /@[A-Z_]+@/.exec(models);
+    if (left) { console.error(`omp: models.yml of the config repo has an unknown placeholder ${left[0]}`); process.exit(1); }
+    fs.writeFileSync(`${runDir}/config/models.yml`, models, { mode: 0o600 });
+  }
   const allowedDomains = fs.readFileSync(`${src}/host/roles/network-allowlist`, "utf8").replaceAll("@GATEWAY@", gateway)
     .split("\n").map((l) => l.replace(/#.*/, "").trim()).filter((l) => l !== "");
   const bad = allowedDomains.find((d) => d.includes("@"));
@@ -133,7 +190,7 @@ cp "$sys/arena/config.yml" "$run_dir/config.yml"
     allowPty: true,
   };
   fs.writeFileSync(`${runDir}/srt.json`, JSON.stringify(settings, null, 2) + "\n", { mode: 0o600 });
-' "$run_dir" "$HOME" "$arena" "$sys" "$src" "$gateway" "$gateway_token_file" "$broker_socket"
+' "$run_dir" "$HOME" "$arena" "$sys" "$src" "$gateway" "$gateway_token_file" "$broker_socket" "$models_src"
 
 # --- start ----------------------------------------------------------------------------------------
 # A clean environment: only the variables named here reach srt and omp. srt keeps the real HOME

@@ -84,7 +84,7 @@ To uninstall: delete `~/.ug` and the launchd files.
 
 - Agent → usage broker → gateway. The usage broker holds no credentials.
 - omp's `/usage` reads only local logins or a broker client (omp `packages/coding-agent/src/session/agent-session.ts:14301`, `main` at `650f3a1`, read 2026-11-02). So the usage broker stays until omp serves usage through the gateway.
-- It moves to the tailscale address, so the auth path needs no localhost.
+- It stays on `127.0.0.1:18765`, because localhost stays on for omp's own features (`SPEC.md`, B5).
 
 ## The omp binary
 
