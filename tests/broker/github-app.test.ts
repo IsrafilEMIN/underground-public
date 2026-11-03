@@ -14,11 +14,11 @@ import { defaultConfig } from "../../host/broker/server.ts";
 import type { ServerConfig } from "../../host/broker/server.ts";
 import { FAKE_TOKEN, fakeTokens, tokenRemote } from "./fake-app.ts";
 import { handleAs } from "./session.ts";
-import type { Session as Binding } from "./session.ts";
+import type { Session } from "./session.ts";
 import { tempDir } from "../temp.ts";
 
 const REPO = "o/r";
-const AUTHOR: Binding = { repo: REPO, role_name: "author", role: "author" };
+const AUTHOR: Session = { role: "author" };
 const GIT_ENV = { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" };
 const NOW = Date.parse("2026-10-31T12:00:00Z");
 const { privateKey, publicKey } = generateKeyPairSync("rsa", {

@@ -2,7 +2,7 @@
 
 Date: 2026-10-30. Owner decision.
 
-Holds under the redesign (2026-11-02, `../PRODUCT-BRIEF.md`). Every session uses one allowlist, `host/roles/network-allowlist` in the owner's checkout. Roles no longer differ in reach (`0011-one-agent-arena.md`). A per-repo allowlist is deferred.
+Holds under the redesign (2026-11-02, `../PRODUCT-BRIEF.md`). Every session uses one allowlist, `host/network-allowlist` in the owner's checkout (until 2026-11-03 it sat at `host/roles/network-allowlist`). Roles no longer differ in reach (`0011-one-agent-arena.md`). A per-repo allowlist is deferred.
 
 We accept one irreversible risk: U14, the agent can send data that it can read to a destination on the srt allowlist. Every role uses one allowlist (amendment below), and we keep a destination only when a step of some role needs it.
 

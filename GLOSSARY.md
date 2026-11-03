@@ -93,7 +93,7 @@ A way into or out of the arena: code out, model calls, `/usage`, web out, config
 _Avoid_: hole, exception, bypass
 
 **Network allowlist**:
-The network destinations of every session, one per line in `host/roles/network-allowlist` in the owner's checkout of underground. The wrapper puts its lines in the srt `allowedDomains` at each start, and refuses an address without a port. A tailscale entry names the address and the port of one service, never the bare address. The template names the auth gateway as `@GATEWAY@`, which the wrapper fills from the addresses file. Its entries: the auth gateway, `github.com`, the web search domains, and `registry.npmjs.org`.
+The network destinations of every session, one per line in `host/network-allowlist` in the owner's checkout of underground. The wrapper puts its lines in the srt `allowedDomains` at each start, and refuses an address without a port. A tailscale entry names the address and the port of one service, never the bare address. The template names the auth gateway as `@GATEWAY@`, which the wrapper fills from the addresses file. Its entries: the auth gateway, `github.com`, the web search domains, and `registry.npmjs.org`.
 _Avoid_: domain list, egress list
 
 ### GitHub and the merge
@@ -107,7 +107,7 @@ One of `code-review`, `security-review`, and `risk-review`. A reviewer is a skil
 _Avoid_: reviewer session, review agent, bug bot, security bot
 
 **Review verdict**:
-A record that a reviewer writes with `broker review <owner/repo> <n> <sha> <role> <verdict> [reason]` for one PR and one full head sha: `pass`, `manual`, or `block`, with a reason for `manual` and `block`, and the reviewer role. The broker refuses a verdict that the role cannot give. `code-review` and `security-review` give `pass` or `block`; `risk-review` gives `pass` (auto) or `manual`. The broker appends each verdict as one line to the file of its PR in `~/.ug/host/broker/reviews` and keeps the file after the merge. A verdict from before role names has role name `null`: its `block` and `manual` count, and its `pass` counts for no role.
+A record that a reviewer writes with `broker review <owner/repo> <n> <sha> <role> <verdict> [reason]` for one PR and one full head sha: `pass`, `manual`, or `block`, with a reason for `manual` and `block`, and the reviewer role. The broker refuses a verdict that the role cannot give. `code-review` and `security-review` give `pass` or `block`; `risk-review` gives `pass` (auto) or `manual`. The broker appends each verdict as one line to the file of its PR in `~/.ug/host/broker/reviews` and keeps the file after the merge. A verdict from before reviewer roles has role `null`: its `block` and `manual` count, and its `pass` counts for no role. A record written before 2026-11-03 also holds `role_name`, the name from the old role table; the broker reads it and drops it.
 _Avoid_: reviewer result, finding, approval
 
 **Attempt**:

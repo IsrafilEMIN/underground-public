@@ -10,15 +10,15 @@ import { defaultConfig, startServer, stopServer } from "../../host/broker/server
 import type { ServerConfig } from "../../host/broker/server.ts";
 import { fakeTokens, tokenRemote } from "./fake-app.ts";
 import { handleAs } from "./session.ts";
-import type { Session as Binding } from "./session.ts";
+import type { Session } from "./session.ts";
 import { tempDir } from "../temp.ts";
 
 const REPO = "o/r";
 const BRANCH = "agent/x";
-const AUTHOR: Binding = { repo: REPO, role_name: "author", role: "author" };
-const CODE: Binding = { repo: REPO, role_name: "code-review", role: "code-review" };
-const SECURITY: Binding = { repo: REPO, role_name: "sec-a", role: "security-review" };
-const RISK: Binding = { repo: REPO, role_name: "risk-review", role: "risk-review" };
+const AUTHOR: Session = { role: "author" };
+const CODE: Session = { role: "code-review" };
+const SECURITY: Session = { role: "security-review" };
+const RISK: Session = { role: "risk-review" };
 const GIT_ENV = { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" };
 
 const FAKE_GH = `#!/bin/sh
@@ -56,8 +56,8 @@ function bundleB64(): string {
   return execFileSync(config.gitPath, ["bundle", "create", "-", `refs/heads/${BRANCH}`], { cwd: work, env: GIT_ENV }).toString("base64");
 }
 
-function request(binding: Binding, input: Record<string, unknown>): Promise<Reply> {
-  return handleAs(config, binding, { repo: REPO, ...input }, new AbortController().signal);
+function request(session: Session, input: Record<string, unknown>): Promise<Reply> {
+  return handleAs(config, session, { repo: REPO, ...input }, new AbortController().signal);
 }
 
 async function pushedPr(file: string): Promise<string> {
@@ -79,13 +79,13 @@ async function pushedPr(file: string): Promise<string> {
   return head;
 }
 
-function review(binding: Binding, sha: string, verdict: string, reason = ""): Promise<Reply> {
-  return request(binding, { verb: "review", number: 7, sha, verdict, reason });
+function review(session: Session, sha: string, verdict: string, reason = ""): Promise<Reply> {
+  return request(session, { verb: "review", number: 7, sha, verdict, reason });
 }
 
 async function passAll(head: string): Promise<void> {
-  for (const binding of [CODE, SECURITY, RISK]) {
-    const reply = await review(binding, head, "pass");
+  for (const session of [CODE, SECURITY, RISK]) {
+    const reply = await review(session, head, "pass");
     assert.equal(reply.exit, 0, JSON.stringify(reply));
   }
 }
@@ -111,7 +111,7 @@ function legacy(pr: number, head: string, verdict: string, reason: string, repo 
 }
 
 function migrated(record: Record<string, unknown>): Record<string, unknown> {
-  return { repo: record.repo, pr: record.pr, role_name: null, role: null, head: record.head, verdict: record.verdict, reason: record.reason, at: record.at };
+  return { repo: record.repo, pr: record.pr, role: null, head: record.head, verdict: record.verdict, reason: record.reason, at: record.at };
 }
 
 beforeEach(async () => {
@@ -149,7 +149,7 @@ test("broker review appends one line to the file of its PR, with the reviewer ro
   const firstRecord = JSON.parse(first.stdout);
   assert.ok(Number.isFinite(Date.parse(firstRecord.at)));
   assert.deepEqual(await prLines(), [
-    { repo: REPO, pr: 7, role_name: "code-review", role: "code-review", head, verdict: "pass", reason: "", at: firstRecord.at },
+    { repo: REPO, pr: 7, role: "code-review", head, verdict: "pass", reason: "", at: firstRecord.at },
   ]);
 
   const second = await review(SECURITY, head, "block", "token in log");
@@ -157,8 +157,8 @@ test("broker review appends one line to the file of its PR, with the reviewer ro
   assert.ok("stdout" in second);
   const secondRecord = JSON.parse(second.stdout);
   assert.deepEqual(await prLines(), [
-    { repo: REPO, pr: 7, role_name: "code-review", role: "code-review", head, verdict: "pass", reason: "", at: firstRecord.at },
-    { repo: REPO, pr: 7, role_name: "security-review", role: "security-review", head, verdict: "block", reason: "token in log", at: secondRecord.at },
+    { repo: REPO, pr: 7, role: "code-review", head, verdict: "pass", reason: "", at: firstRecord.at },
+    { repo: REPO, pr: 7, role: "security-review", head, verdict: "block", reason: "token in log", at: secondRecord.at },
   ]);
 });
 
@@ -200,10 +200,10 @@ test("pr-status shows every record of the PR with role, verdict, and reason", as
   assert.equal(status.headRefOid, head);
   assert.deepEqual(status.reviewRecords, await prLines());
   assert.deepEqual(
-    status.reviewRecords.map((r: ReviewRecord) => [r.role_name, r.role, r.verdict, r.reason]),
+    status.reviewRecords.map((r: ReviewRecord) => [r.role, r.verdict, r.reason]),
     [
-      ["code-review", "code-review", "pass", ""],
-      ["security-review", "security-review", "block", "token in log"],
+      ["code-review", "pass", ""],
+      ["security-review", "block", "token in log"],
     ],
   );
 
@@ -234,10 +234,42 @@ test("the gate reads only the file of its PR: a damaged file of another PR does 
 
 test("a record in the file of another PR makes that file unreadable", async () => {
   const head = "a".repeat(40);
-  const other = { repo: REPO, pr: 8, role_name: "code-review", role: "code-review", head, verdict: "pass", reason: "", at: "2026-10-01T00:00:00.000Z" };
+  const other = { repo: REPO, pr: 8, role: "code-review", head, verdict: "pass", reason: "", at: "2026-10-01T00:00:00.000Z" };
   await mkdir(join(config.reviewsDir, REPO), { recursive: true });
   await writeFile(reviewRecordsPath(config.reviewsDir, { repo: REPO, pr: 7 }), `${JSON.stringify(other)}\n`);
   assert.deepEqual(await readReviewRecords(config.reviewsDir, { repo: REPO, pr: 7 }), { kind: "unreadable" });
+});
+
+test("a record written before 2026-11-03 with role_name still reads, and the reader drops role_name", async () => {
+  const head = "a".repeat(40);
+  const at = "2026-11-01T00:00:00.000Z";
+  const lines = [
+    { repo: REPO, pr: 7, role_name: "sec-a", role: "security-review", head, verdict: "block", reason: "bug", at },
+    { repo: REPO, pr: 7, role_name: null, role: null, head, verdict: "pass", reason: "", at },
+  ];
+  await mkdir(join(config.reviewsDir, REPO), { recursive: true });
+  await writeFile(reviewRecordsPath(config.reviewsDir, { repo: REPO, pr: 7 }), lines.map((line) => `${JSON.stringify(line)}\n`).join(""));
+  assert.deepEqual(await readReviewRecords(config.reviewsDir, { repo: REPO, pr: 7 }), {
+    kind: "records",
+    records: [
+      { repo: REPO, pr: 7, role: "security-review", head, verdict: "block", reason: "bug", at },
+      { repo: REPO, pr: 7, role: null, head, verdict: "pass", reason: "", at },
+    ],
+  });
+});
+
+test("a record whose role_name does not fit its role makes the file unreadable", async () => {
+  const head = "a".repeat(40);
+  const at = "2026-11-01T00:00:00.000Z";
+  for (const line of [
+    { repo: REPO, pr: 7, role_name: null, role: "code-review", head, verdict: "pass", reason: "", at },
+    { repo: REPO, pr: 7, role_name: "code-review", role: null, head, verdict: "pass", reason: "", at },
+    { repo: REPO, pr: 7, role: "author", head, verdict: "pass", reason: "", at },
+  ]) {
+    await mkdir(join(config.reviewsDir, REPO), { recursive: true });
+    await writeFile(reviewRecordsPath(config.reviewsDir, { repo: REPO, pr: 7 }), `${JSON.stringify(line)}\n`);
+    assert.deepEqual(await readReviewRecords(config.reviewsDir, { repo: REPO, pr: 7 }), { kind: "unreadable" }, JSON.stringify(line));
+  }
 });
 
 test("the broker moves each record of reviews.json into the file of its PR once", async () => {
@@ -281,7 +313,7 @@ test("a migrated block still refuses merge, even after a pass with a role on the
   const reply = await merge();
   assert.deepEqual(reply, {
     exit: 2,
-    refused: "an old record with no role name blocks it: bug",
+    refused: "an old record with no role blocks it: bug",
   });
   assert.equal(await merged(), "");
 });
@@ -295,7 +327,7 @@ test("a migrated manual on the head still refuses merge", async () => {
   const reply = await merge();
   assert.deepEqual(reply, {
     exit: 2,
-    refused: `a hold refuses, so the owner merges this PR on GitHub: an old record with no role name asked for manual review of ${head} at 2026-10-01T00:00:00.000Z: migration`,
+    refused: `a hold refuses, so the owner merges this PR on GitHub: an old record with no role asked for manual review of ${head} at 2026-10-01T00:00:00.000Z: migration`,
   });
   assert.equal(await merged(), "");
 });
@@ -337,7 +369,7 @@ test("records of a merged PR stay in its file", async () => {
 });
 
 function record(pr: number, reason: string): ReviewRecord {
-  return { repo: REPO, pr, role_name: "code-review", role: "code-review", head: "a".repeat(40), verdict: "block", reason, at: "2026-10-01T00:00:00.000Z" };
+  return { repo: REPO, pr, role: "code-review", head: "a".repeat(40), verdict: "block", reason, at: "2026-10-01T00:00:00.000Z" };
 }
 
 // Node writes an append of more than 512 KiB in several writes, so two appends that run at once would interleave.

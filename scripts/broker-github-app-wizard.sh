@@ -182,12 +182,11 @@ repo_from_checkout() {
 
 run_wizard() {
 
-TOTAL_STAGES=6
+TOTAL_STAGES=5
 
 CONFIG_DIR="$HOME/.ug/host"
 APP_JSON="$CONFIG_DIR/github-app.json"
 APP_PEM="$CONFIG_DIR/github-app.pem"
-OLD_GH_DIR="$CONFIG_DIR/gh"
 SCRIPT_CHECKOUT=$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)
 ask CHECKOUT "Your checkout (Enter takes $SCRIPT_CHECKOUT):"
 [[ -n $CHECKOUT ]] || CHECKOUT=$SCRIPT_CHECKOUT
@@ -264,20 +263,6 @@ chmod 600 "$APP_JSON.tmp"
 mv -f "$APP_JSON.tmp" "$APP_JSON"
 printf '  %s✓ wrote%s %s → %s\n' "$GREEN" "$RESET" "$APP_CONFIG" "$APP_JSON"
 pause
-
-stage "Put the bot's old gh login away"
-if [[ -e $OLD_GH_DIR ]]; then
-  say "$OLD_GH_DIR holds the gh login of the suspended bot. The broker no longer reads it."
-  if confirm "Move $OLD_GH_DIR to the Trash?"; then
-    mv -- "$OLD_GH_DIR" "$HOME/.Trash/underground-broker-gh-$(date +%Y%m%d%H%M%S)"
-    SKIPPED+=("Empty the Trash: it holds the old bot login")
-  else
-    SKIPPED+=("Delete $OLD_GH_DIR, the old bot login")
-  fi
-else
-  say "No old login at $OLD_GH_DIR. Nothing to do."
-  pause
-fi
 
 stage "Install the broker and check it"
 say "Setup installs the broker from this checkout, $SCRIPT_CHECKOUT, and restarts it."

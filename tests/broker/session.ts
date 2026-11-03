@@ -2,9 +2,9 @@ import { handleRequest } from "../../host/broker/server.ts";
 import type { ServerConfig } from "../../host/broker/server.ts";
 import type { Reply } from "../../host/broker/protocol.ts";
 
-// The broker has no bindings since 2026-11-03: one socket serves every session, and a review names
-// its reviewer role in the request. Tests keep a session's role here only to fill that field.
-export type Session = { repo: string; role_name: string; role: string };
+// One socket serves every session, and a review names its reviewer role in the request
+// (docs/adr/0011-one-agent-arena.md). A test session holds only the role that fills that field.
+export type Session = { role: string };
 
 export function handleAs(config: ServerConfig, session: Session, input: unknown, signal: AbortSignal): Promise<Reply> {
   const isReview = typeof input === "object" && input !== null && (input as Record<string, unknown>).verb === "review";

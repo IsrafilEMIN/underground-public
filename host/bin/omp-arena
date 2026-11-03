@@ -191,7 +191,7 @@ fi
     if (left) { console.error(`omp: models.yml of the config repo has an unknown placeholder ${left[0]}`); process.exit(1); }
     fs.writeFileSync(`${runDir}/config/models.yml`, models, { mode: 0o600 });
   }
-  const allowedDomains = fs.readFileSync(`${src}/host/roles/network-allowlist`, "utf8").replaceAll("@GATEWAY@", gateway)
+  const allowedDomains = fs.readFileSync(`${src}/host/network-allowlist`, "utf8").replaceAll("@GATEWAY@", gateway)
     .split("\n").map((l) => l.replace(/#.*/, "").trim()).filter((l) => l !== "");
   const bad = allowedDomains.find((d) => d.includes("@"));
   if (bad) { console.error(`omp: network-allowlist has an unknown placeholder: ${bad}`); process.exit(1); }

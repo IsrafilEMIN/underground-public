@@ -9,13 +9,13 @@ import { defaultConfig } from "../../host/broker/server.ts";
 import type { ServerConfig } from "../../host/broker/server.ts";
 import { fakeTokens } from "./fake-app.ts";
 import { handleAs } from "./session.ts";
-import type { Session as Binding } from "./session.ts";
+import type { Session } from "./session.ts";
 import { tempDir } from "../temp.ts";
 
 const REPO = "o/r";
 const HEAD = "a".repeat(40);
 const OTHER = "b".repeat(40);
-const AUTHOR: Binding = { repo: REPO, role_name: "author", role: "author" };
+const AUTHOR: Session = { role: "author" };
 
 const FAKE_GH = `#!/bin/sh
 case "$1 $2 $3 $4" in
@@ -30,8 +30,8 @@ esac
 let root: string;
 let config: ServerConfig;
 
-function ciLog(binding: Binding = AUTHOR): Promise<Reply> {
-  return handleAs(config, binding, { verb: "ci-log", repo: REPO, number: 7 }, new AbortController().signal);
+function ciLog(session: Session = AUTHOR): Promise<Reply> {
+  return handleAs(config, session, { verb: "ci-log", repo: REPO, number: 7 }, new AbortController().signal);
 }
 
 function run(id: number, extra: Record<string, unknown> = {}): Record<string, unknown> {

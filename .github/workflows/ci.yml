@@ -28,7 +28,7 @@ jobs:
       - name: Shell syntax and lint
         run: |
           set -euo pipefail
-          scripts=(host/bin/omp-arena host/bin/ug-setup host/bin/ug-auth host/bin/ug-backup host/lib/raw-omp-config.bash scripts/probe-arena.sh scripts/probe-u1-u2.sh scripts/import-history.sh)
+          scripts=(host/bin/omp-arena host/bin/ug-setup host/bin/ug-auth host/bin/ug-backup host/lib/raw-omp-config.bash scripts/probe-arena.sh scripts/probe-u1-u2.sh)
           for f in "${scripts[@]}"; do
             bash -n "$f"
           done

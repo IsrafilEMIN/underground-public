@@ -1,6 +1,6 @@
 import { appendFile, mkdir, readFile, rename } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { isLegacyReviewRecord, isRecord, isReviewRecord } from "./protocol.ts";
+import { isLegacyReviewRecord, isRecord, parseReviewRecord } from "./protocol.ts";
 import type { LegacyReviewRecord, ReviewRecord, ReviewRecords } from "./protocol.ts";
 
 export type PrKey = { repo: string; pr: number };
@@ -28,8 +28,8 @@ async function readFileText(path: string): Promise<FileText> {
 
 function parseRecordLine(line: string, key: PrKey): ReviewRecord | undefined {
   try {
-    const value: unknown = JSON.parse(line);
-    if (isReviewRecord(value) && value.repo === key.repo && value.pr === key.pr) return value;
+    const record = parseReviewRecord(JSON.parse(line));
+    if (record !== undefined && record.repo === key.repo && record.pr === key.pr) return record;
   } catch {}
   return undefined;
 }
@@ -83,7 +83,7 @@ function groupByPr(legacy: LegacyReviewRecord[]): ReviewRecord[][] {
   for (const old of legacy) {
     const key = `${old.repo}#${old.pr}`;
     const group = groups.get(key) ?? [];
-    group.push({ repo: old.repo, pr: old.pr, role_name: null, role: null, head: old.head, verdict: old.verdict, reason: old.reason, at: old.at });
+    group.push({ repo: old.repo, pr: old.pr, role: null, head: old.head, verdict: old.verdict, reason: old.reason, at: old.at });
     groups.set(key, group);
   }
   return [...groups.values()];

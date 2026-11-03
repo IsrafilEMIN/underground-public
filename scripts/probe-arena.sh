@@ -96,7 +96,7 @@ printf 'arena-control\n' >"$arena/control"
     allowPty: true,
   };
   fs.writeFileSync(file, JSON.stringify(settings, null, 2) + "\n", { mode: 0o600 });
-' "$settings" "$HOME" "$arena" "$sys" "$src/host/roles/network-allowlist" "$gateway" "$model" "$gateway_token_file"
+' "$settings" "$HOME" "$arena" "$sys" "$src/host/network-allowlist" "$gateway" "$model" "$gateway_token_file"
 
 # Run a command in the sandbox with the arena as HOME. The outer env -i keeps the owner's shell
 # out; srt keeps the real HOME for itself and adds its proxy variables; the inner sh sets HOME and
