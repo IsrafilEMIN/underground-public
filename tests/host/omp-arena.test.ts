@@ -135,6 +135,24 @@ test("omp-arena: no variable of the caller's shell reaches omp, and omp starts i
   assert.equal(remote.stdout.trim(), "https://github.com/Test-Owner/proj.git");
 });
 
+test("omp-arena points every session's omp at the usage broker, which a caller cannot change, so a /login saves nothing", async (t) => {
+  const { home, checkout } = await fakeHome();
+  t.after(() => rm(home, { recursive: true, force: true }));
+  // A caller that points omp at the real auth broker, or at another config, must not get through.
+  const r = run(home, checkout, [], {
+    OMP_AUTH_BROKER_URL: "http://127.0.0.1:8765",
+    OMP_AUTH_BROKER_TOKEN: "real-broker-bearer",
+    PI_CONFIG_DIR: ".ug/host/auth",
+    PI_CONFIG_FILES: "/tmp/planted.yml",
+    PI_CODING_AGENT_DIR: "/tmp/planted-agent",
+  });
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.envOf("OMP_AUTH_BROKER_URL"), "http://127.0.0.1:18765");
+  assert.equal(r.envOf("OMP_AUTH_BROKER_TOKEN"), "usage-only");
+  for (const name of ["PI_CONFIG_DIR", "PI_CONFIG_FILES", "PI_CODING_AGENT_DIR"]) assert.equal(r.envOf(name), undefined, `${name} reached omp`);
+  assert.ok(!r.stdout.includes("real-broker-bearer"), "the caller's broker bearer reached omp");
+});
+
 test("omp-arena: srt may write only the arena, read no part of the real home outside ~/.ug, and reach only two sockets", async (t) => {
   const { home, checkout, arena, socket } = await fakeHome();
   t.after(() => rm(home, { recursive: true, force: true }));
