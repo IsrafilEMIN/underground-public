@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { chmod, copyFile, lstat, mkdir, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { createServer } from "node:net";
 import type { Server } from "node:net";
 import { tmpdir } from "node:os";
@@ -59,11 +60,11 @@ async function exe(path: string, text: string) {
   await chmod(path, 0o755);
 }
 
-async function fakeHome({ broker = true } = {}) {
+async function fakeHome({ broker = true, config = true } = {}) {
   const home = await tempDir(join(tmpdir(), "omp-arena-"));
   const sys = join(home, ".ug/sys");
   const srtDir = join(sys, "srt", SRT_PIN, "node_modules/@anthropic-ai/sandbox-runtime/dist");
-  for (const dir of [join(sys, "omp", OMP_PIN), srtDir, join(sys, "libexec"), join(sys, "agent-bin"), join(sys, "arena"), join(home, ".ug/run"), join(home, ".omp"), join(home, "fakebin"), join(home, "code")]) {
+  for (const dir of [join(sys, "omp", OMP_PIN), srtDir, join(sys, "libexec"), join(sys, "agent-bin"), join(home, ".ug/run"), join(home, ".omp"), join(home, "fakebin"), join(home, "code")]) {
     await mkdir(dir, { recursive: true });
   }
   await exe(join(sys, "omp", OMP_PIN, "omp"), FAKE_OMP);
@@ -71,7 +72,6 @@ async function fakeHome({ broker = true } = {}) {
   await copyFile(join(SRC, "host/arena/init"), join(sys, "libexec/ug-arena-init"));
   await chmod(join(sys, "libexec/ug-arena-init"), 0o755);
   await exe(join(sys, "agent-bin/broker"), FAKE_BROKER);
-  await copyFile(join(SRC, "host/arena/config.yml"), join(sys, "arena/config.yml"));
   await writeFile(join(sys, "macos-build"), `${BUILD}\n`);
   await exe(join(home, "fakebin/sw_vers"), `#!/bin/sh\ncat "$(dirname "$0")/build"\n`);
   await writeFile(join(home, "fakebin/build"), `${BUILD}\n`);
@@ -86,7 +86,18 @@ async function fakeHome({ broker = true } = {}) {
   }
   const socket = join(home, ".ug/run/broker.sock");
   if (broker) await listenAt(socket);
-  return { home, checkout, socket, arena: join(home, ".ug/home") };
+  // The owner's config repo, in the owner's zone, named in ~/.ug/host/config-repo.
+  const repo = join(home, "Developer/agent-config");
+  if (config) {
+    await mkdir(join(repo, "skills/fix-bug"), { recursive: true });
+    await mkdir(join(repo, ".git"), { recursive: true });
+    await writeFile(join(repo, "AGENTS.md"), "# owner rules\n");
+    await writeFile(join(repo, "skills/fix-bug/SKILL.md"), "fix the bug\n");
+    await writeFile(join(repo, "models.yml"), 'providers:\n  anthropic:\n    baseUrl: "http://@GATEWAY@"\n    apiKey: "@GATEWAY_TOKEN@"\n');
+    await writeFile(join(repo, ".git/config"), "[core]\n");
+    await writeFile(join(home, ".ug/host/config-repo"), `${repo}\n`);
+  }
+  return { home, checkout, socket, repo, arena: join(home, ".ug/home") };
 }
 
 function run(home: string, cwd: string, args: string[] = [], extra: Record<string, string> = {}) {
@@ -249,4 +260,158 @@ test("omp-arena does not take a plain file at the socket path for the broker", a
   const r = run(home, checkout);
   assert.match(r.stderr, /the broker socket .*broker\.sock is missing/);
   assert.equal(r.envOf("UG_BROKER_SOCKET"), undefined);
+});
+
+// --- the config repo (docs/SPEC.md, B3) ------------------------------------------------------------
+
+const agentFile = (arena: string, name: string) => join(arena, ".omp/agent", name);
+
+test("omp-arena copies the config repo into the arena and fills the gateway markers of its models.yml", async (t) => {
+  const { home, checkout, arena, repo } = await fakeHome();
+  t.after(() => rm(home, { recursive: true, force: true }));
+  await writeFile(join(repo, "secrets.yml"), "not a config name\n");
+  const r = run(home, checkout);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(await readFile(agentFile(arena, "AGENTS.md"), "utf8"), "# owner rules\n");
+  assert.equal(await readFile(agentFile(arena, "skills/fix-bug/SKILL.md"), "utf8"), "fix the bug\n");
+  const models = await readFile(agentFile(arena, "models.yml"), "utf8");
+  assert.match(models, /baseUrl: "http:\/\/192\.0\.2\.1:4000"/);
+  assert.match(models, /apiKey: "test-bearer"/);
+  assert.doesNotMatch(models, /@[A-Z_]+@/);
+  assert.equal(existsSync(agentFile(arena, "secrets.yml")), false, "a name off the list was copied");
+  assert.equal(existsSync(agentFile(arena, ".git")), false, "the repo's .git was copied");
+  assert.equal(await readFile(join(repo, "models.yml"), "utf8").then((m) => m.includes("@GATEWAY_TOKEN@")), true, "the repo itself was changed");
+});
+
+test("omp-arena: the config repo owns its names, so an agent's change lasts until the next start, and omp's own data stays", async (t) => {
+  const { home, checkout, arena } = await fakeHome();
+  t.after(() => rm(home, { recursive: true, force: true }));
+  assert.equal(run(home, checkout).status, 0);
+  await writeFile(agentFile(arena, "AGENTS.md"), "# the agent's own rules\n");
+  await writeFile(agentFile(arena, "RULES.md"), "planted\n");
+  await mkdir(agentFile(arena, "skills/planted"), { recursive: true });
+  await writeFile(agentFile(arena, "skills/planted/SKILL.md"), "planted\n");
+  await mkdir(agentFile(arena, "sessions"), { recursive: true });
+  await writeFile(agentFile(arena, "sessions/keep.jsonl"), "{}\n");
+  await writeFile(agentFile(arena, "agent.db"), "db\n");
+  const r = run(home, checkout);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(await readFile(agentFile(arena, "AGENTS.md"), "utf8"), "# owner rules\n");
+  assert.equal(existsSync(agentFile(arena, "RULES.md")), false, "a listed name that the repo lacks stayed");
+  assert.equal(existsSync(agentFile(arena, "skills/planted")), false, "a planted skill stayed");
+  assert.equal(await readFile(agentFile(arena, "sessions/keep.jsonl"), "utf8"), "{}\n");
+  assert.equal(await readFile(agentFile(arena, "agent.db"), "utf8"), "db\n");
+});
+
+test("omp-arena: a link that an agent planted in place of a config folder is replaced, and its target is untouched", async (t) => {
+  const { home, checkout, arena } = await fakeHome();
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const victim = join(home, "victim");
+  await mkdir(victim);
+  await writeFile(join(victim, "owner.txt"), "owner data\n");
+  await mkdir(join(arena, ".omp/agent"), { recursive: true });
+  await symlink(victim, agentFile(arena, "skills"));
+  await symlink(join(victim, "owner.txt"), agentFile(arena, "AGENTS.md"));
+  const r = run(home, checkout);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(await readFile(join(victim, "owner.txt"), "utf8"), "owner data\n");
+  assert.deepEqual(await readdir(victim), ["owner.txt"]);
+  assert.ok((await lstat(agentFile(arena, "skills"))).isDirectory(), "skills is still a link");
+  assert.ok((await lstat(agentFile(arena, "AGENTS.md"))).isFile(), "AGENTS.md is still a link");
+});
+
+test("omp-arena refuses a config repo with a link, so no file from outside reaches the sandbox", async (t) => {
+  for (const [name, plant] of [
+    ["a link inside a skill", (repo: string, secret: string) => symlink(secret, join(repo, "skills/fix-bug/key"))],
+    ["a link as a listed name", (repo: string, secret: string) => rm(join(repo, "AGENTS.md")).then(() => symlink(secret, join(repo, "AGENTS.md")))],
+    ["a link to a folder", (repo: string, secret: string) => symlink(join(secret, ".."), join(repo, "skills/outside"))],
+  ] as const) {
+    const { home, checkout, arena, repo } = await fakeHome();
+    t.after(() => rm(home, { recursive: true, force: true }));
+    const secret = join(home, ".ssh/id_ed25519");
+    await mkdir(join(home, ".ssh"));
+    await writeFile(secret, "PRIVATE-KEY-TEXT\n");
+    await plant(repo, secret);
+    const r = run(home, checkout);
+    assert.notEqual(r.status, 0, `${name}: it started`);
+    assert.match(r.stderr, /link or a special file/, name);
+    assert.doesNotMatch(r.stdout, /^CWD=/m, `${name}: omp started`);
+    const copied = spawnSync("grep", ["-r", "-l", "PRIVATE-KEY-TEXT", join(home, ".ug")], { encoding: "utf8" });
+    assert.equal(copied.stdout, "", `${name}: the secret was copied to ${copied.stdout}`);
+    assert.equal(existsSync(join(arena, ".omp/agent/AGENTS.md")), false, `${name}: the arena got the config`);
+  }
+});
+
+test("omp-arena refuses a config repo with a special file", async (t) => {
+  const { home, checkout, repo } = await fakeHome();
+  t.after(() => rm(home, { recursive: true, force: true }));
+  assert.equal(spawnSync("mkfifo", [join(repo, "skills/fix-bug/pipe")]).status, 0);
+  const r = run(home, checkout);
+  assert.notEqual(r.status, 0);
+  assert.match(r.stderr, /link or a special file/);
+  assert.doesNotMatch(r.stdout, /^CWD=/m, "omp started");
+});
+
+test("omp-arena refuses a config repo file with a token shape or the auth broker's bearer, and names the file", async (t) => {
+  for (const [label, file, text, token] of [
+    ["an Anthropic key", "skills/fix-bug/SKILL.md", `use sk-ant-${"a".repeat(30)}\n`, ""],
+    ["a private key", "mcp.json", "-----BEGIN OPENSSH PRIVATE KEY-----\n", ""],
+    ["a GitHub token", "models.yml", `apiKey: ghp_${"b".repeat(36)}\n`, ""],
+    ["the auth broker's bearer", "AGENTS.md", "token: broker-bearer-1234567890\n", "broker-bearer-1234567890\n"],
+  ] as const) {
+    const { home, checkout, arena, repo } = await fakeHome();
+    t.after(() => rm(home, { recursive: true, force: true }));
+    if (token) await writeFile(join(home, ".ug/host/auth/auth-broker.token"), token);
+    await writeFile(join(repo, file), text);
+    const r = run(home, checkout);
+    assert.notEqual(r.status, 0, `${label}: it started`);
+    assert.match(r.stderr, new RegExp(`config repo file ${join(repo, file).replace(/[.]/g, "\\.")} holds a token or a key`), label);
+    assert.doesNotMatch(r.stdout, /^CWD=/m, `${label}: omp started`);
+    assert.equal(existsSync(join(arena, ".omp/agent", file)), false, `${label}: the file reached the arena`);
+    const [session] = (await readdir(join(home, ".ug/run"))).filter((n) => n.startsWith("session."));
+    assert.equal(existsSync(join(home, ".ug/run", session, "secret-values")), false, `${label}: the bearer copy stayed in the run folder`);
+  }
+});
+
+test("omp-arena refuses an unknown marker in the config repo's models.yml", async (t) => {
+  const { home, checkout, repo } = await fakeHome();
+  t.after(() => rm(home, { recursive: true, force: true }));
+  await writeFile(join(repo, "models.yml"), 'apiKey: "@ENGINE_TOKEN@"\n');
+  const r = run(home, checkout);
+  assert.notEqual(r.status, 0);
+  assert.match(r.stderr, /unknown placeholder @ENGINE_TOKEN@/);
+  assert.doesNotMatch(r.stdout, /^CWD=/m, "omp started");
+});
+
+test("omp-arena with no config repo warns, starts, and leaves the arena's config as it is", async (t) => {
+  for (const [label, setup] of [
+    ["no path file", (home: string) => rm(join(home, ".ug/host/config-repo"))],
+    ["a path to nothing", (home: string) => writeFile(join(home, ".ug/host/config-repo"), `${join(home, "gone")}\n`)],
+  ] as const) {
+    const { home, checkout, arena } = await fakeHome();
+    t.after(() => rm(home, { recursive: true, force: true }));
+    assert.equal(run(home, checkout).status, 0);
+    await writeFile(agentFile(arena, "RULES.md"), "kept\n");
+    await setup(home);
+    const r = run(home, checkout);
+    assert.equal(r.status, 0, `${label}: ${r.stderr}`);
+    assert.match(r.stderr, /keeps the rules, skills, settings, and models\.yml that the arena has/, label);
+    assert.match(r.stdout, /^CWD=/m, `${label}: omp did not start`);
+    assert.equal(await readFile(agentFile(arena, "AGENTS.md"), "utf8"), "# owner rules\n", label);
+    assert.equal(await readFile(agentFile(arena, "RULES.md"), "utf8"), "kept\n", label);
+  }
+});
+
+test("omp-arena reads a config repo path that starts with ~/, and warns when the repo has no models.yml", async (t) => {
+  const { home, checkout, arena, repo } = await fakeHome();
+  t.after(() => rm(home, { recursive: true, force: true }));
+  assert.equal(run(home, checkout).status, 0);
+  await writeFile(join(home, ".ug/host/config-repo"), "~/Developer/agent-config\n");
+  await writeFile(join(repo, "AGENTS.md"), "# changed\n");
+  await rm(join(repo, "models.yml"));
+  const r = run(home, checkout);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(await readFile(agentFile(arena, "AGENTS.md"), "utf8"), "# changed\n");
+  assert.match(r.stderr, /has no models\.yml/);
+  assert.equal(existsSync(agentFile(arena, "models.yml")), false, "the old models.yml stayed");
 });

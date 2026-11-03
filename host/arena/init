@@ -28,14 +28,23 @@ export HOME TMPDIR
 
 mkdir -p "$HOME/tmp" "$HOME/.omp/agent" "$HOME/work"
 
-# Replace, never write through: rm removes a planted link itself, then cp writes a new file.
-put() {
-  rm -f "$2"
-  cp "$1" "$2"
-}
-put "$run_dir/models.yml" "$HOME/.omp/agent/models.yml"
-if [ ! -e "$HOME/.omp/agent/config.yml" ] && [ ! -L "$HOME/.omp/agent/config.yml" ]; then
-  cp "$run_dir/config.yml" "$HOME/.omp/agent/config.yml"
+# The config repo's items (host/bin/omp-arena copied them into the run folder, which the sandbox
+# cannot write). The repo owns each name in config-names: the arena's copy goes, even when the repo
+# has none. Replace, never write through: rm removes a planted link itself, then cp writes anew.
+# With no config-names (no config repo), the arena keeps what it has.
+if [ -f "$run_dir/config-names" ]; then
+  while IFS= read -r name; do
+    case $name in
+      '' | . | .. | */*)
+        printf 'ug-arena-init: bad config name %s\n' "$name" >&2
+        exit 64
+        ;;
+    esac
+    rm -rf "$HOME/.omp/agent/$name"
+    if [ -e "$run_dir/config/$name" ]; then
+      cp -R "$run_dir/config/$name" "$HOME/.omp/agent/$name"
+    fi
+  done <"$run_dir/config-names"
 fi
 
 case $slug in

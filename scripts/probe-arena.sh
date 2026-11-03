@@ -20,9 +20,10 @@
 # file in the home folder, and deletes them at the end (KEEP=1 keeps the arena). It never
 # touches ~/.agents, ~/.ug/omp, ~/.omp, or a running session.
 #
-# PROBE_MODEL picks the model of the prompt check (default anthropic/claude-opus-5-5, the default
-# role of host/arena/config.yml). The probe renders models.yml the way the arena wrapper does:
-# host/roles/models.yml with the gateway address and the gateway bearer.
+# PROBE_MODEL picks the model of the prompt check (default anthropic/claude-opus-5-5); its provider
+# must be one that omp knows, such as anthropic or openai-codex. The probe writes its own models.yml
+# with that one provider on the gateway address with the gateway bearer, as the arena wrapper fills
+# the config repo's models.yml, so it tests the walls and not the owner's model choices.
 # shellcheck disable=SC2016  # single quotes hold sh -c and node -e code that must not expand here
 # shellcheck disable=SC2329  # cleanup runs from the EXIT trap
 set -euo pipefail
@@ -79,10 +80,11 @@ printf 'arena-control\n' >"$arena/control"
 
 "$node_bin" -e '
   const fs = require("fs");
-  const [file, home, arena, sys, allowlist, gateway, template, tokenFile] = process.argv.slice(1);
+  const [file, home, arena, sys, allowlist, gateway, model, tokenFile] = process.argv.slice(1);
   const token = fs.readFileSync(tokenFile, "utf8").trim();
+  const provider = model.split("/")[0];
   fs.writeFileSync(`${arena}/.omp/agent/models.yml`,
-    fs.readFileSync(template, "utf8").replaceAll("@GATEWAY@", gateway).replaceAll("@GATEWAY_TOKEN@", token), { mode: 0o600 });
+    `providers:\n  ${provider}:\n    transport: pi-native\n    baseUrl: "http://${gateway}"\n    apiKey: "${token}"\n`, { mode: 0o600 });
   const allowedDomains = fs.readFileSync(allowlist, "utf8").replaceAll("@GATEWAY@", gateway)
     .split("\n").map((l) => l.replace(/#.*/, "").trim()).filter((l) => l !== "" && !l.includes("@"));
   const settings = {
@@ -92,7 +94,7 @@ printf 'arena-control\n' >"$arena/control"
     allowPty: true,
   };
   fs.writeFileSync(file, JSON.stringify(settings, null, 2) + "\n", { mode: 0o600 });
-' "$settings" "$HOME" "$arena" "$sys" "$src/host/roles/network-allowlist" "$gateway" "$src/host/roles/models.yml" "$gateway_token_file"
+' "$settings" "$HOME" "$arena" "$sys" "$src/host/roles/network-allowlist" "$gateway" "$model" "$gateway_token_file"
 
 # Run a command in the sandbox with the arena as HOME. The outer env -i keeps the owner's shell
 # out; srt keeps the real HOME for itself and adds its proxy variables; the inner sh sets HOME and

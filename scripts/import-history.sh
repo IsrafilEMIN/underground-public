@@ -56,22 +56,13 @@ for dir in "$HOME/.ug/home/.omp" "$HOME/.ug/home/.omp/agent" "$target"; do
   if [[ -e $dir || -L $dir ]]; then check_dir "$dir"; fi
 done
 
-# Token shapes, and the values of secrets that this mac holds. A file with any of them stays out.
+# Token shapes (host/secret-patterns, shared with the arena wrapper), and the values of secrets that
+# this mac holds. A file with any of them stays out.
 patterns=$(mktemp "${TMPDIR:-/tmp}/ug-import.XXXXXX")
 secrets=$(mktemp "${TMPDIR:-/tmp}/ug-import.XXXXXX")
 trap 'rm -f "$patterns" "$secrets"' EXIT
-cat >"$patterns" <<'EOF'
-sk-ant-[A-Za-z0-9_-]{20,}
-gh[pousr]_[A-Za-z0-9]{30,}
-github_pat_[A-Za-z0-9_]{30,}
-AKIA[0-9A-Z]{16}
-xox[abprs]-[A-Za-z0-9-]{10,}
------BEGIN [A-Z ]*PRIVATE KEY-----
-eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.
-refresh_token\\?"[[:space:]]*:[[:space:]]*\\?"[^"\\]{16,}
-access_token\\?"[[:space:]]*:[[:space:]]*\\?"[^"\\]{16,}
-EOF
-for file in "$HOME/.config/strata/api_key" "$HOME/.omp/auth-broker.token"; do
+cp "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)/host/secret-patterns" "$patterns"
+for file in "$HOME/.config/strata/api_key" "$HOME/.omp/auth-broker.token" "$HOME/.ug/host/auth/auth-broker.token"; do
   value=$(tr -d '[:space:]' <"$file" 2>/dev/null) || value=""
   if [[ ${#value} -ge 12 ]]; then printf '%s\n' "$value" >>"$secrets"; fi
 done

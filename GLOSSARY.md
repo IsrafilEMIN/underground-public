@@ -51,7 +51,7 @@ omp's own default root, `~/.omp` inside the arena: config, `agent.db`, sessions,
 _Avoid_: role home, profile, owner part
 
 **Config repo**:
-The owner's private repo of agent configs, in the owner's zone: `AGENTS.md`, skills, hooks, MCP config, and settings, laid out like omp's `~/.omp/agent`. It holds no secret. The owner's local folder is the source of truth; GitHub keeps a backup. The wrapper copies it into the arena at each start, so a change that the agent makes to its config lasts until the next start.
+The owner's private repo of agent configs, `~/Developer/agent-config`, in the owner's zone, named in `~/.ug/host/config-repo`: `AGENTS.md`, skills, hooks, `config.yml`, `models.yml` with the gateway markers, and other settings, laid out like omp's `~/.omp/agent`. It holds what the agent does inside the walls; underground holds the walls, such as the network allowlist. It holds no secret: the wrapper refuses to start on a link, a special file, or a token in it. The owner's local folder is the source of truth; GitHub keeps a private backup. The wrapper copies it into the arena at each start, and it owns its names there, so a change that the agent makes to its config lasts until the next start (`docs/SPEC.md`, B3).
 _Avoid_: dotfiles, role config
 
 ### Running omp
