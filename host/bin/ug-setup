@@ -9,10 +9,9 @@
 #     the auth broker and the auth gateway run the pinned omp
 #   - the proof: it runs scripts/probe-arena.sh and records the macOS build only when the probe
 #     passes; the wrapper refuses to start on any other build
-# The auth broker and the auth gateway keep their logins and tokens in ~/.ug/host/auth; setup
-# moves them there once from ~/.omp. The GitHub broker keeps its key, its records, and the owner's
-# broker files in ~/.ug/host, and listens on ~/.ug/run/broker.sock; setup moves the old files once
-# from ~/.config/underground-broker and ~/.agents/broker.
+# The auth broker and the auth gateway keep their logins and tokens in ~/.ug/host/auth. The GitHub
+# broker keeps its key, its records, and the owner's broker files in ~/.ug/host, and listens on
+# ~/.ug/run/broker.sock.
 set -euo pipefail
 
 if [[ $# -ne 0 ]]; then
@@ -211,60 +210,15 @@ restart_service() {
   die "launchctl bootstrap of $label failed: $err"
 }
 
-# The auth broker and the auth gateway keep their root in ~/.ug/host/auth (PI_CONFIG_DIR in their
-# plists), so a raw omp, which looks in ~/.omp, finds no login and no token. Once, with both stopped,
-# this moves the logins and the two tokens from ~/.omp; the old files go to a backup in the host zone.
-# Once: the GitHub broker's files move into the host zone. A file that is there already stays.
-move_broker_files() {
-  local old_config="$HOME/.config/underground-broker" old_agents="$HOME/.agents/broker" from to moved=0
-  install -d -m 700 "$host_zone/broker" "$host_zone/broker/repos" "$host_zone/broker/tmp" "$host_zone/broker/reviews" "$host_zone/broker/pushes"
-  if [[ -e $old_config || -e $old_agents ]]; then
-    launchctl bootout "gui/$UID/com.underground.broker" >/dev/null 2>&1 || true
-  fi
-  for pair in "$old_config/github-app.json:$host_zone/github-app.json" "$old_config/github-app.pem:$host_zone/github-app.pem" \
-    "$old_config/addresses:$host_zone/addresses" "$old_config/protected-paths:$host_zone/protected-paths" \
-    "$old_agents/reviews.json:$host_zone/broker/reviews.json"; do
-    from=${pair%%:*}
-    to=${pair#*:}
-    [[ -e $from && ! -L $from && ! -e $to ]] || continue
-    mv -n "$from" "$to"
-    moved=$((moved + 1))
-  done
-  for dir in reviews pushes; do
-    [[ -d $old_agents/$dir && ! -L $old_agents/$dir ]] || continue
-    while IFS= read -r -d '' from; do
-      to="$host_zone/broker/$dir/${from#"$old_agents/$dir/"}"
-      [[ -e $to ]] && continue
-      install -d -m 700 "$(dirname "$to")"
-      mv -n "$from" "$to"
-      moved=$((moved + 1))
-    done < <(find "$old_agents/$dir" -type f -print0)
-  done
-  [[ $moved -eq 0 ]] || printf 'broker: moved %s files from %s and %s to %s\n' "$moved" "$old_config" "$old_agents" "$host_zone"
-}
-
-move_logins() {
-  local old="$HOME/.omp" backup="$auth_root/from-dot-omp" file moved=0
-  install -d -m 700 "$host_zone" "$auth_root" "$auth_root/agent"
-  [[ -e $old/agent/agent.db && ! -e $auth_root/agent/agent.db ]] || return 0
-  launchctl bootout "gui/$UID/com.underground.auth-gateway" >/dev/null 2>&1 || true
-  launchctl bootout "gui/$UID/com.underground.auth-broker" >/dev/null 2>&1 || true
-  sleep 1
-  install -d -m 700 "$backup" "$backup/agent"
-  for file in agent/agent.db agent/agent.db-wal agent/agent.db-shm auth-broker.token auth-gateway.token; do
-    [[ -f $old/$file && ! -L $old/$file ]] || continue
-    cp -p "$old/$file" "$auth_root/$file"
-    chmod 600 "$auth_root/$file"
-    mv -n "$old/$file" "$backup/$file"
-    moved=$((moved + 1))
-  done
-  printf 'logins: moved %s files from %s to %s; the old copies are in %s\n' "$moved" "$old" "$auth_root" "$backup"
+# The host zone: the auth root (PI_CONFIG_DIR in the auth plists) and the GitHub broker's folders.
+make_host_zone() {
+  install -d -m 700 "$host_zone" "$auth_root" "$auth_root/agent" "$host_zone/broker" "$host_zone/broker/repos" \
+    "$host_zone/broker/tmp" "$host_zone/broker/reviews" "$host_zone/broker/pushes"
 }
 
 install_services() {
   local gateway engine label rendered left
-  move_logins
-  move_broker_files
+  make_host_zone
   install -d "$agents_dir"
   write_addresses
   gateway=$(sed -n 's/^gateway=//p' "$addresses_file")
