@@ -34,6 +34,8 @@ pin() { sed -n "s/^$1=//p" "$src/VERSIONS"; }
 omp_pin=$(pin omp)
 omp_sha=$(pin omp_sha256)
 srt_pin=$(pin srt)
+restic_pin=$(pin restic)
+restic_sha=$(pin restic_sha256)
 sys="$HOME/.ug/sys"
 omp_bin="$sys/omp/$omp_pin/omp"
 srt_cli="$sys/srt/$srt_pin/node_modules/@anthropic-ai/sandbox-runtime/dist/cli.js"
@@ -338,6 +340,26 @@ elif [[ -n $models ]]; then
 else
   pass raw-models "a raw omp by full path, in your own environment, lists no model"
 fi
+# --- the arena backup (docs/SPEC.md, B10) ------------------------------------------------------------
+# The backup undoes what an agent destroys in the arena only if no agent can open or redirect it:
+# the sandbox must not read its password or its config.
+backup="$HOME/.ug/host/backup"
+restic_bin="$sys/restic/$restic_pin/restic"
+have=$(shasum -a 256 "$restic_bin" 2>/dev/null) && have=${have%% *} || have=missing
+if [[ $have == "$restic_sha" ]]; then pass restic-pin "restic $restic_pin has the SHA-256 in VERSIONS"; else fail restic-pin "restic $restic_pin at $restic_bin has SHA-256 $have, want $restic_sha"; fi
+for file in password config; do
+  if [[ ! -s $backup/$file ]]; then
+    if [[ $file == config ]]; then gap backup-config "no $backup/config yet, so there is no backup (docs/SPEC.md, B10)"
+    else fail backup-password "no $backup/password; run host/bin/ug-setup"; fi
+    continue
+  fi
+  secret=$(head -c 200 "$backup/$file")
+  box /bin/cat "$backup/$file"
+  if [[ $out == *"$secret"* ]]; then breach "backup-$file" "the sandbox read $backup/$file"
+  elif [[ $rc -ne 0 && $out == *"$denied"* ]]; then pass "backup-$file" "the sandbox cannot read the backup $file"
+  else inc "backup-$file" "cat failed for another reason (rc $rc): $(first "$out")"; fi
+done
+
 if out=$(BUN_BE_BUN=1 "$omp_bin" "$srt_cli" --version 2>&1) && [[ $out == "$srt_pin" ]]; then
   info srt-on-bun "srt starts on the bun inside omp; a sandboxed run on it is not tested yet"
 else

@@ -1,0 +1,110 @@
+#!/usr/bin/env bash
+# The arena backup (docs/SPEC.md, B10). launchd (com.underground.backup) runs it once a day. It backs
+# up the arena ~/.ug/home with the pinned restic into one repo on the owner's other machine, over
+# the owner's own ssh. The arena is the agents' home, so they can delete or rewrite any file in it,
+# such as the session history; the backup makes that undoable. It keeps every snapshot.
+#
+# The owner's settings live in the host zone, which agents cannot write, in ~/.ug/host/backup/config:
+#   repo=sftp:<user>@<host>:<path>    the restic repo; <user>@<host> is also what ssh reaches
+#   wake=<command> [args]             wakes that machine; the job waits for ssh itself
+#   sleep=<command> [args]            puts it back to sleep; run only when this job woke it
+# A command is split into words at spaces and run as is, never through a shell, so no line can
+# chain a second command. The restic password is ~/.ug/host/backup/password (made by ug-setup).
+#
+# restic stores links as links and never follows them (restic doc/040_backup.rst:650), so a link
+# that an agent planted brings nothing from outside the arena into a snapshot. Nothing here runs a
+# file that an agent wrote. After a good run it writes the time to ~/.ug/host/backup/last, which
+# the arena wrapper checks at each start.
+set -uo pipefail
+
+if [[ $# -ne 0 ]]; then
+  printf 'usage: ug-backup\n' >&2
+  exit 64
+fi
+
+src=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)
+restic_pin=$(sed -n 's/^restic=//p' "$src/VERSIONS")
+restic_bin="$HOME/.ug/sys/restic/$restic_pin/restic"
+backup="$HOME/.ug/host/backup"
+config="$backup/config"
+tries=${UG_BACKUP_WAIT_TRIES:-30}
+pause=${UG_BACKUP_WAIT_SECONDS:-10}
+
+log() { printf '%s ug-backup: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >&2; }
+die() {
+  log "$*"
+  exit 1
+}
+
+[[ -n $restic_pin && -x $restic_bin ]] || die "the pinned restic $restic_bin is missing; run host/bin/ug-setup"
+[[ -s $backup/password ]] || die "the backup password $backup/password is missing; run host/bin/ug-setup"
+[[ -f $config ]] || die "no $config; write its repo=, wake=, and sleep= lines (docs/SPEC.md, B10)"
+export RESTIC_PASSWORD_FILE="$backup/password"
+
+repo="" wake=() sleep_cmd=()
+while IFS= read -r line || [[ -n $line ]]; do
+  [[ -z ${line//[[:space:]]/} || $line == \#* ]] && continue
+  key=${line%%=*}
+  value=${line#*=}
+  [[ $line == *=* ]] || die "$config: a line without '=': $line"
+  case $key in
+    repo) repo=$value ;;
+    wake) read -r -a wake <<<"$value" ;;
+    sleep) read -r -a sleep_cmd <<<"$value" ;;
+    *) die "$config: unknown key $key" ;;
+  esac
+done <"$config"
+# The user and the host start with a letter or a digit, so neither can reach ssh as an option.
+[[ $repo =~ ^sftp:([A-Za-z0-9_][A-Za-z0-9._-]*@[A-Za-z0-9][A-Za-z0-9.-]*):([^[:space:]]+)$ ]] || die "$config: repo must be sftp:<user>@<host>:<path>, not '$repo'"
+target=${BASH_REMATCH[1]}
+[[ ${#wake[@]} -gt 0 && ${#sleep_cmd[@]} -gt 0 ]] || die "$config needs a wake= and a sleep= line"
+
+up() { ssh -o BatchMode=yes -o ConnectTimeout=10 "$target" true >/dev/null 2>&1; }
+
+woke=0
+if ! up; then
+  "${wake[@]}" >/dev/null 2>&1 || die "the wake command ${wake[*]} failed"
+  woke=1
+  for ((i = 0; i < tries; i++)); do
+    up && break
+    sleep "$pause"
+  done
+  if ! up; then
+    log "$target did not answer ssh after the wake; if the mac is away from home, the wake signal cannot reach it"
+    exit 1
+  fi
+fi
+
+status=0
+"$restic_bin" -r "$repo" cat config >/dev/null 2>&1 || status=$?
+if [[ $status -eq 10 ]]; then
+  if "$restic_bin" -r "$repo" init >/dev/null; then
+    log "made the repo $repo"
+    status=0
+  else
+    status=1
+  fi
+fi
+if [[ $status -ne 0 ]]; then
+  log "the repo $repo does not open (restic exit $status)"
+else
+  "$restic_bin" -r "$repo" backup --quiet --tag ug --exclude-caches \
+    --exclude "$HOME/.ug/home/tmp" --exclude "$HOME/.ug/home/.omp/agent/cache" \
+    --exclude "$HOME/.ug/home/.cache" --exclude node_modules \
+    "$HOME/.ug/home"
+  status=$?
+  # 3: some files could not be read, for example one that a session deleted during the run. The
+  # snapshot holds the rest, so it counts.
+  if [[ $status -eq 0 || $status -eq 3 ]]; then
+    [[ $status -eq 0 ]] || log "some files could not be read (restic exit 3); the snapshot holds the rest"
+    date +%s >"$backup/last"
+    status=0
+  else
+    log "the backup to $repo failed with restic exit $status"
+  fi
+fi
+
+if [[ $woke -eq 1 ]]; then
+  "${sleep_cmd[@]}" >/dev/null 2>&1 || log "the sleep command ${sleep_cmd[*]} failed; $target stays awake"
+fi
+[[ $status -eq 0 ]]
