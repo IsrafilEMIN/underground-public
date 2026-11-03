@@ -7,13 +7,15 @@ import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
 import { cleanUpLocal } from "../../host/broker/client.ts";
 import { isMergeReply, REVIEWER_ROLES } from "../../host/broker/protocol.ts";
-import type { Binding, PushRecord, Reply } from "../../host/broker/protocol.ts";
+import type { PushRecord, Reply } from "../../host/broker/protocol.ts";
 import { readPushRecord } from "../../host/broker/push-record.ts";
 import { appendReviewRecord, reviewRecordsPath } from "../../host/broker/review-records.ts";
-import { defaultConfig, handleRequest } from "../../host/broker/server.ts";
+import { defaultConfig } from "../../host/broker/server.ts";
 import type { ServerConfig } from "../../host/broker/server.ts";
 import type { GithubTokens } from "../../host/broker/github-app.ts";
 import { FAKE_TOKEN, fakeTokens, tokenRemote } from "./fake-app.ts";
+import { handleAs } from "./session.ts";
+import type { Session as Binding } from "./session.ts";
 import { tempDir } from "../temp.ts";
 
 const REPO = "o/r";
@@ -62,7 +64,7 @@ async function commit(file: string): Promise<string> {
 function brokerPush(sha: string): Promise<Reply> {
   const bundle = execFileSync(config.gitPath, ["bundle", "create", "-", `refs/heads/${BRANCH}`], { cwd: work, env: GIT_ENV });
   const request = { verb: "push", repo: REPO, branch: BRANCH, sha, bundle_b64: bundle.toString("base64") };
-  return handleRequest(config, AUTHOR, request, new AbortController().signal);
+  return handleAs(config, AUTHOR, request, new AbortController().signal);
 }
 
 async function readyToMerge(head: string): Promise<void> {
@@ -92,7 +94,7 @@ async function pushedAndReady(): Promise<string> {
 }
 
 function brokerMerge(): Promise<Reply> {
-  return handleRequest(config, AUTHOR, { verb: "merge", repo: REPO, number: 7 }, new AbortController().signal);
+  return handleAs(config, AUTHOR, { verb: "merge", repo: REPO, number: 7 }, new AbortController().signal);
 }
 
 function merged(): Promise<string> {
@@ -107,10 +109,7 @@ beforeEach(async () => {
   root = await tempDir(join(tmpdir(), "ug-b5-"));
   config = {
     ...defaultConfig(),
-    runDir: join(root, "run"),
-    bindingsFile: join(root, "bindings.json"),
-    reposFile: join(root, "repos"),
-    rolesFile: join(root, "roles"),
+    socketPath: join(root, "run", "broker.sock"),
     reposRoot: join(root, "bare"),
     reviewsDir: join(root, "reviews"),
     legacyReviewsFile: join(root, "reviews.json"),
@@ -122,8 +121,6 @@ beforeEach(async () => {
     tempRoot: join(root, "tmp"),
   };
   await mkdir(config.home);
-  await writeFile(config.reposFile, `${REPO}\n`);
-  await writeFile(config.rolesFile, "author author\n");
   await writeFile(config.ghPath, FAKE_GH, { mode: 0o755 });
   remote = join(root, "remote.git");
   execFileSync(config.gitPath, ["init", "--bare", "--quiet", remote], { env: GIT_ENV });

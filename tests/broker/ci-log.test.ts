@@ -4,17 +4,18 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
 import { MAX_CI_LOG_BYTES, failedPullRequestRuns, tailLog } from "../../host/broker/protocol.ts";
-import type { Binding, Reply } from "../../host/broker/protocol.ts";
-import { defaultConfig, handleRequest } from "../../host/broker/server.ts";
+import type { Reply } from "../../host/broker/protocol.ts";
+import { defaultConfig } from "../../host/broker/server.ts";
 import type { ServerConfig } from "../../host/broker/server.ts";
 import { fakeTokens } from "./fake-app.ts";
+import { handleAs } from "./session.ts";
+import type { Session as Binding } from "./session.ts";
 import { tempDir } from "../temp.ts";
 
 const REPO = "o/r";
 const HEAD = "a".repeat(40);
 const OTHER = "b".repeat(40);
 const AUTHOR: Binding = { repo: REPO, role_name: "author", role: "author" };
-const REVIEWER: Binding = { repo: REPO, role_name: "code-review", role: "code-review" };
 
 const FAKE_GH = `#!/bin/sh
 case "$1 $2 $3 $4" in
@@ -30,7 +31,7 @@ let root: string;
 let config: ServerConfig;
 
 function ciLog(binding: Binding = AUTHOR): Promise<Reply> {
-  return handleRequest(config, binding, { verb: "ci-log", repo: REPO, number: 7 }, new AbortController().signal);
+  return handleAs(config, binding, { verb: "ci-log", repo: REPO, number: 7 }, new AbortController().signal);
 }
 
 function run(id: number, extra: Record<string, unknown> = {}): Record<string, unknown> {
@@ -47,10 +48,7 @@ beforeEach(async () => {
   root = await tempDir(join(tmpdir(), "ug-b14-"));
   config = {
     ...defaultConfig(),
-    runDir: join(root, "run"),
-    bindingsFile: join(root, "bindings.json"),
-    reposFile: join(root, "repos"),
-    rolesFile: join(root, "roles"),
+    socketPath: join(root, "run", "broker.sock"),
     reposRoot: join(root, "bare"),
     reviewsDir: join(root, "reviews"),
     legacyReviewsFile: join(root, "reviews.json"),
@@ -62,8 +60,6 @@ beforeEach(async () => {
     tempRoot: join(root, "tmp"),
   };
   await mkdir(config.home);
-  await writeFile(config.reposFile, `${REPO}\n`);
-  await writeFile(config.rolesFile, "author author\ncode-review code-review\n");
   await writeFile(config.ghPath, FAKE_GH, { mode: 0o755 });
 });
 
@@ -95,13 +91,10 @@ test("ci-log refuses when the head has a deployment, and tells the author that t
   assert.equal(await readViewed(), "");
 });
 
-test("ci-log with no failed run says so and exits 0; a reviewer cannot use it", async () => {
+test("ci-log with no failed run says so and exits 0", async () => {
   await github([run(12, { conclusion: "success" })]);
   const none = await ciLog();
   assert.deepEqual(none, { exit: 0, stdout: `broker: no failed pull_request run on head ${HEAD} of PR 7\n`, stderr: "" });
-
-  const reviewer = await ciLog(REVIEWER);
-  assert.ok("refused" in reviewer && reviewer.refused.includes("cannot use ci-log"), JSON.stringify(reviewer));
 });
 
 test("ci-log caps the reply: each failed run gets an equal share, cut from a line start, and the header says so", async () => {

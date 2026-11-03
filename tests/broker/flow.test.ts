@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile, execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, test } from "node:test";
@@ -10,17 +10,17 @@ import type { Broker, ServerConfig } from "../../host/broker/server.ts";
 import { fakeTokens, tokenRemote } from "./fake-app.ts";
 import { tempDir } from "../temp.ts";
 
-// One session flow end to end: the wrapper's admin call registers each binding, the real
-// broker client (`client.ts`, which the shim `~/.ug/sys/agent-bin/broker` execs) talks over the real unix sockets
-// to the broker, and a local bare repo plus a stateful fake gh stand in for GitHub. The client
-// runs on this node, because that shim names the Homebrew node, which CI does not have.
+// One session flow end to end: the real broker client (`client.ts`, which the shim
+// `~/.ug/sys/agent-bin/broker` execs) talks over the one real unix socket to the broker, and a local
+// bare repo plus a stateful fake gh stand in for GitHub. Every session uses that socket; a review
+// names its reviewer role. The client runs on this node, because that shim names the Homebrew node,
+// which CI does not have.
 
 const REPO = "o/r";
 const BRANCH = "agent/x";
 const BROKER_DIR = join(import.meta.dirname, "../../host/broker");
 const NODE = process.execPath;
 const REVIEWERS = ["code-review", "security-review", "risk-review"] as const;
-const ROLES = "author author\ncode-review code-review\nsecurity-review security-review\nrisk-review risk-review\n";
 const GIT_ENV = { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" };
 const execFileAsync = promisify(execFile);
 
@@ -32,7 +32,6 @@ let broker: Broker | undefined;
 let remote: string;
 let work: string;
 let tree: string;
-let sockets: Map<Role, string>;
 
 // GitHub, as far as the broker sees it: PRs live in a JSON file; `pr view` reports the current
 // remote branch head and the CI conclusion in that file; `pr merge` checks --match-head-commit,
@@ -140,7 +139,7 @@ type Run = { code: number; stdout: string; stderr: string };
 
 async function run(file: string, args: string[], cwd: string, env: Record<string, string> = {}): Promise<Run> {
   try {
-    const { stdout, stderr } = await execFileAsync(file, args, { cwd, env: { ...GIT_ENV, HOME: root, UG_REVIEW_STORE: "", ...env }, encoding: "utf8" });
+    const { stdout, stderr } = await execFileAsync(file, args, { cwd, env: { ...GIT_ENV, HOME: root, ...env }, encoding: "utf8" });
     return { code: 0, stdout, stderr };
   } catch (error) {
     const failed = error as { code: number; stdout: string; stderr: string };
@@ -148,13 +147,10 @@ async function run(file: string, args: string[], cwd: string, env: Record<string
   }
 }
 
-// `broker <args>` as a session of `role` runs it: the wrapper's socket in UG_BROKER_SOCKET.
-async function brokerAs(role: Role, cwd: string, ...args: string[]): Promise<Run> {
-  return brokerWith(role, cwd, {}, ...args);
-}
-
-async function brokerWith(role: Role, cwd: string, env: Record<string, string>, ...args: string[]): Promise<Run> {
-  return run(NODE, [join(root, ".agents/broker/client.ts"), ...args], cwd, { UG_BROKER_SOCKET: sockets.get(role) ?? "", ...env });
+// `broker <args>` as a session runs it, with the wrapper's one socket in UG_BROKER_SOCKET. The role
+// only names who acts in a test; the broker does not know it.
+async function brokerAs(_role: Role, cwd: string, ...args: string[]): Promise<Run> {
+  return run(NODE, [join(BROKER_DIR, "client.ts"), ...args], cwd, { UG_BROKER_SOCKET: config.socketPath });
 }
 
 async function ok(role: Role, cwd: string, ...args: string[]): Promise<string> {
@@ -181,7 +177,7 @@ async function openPr(): Promise<number> {
 }
 
 function review(role: Role, pr: number, head: string, verdict: string, reason = ""): Promise<string> {
-  return ok(role, root, "review", REPO, String(pr), head, verdict, reason);
+  return ok(role, root, "review", REPO, String(pr), head, role, verdict, reason);
 }
 
 async function passAll(pr: number, head: string): Promise<void> {
@@ -205,18 +201,15 @@ async function assertRefusedWithoutMerge(pr: number, reason?: RegExp): Promise<v
 }
 
 beforeEach(async () => {
-  // The temp dir is the session HOME. The binding socket paths under it must fit in 103 bytes,
-  // as on a real HOME, so it sits in /tmp, not in macOS's long $TMPDIR; an agent sandbox, which
-  // cannot write /tmp, sets XDG_STATE_HOME.
+  // The temp dir is the session HOME. The socket path under it must fit in 103 bytes, as on a real
+  // HOME, so it sits in /tmp, not in macOS's long $TMPDIR; an agent sandbox, which cannot write
+  // /tmp, sets XDG_STATE_HOME.
   root = await tempDir(join(process.env.XDG_STATE_HOME ?? "/tmp", "u"));
-  const agents = join(root, ".agents/broker");
-  const owner = join(root, ".config/underground-broker");
+  const agents = join(root, ".ug/host/broker");
+  const owner = join(root, ".ug/host");
   config = {
     ...defaultConfig(),
-    runDir: join(agents, "run"),
-    bindingsFile: join(agents, "bindings.json"),
-    reposFile: join(owner, "repos"),
-    rolesFile: join(owner, "roles"),
+    socketPath: join(root, ".ug/run", "broker.sock"),
     reposRoot: join(agents, "repos"),
     reviewsDir: join(agents, "reviews"),
     legacyReviewsFile: join(agents, "reviews.json"),
@@ -230,9 +223,6 @@ beforeEach(async () => {
   await mkdir(agents, { recursive: true });
   await mkdir(owner, { recursive: true });
   await mkdir(config.home);
-  for (const file of ["client.ts", "admin.ts"]) await symlink(join(BROKER_DIR, file), join(agents, file));
-  await writeFile(config.reposFile, `${REPO}\n`);
-  await writeFile(config.rolesFile, ROLES);
 
   remote = join(root, "github.git");
   execFileSync(config.gitPath, ["init", "--bare", "--quiet", "-b", "main", remote], { env: GIT_ENV });
@@ -252,12 +242,6 @@ beforeEach(async () => {
   work = join(root, "repo");
   execFileSync(config.gitPath, ["init", "--quiet", "-b", "main", work], { env: GIT_ENV });
   git(work, "remote", "add", "origin", `https://github.com/${REPO}.git`);
-  sockets = new Map();
-  for (const role of ["author", ...REVIEWERS] as const) {
-    const registered = await run(NODE, [join(agents, "admin.ts"), "session", work, role], work);
-    assert.equal(registered.code, 0, registered.stderr);
-    sockets.set(role, registered.stdout.trim());
-  }
 
   // AGENTS.md steps 1 and 2: get main through the broker, then a worktree on agent/x.
   await ok("author", work, "sync", REPO);
@@ -363,17 +347,17 @@ async function mergeOk(pr: number, cwd = tree): Promise<string> {
   return result.stdout;
 }
 
-test("each reviewer imports the PR head into its own store with sync --pr, reviews that commit, and the author's merge lands it", async () => {
+test("each reviewer imports the PR head into its session's repo with sync --pr, reviews that commit, and the author's merge lands it", async () => {
   const head = await newHead("feature.txt");
   const pr = await openPr();
   for (const role of REVIEWERS) {
-    const store = join(root, `store-${role}`);
-    execFileSync(config.gitPath, ["init", "--bare", "--quiet", store], { env: GIT_ENV });
-    const synced = await brokerWith(role, root, { UG_REVIEW_STORE: store }, "sync", REPO, "--pr", String(pr));
+    const clone = join(root, `clone-${role}`);
+    execFileSync(config.gitPath, ["init", "--quiet", "-b", "main", clone], { env: GIT_ENV });
+    const synced = await brokerAs(role, clone, "sync", REPO, "--pr", String(pr));
     assert.equal(synced.code, 0, synced.stderr);
-    const imported = git(store, "rev-parse", `refs/remotes/origin/pr/${pr}`);
+    const imported = git(clone, "rev-parse", `refs/remotes/origin/pr/${pr}`);
     assert.equal(imported, head);
-    assert.equal(git(store, "show", `${imported}:feature.txt`), "feature.txt");
+    assert.equal(git(clone, "show", `${imported}:feature.txt`), "feature.txt");
     await review(role, pr, imported, "pass");
   }
 
@@ -412,7 +396,7 @@ test("a risk-review manual on one head is a hold that a later head with a pass f
   await review("code-review", pr, head, "pass");
   await review("security-review", pr, head, "pass");
   await review("risk-review", pr, head, "manual", "pay.txt moves money");
-  const hold = new RegExp(`owner merges this PR on GitHub: risk-review \\(role risk-review\\) asked for manual review of ${head} at .*: pay\\.txt moves money`);
+  const hold = new RegExp(`owner merges this PR on GitHub: risk-review asked for manual review of ${head} at .*: pay\\.txt moves money`);
   await assertRefusedWithoutMerge(pr, hold);
 
   const next = await newHead("pay-2.txt");
@@ -473,37 +457,13 @@ test("a merge whose head branch GitHub deleted already counts as cleaned up and 
   assert.equal(existsSync(tree), false);
 });
 
-test("each reviewer role is refused push, pr-create, ci-log, and merge over its socket, and nothing changes on GitHub or in the broker", async () => {
-  const head = await newHead("a.txt");
-  const pr = await openPr();
-  await passAll(pr, head);
-  await writeFile(join(tree, "b.txt"), "b\n");
-  git(tree, "add", "b.txt");
-  git(tree, "commit", "--quiet", "-m", "b");
-  const main = remoteRef("refs/heads/main");
-
-  for (const role of REVIEWERS) {
-    for (const args of [["push", REPO, BRANCH], ["pr-create", REPO, BRANCH, "t", "b"], ["ci-log", REPO, String(pr)], ["merge", REPO, String(pr)]]) {
-      const result = await brokerAs(role, tree, ...args);
-      assert.equal(result.code, 2, `${role} ${args[0]}: ${result.stdout}${result.stderr}`);
-      assert.match(result.stderr, new RegExp(`refused: ${role} sessions \\(role ${role}\\) cannot use ${args[0]}`));
-      assert.equal(result.stdout, "");
-    }
-  }
-  assert.equal(remoteRef(`refs/heads/${BRANCH}`), head);
-  assert.equal(remoteRef("refs/heads/main"), main);
-  assert.equal(await pushRecord(BRANCH), head);
-  assert.equal((await ghState()).prs.length, 1);
-  assert.equal(existsSync(join(root, "merged")), false);
-});
-
 test("a review of a stale head is refused and records nothing, and a re-review of the new head merges it", async () => {
   const old = await newHead("a.txt");
   const pr = await openPr();
   const head = await newHead("b.txt");
 
   for (const role of REVIEWERS) {
-    const result = await brokerAs(role, root, "review", REPO, String(pr), old, "pass");
+    const result = await brokerAs(role, root, "review", REPO, String(pr), old, role, "pass");
     assert.equal(result.code, 2, result.stdout);
     assert.match(result.stderr, new RegExp(`PR head is ${head}, not the reviewed ${old}`));
   }

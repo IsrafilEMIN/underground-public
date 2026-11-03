@@ -22,7 +22,7 @@ export type UsageReply = { status: number; etag?: string; body?: string };
 
 export function defaultConfig(): UsageBrokerConfig {
   return {
-    addressesFile: join(homedir(), ".config/underground-broker/addresses"),
+    addressesFile: join(homedir(), ".ug/host/addresses"),
     gatewayTokenFile: join(homedir(), ".ug/host/auth/auth-gateway.token"),
     fetchImpl: fetch,
   };

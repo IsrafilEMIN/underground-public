@@ -61,7 +61,7 @@ async function client(cwd: string, env: Record<string, string>, ...args: string[
   try {
     const { stdout, stderr } = await execFileAsync(process.execPath, [CLIENT, ...args], {
       cwd,
-      env: { ...GIT_ENV, UG_REVIEW_STORE: "", UG_BROKER_SOCKET: socket, GIT_CEILING_DIRECTORIES: root, ...env },
+      env: { ...GIT_ENV, UG_BROKER_SOCKET: socket, GIT_CEILING_DIRECTORIES: root, ...env },
       encoding: "utf8",
     });
     return { code: 0, stdout, stderr };
@@ -117,11 +117,14 @@ const USAGE_CASES: { name: string; argv: string[]; reason: string }[] = [
   { name: "a pr-create from a branch outside agent/", argv: ["pr-create", REPO, "main", "t", "b"], reason: "branch must match agent/<name>" },
   { name: "a PR number that is not a positive integer", argv: ["pr-status", REPO, "0"], reason: "invalid PR number" },
   { name: "a PR number with letters", argv: ["merge", REPO, "7a"], reason: "invalid PR number" },
-  { name: "a short sha", argv: ["review", REPO, "7", "abc1234", "pass"], reason: "sha must be a full 40-hex commit sha" },
-  { name: "an unknown verdict", argv: ["review", REPO, "7", SHA, "approve"], reason: "verdict must be pass, manual or block" },
+  { name: "a short sha", argv: ["review", REPO, "7", "abc1234", "code-review", "pass"], reason: "sha must be a full 40-hex commit sha" },
+  { name: "an unknown role", argv: ["review", REPO, "7", SHA, "author", "pass"], reason: "role must be code-review, security-review, risk-review" },
+  { name: "a review with no role", argv: ["review", REPO, "7", SHA, "pass"], reason: "wrong number of arguments" },
+  { name: "an unknown verdict", argv: ["review", REPO, "7", SHA, "code-review", "approve"], reason: "verdict must be pass, manual or block" },
+  { name: "a verdict that the role cannot give", argv: ["review", REPO, "7", SHA, "code-review", "manual", "why"], reason: "code-review cannot give manual: use pass or block" },
   { name: "a sync flag other than --pr", argv: ["sync", REPO, "--x", "7"], reason: "want sync <owner/repo> --pr <n>" },
   { name: "an empty PR title", argv: ["pr-create", REPO, BRANCH, "", "body"], reason: "invalid title" },
-  { name: "a block without a reason", argv: ["review", REPO, "7", SHA, "block"], reason: "invalid reason" },
+  { name: "a block without a reason", argv: ["review", REPO, "7", SHA, "security-review", "block"], reason: "invalid reason" },
 ];
 
 for (const { name, argv, reason } of USAGE_CASES) {
@@ -194,20 +197,16 @@ test("a sync reply without a bundle exits 1 as malformed and imports nothing", a
   assert.equal(git(work, "for-each-ref", "refs/remotes"), "");
 });
 
-test("a sync --pr reply without a bundle exits 1 as malformed and imports nothing into the store", async () => {
-  const store = join(root, "store.git");
-  execFileSync(REAL_GIT, ["init", "--bare", "--quiet", store], { env: GIT_ENV });
+test("a sync --pr reply without a bundle exits 1 as malformed and imports nothing into the session's repo", async () => {
   await broker(JSON.stringify({ exit: 0, stdout: "", stderr: "", pr: 7, head: SHA }));
 
-  const run = await client(work, { UG_REVIEW_STORE: store }, "sync", REPO, "--pr", "7");
+  const run = await client(work, {}, "sync", REPO, "--pr", "7");
   assert.equal(run.code, 1, JSON.stringify(run));
   assert.equal(run.stderr, "broker: malformed sync reply\n");
-  assert.equal(git(store, "for-each-ref"), "");
+  assert.equal(git(work, "for-each-ref", "refs/remotes"), "");
 });
 
-test("a PR bundle with two refs is refused, and the store gets no origin/pr/<n>", async () => {
-  const store = join(root, "store.git");
-  execFileSync(REAL_GIT, ["init", "--bare", "--quiet", store], { env: GIT_ENV });
+test("a PR bundle with two refs is refused, and the session's repo gets no origin/pr/<n>", async () => {
   git(work, "checkout", "--quiet", "-b", BRANCH);
   await commit(work, "a.txt");
   const bundlePath = join(root, "two.bundle");
@@ -217,10 +216,10 @@ test("a PR bundle with two refs is refused, and the store gets no origin/pr/<n>"
   const bundle_b64 = execFileSync("base64", ["-i", bundlePath], { encoding: "utf8" }).replace(/\s/g, "");
   await broker(JSON.stringify({ exit: 0, stdout: "", stderr: "", pr: 7, head, bundle_b64 }));
 
-  const run = await client(work, { UG_REVIEW_STORE: store }, "sync", REPO, "--pr", "7");
+  const run = await client(work, {}, "sync", REPO, "--pr", "7");
   assert.equal(run.code, 1, JSON.stringify(run));
   assert.match(run.stderr, /^broker: cannot import sync bundle: the PR bundle holds 2 refs, want 1\n$/);
-  assert.equal(git(store, "for-each-ref", "refs/remotes/origin/pr/7"), "");
+  assert.equal(git(work, "for-each-ref", "refs/remotes/origin/pr/7"), "");
 });
 
 test("send resolves with a well-formed broker reply", async () => {

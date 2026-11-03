@@ -9,10 +9,12 @@ import { dirname, join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
 import { appFiles, appJwt, createAppTokens, redactTokens } from "../../host/broker/github-app.ts";
 import type { AppFiles, Fetch, GithubTokens } from "../../host/broker/github-app.ts";
-import type { Binding, Reply } from "../../host/broker/protocol.ts";
-import { defaultConfig, handleRequest } from "../../host/broker/server.ts";
+import type { Reply } from "../../host/broker/protocol.ts";
+import { defaultConfig } from "../../host/broker/server.ts";
 import type { ServerConfig } from "../../host/broker/server.ts";
 import { FAKE_TOKEN, fakeTokens, tokenRemote } from "./fake-app.ts";
+import { handleAs } from "./session.ts";
+import type { Session as Binding } from "./session.ts";
 import { tempDir } from "../temp.ts";
 
 const REPO = "o/r";
@@ -148,9 +150,9 @@ test("a missing app config or a GitHub error is a clear failure", async () => {
   await assert.rejects(tokens.token(REPO, new AbortController().signal), /HTTP 401: A JSON web token could not be decoded/);
 });
 
-test("the broker finds the app config and key in ~/.config/underground-broker of its home", async () => {
+test("the broker finds the app config and key in the host zone ~/.ug/host of its home", async () => {
   const home = join(root, "home");
-  const appDir = join(home, ".config/underground-broker");
+  const appDir = join(home, ".ug/host");
   await mkdir(appDir, { recursive: true, mode: 0o700 });
   files = { configFile: join(appDir, "github-app.json"), keyFile: join(appDir, "github-app.pem") };
   await writeApp({ client_id: "Iv23liABC", installation_id: 42 });
@@ -324,16 +326,13 @@ function rotatingTokens(): GithubTokens {
 }
 
 function sync(): Promise<Reply> {
-  return handleRequest(config, AUTHOR, { verb: "sync", repo: REPO }, new AbortController().signal);
+  return handleAs(config, AUTHOR, { verb: "sync", repo: REPO }, new AbortController().signal);
 }
 
 async function setUp(github: GithubTokens): Promise<void> {
   config = {
     ...defaultConfig(),
-    runDir: join(root, "run"),
-    bindingsFile: join(root, "bindings.json"),
-    reposFile: join(root, "repos"),
-    rolesFile: join(root, "roles"),
+    socketPath: join(root, "run", "broker.sock"),
     reposRoot: join(root, "bare"),
     reviewsDir: join(root, "reviews"),
     legacyReviewsFile: join(root, "reviews.json"),
@@ -345,8 +344,6 @@ async function setUp(github: GithubTokens): Promise<void> {
     tempRoot: join(root, "tmp"),
   };
   await mkdir(config.home);
-  await writeFile(config.reposFile, `${REPO}\n`);
-  await writeFile(config.rolesFile, "author author\n");
   await writeFile(config.ghPath, FAKE_GH, { mode: 0o755 });
   remote = join(root, "remote.git");
   execFileSync(config.gitPath, ["init", "--bare", "--quiet", "-b", "main", remote], { env: GIT_ENV });

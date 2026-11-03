@@ -14,9 +14,9 @@
   <key>KeepAlive</key>
   <true/>
   <key>StandardOutPath</key>
-  <string>@HOME@/.agents/broker/broker.log</string>
+  <string>@HOME@/.ug/host/broker/broker.log</string>
   <key>StandardErrorPath</key>
-  <string>@HOME@/.agents/broker/broker.log</string>
+  <string>@HOME@/.ug/host/broker/broker.log</string>
   <key>EnvironmentVariables</key>
   <dict>
     <key>PATH</key>

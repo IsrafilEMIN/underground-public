@@ -8,6 +8,7 @@ import {
   isAgentBranch,
   isSha,
   isVerdict,
+  isReviewerRole,
   isMergeReply,
   isReply,
   isSyncPrReply,
@@ -16,10 +17,11 @@ import {
   parsePrNumber,
   validateRequest,
 } from "./protocol.ts";
-import type { AdminRequest, MergeReply, Reply, Request, SyncPrReply, SyncReply } from "./protocol.ts";
+import { REVIEWER_ROLES } from "./protocol.ts";
+import type { MergeReply, Reply, Request, SyncPrReply, SyncReply } from "./protocol.ts";
 
+// The arena wrapper sets it to the one broker socket, ~/.ug/run/broker.sock.
 export const SOCKET_ENV = "UG_BROKER_SOCKET";
-export const STORE_ENV = "UG_REVIEW_STORE";
 
 const EXIT_USAGE = 64;
 const EXIT_REFUSED = 2;
@@ -31,7 +33,7 @@ const USAGE = `usage:
   broker pr-create <owner/repo> <agent/branch> <title> <body>
   broker pr-status <owner/repo> <n>
   broker ci-log <owner/repo> <n>
-  broker review <owner/repo> <n> <sha> pass|manual|block [reason]
+  broker review <owner/repo> <n> <sha> code-review|security-review|risk-review pass|manual|block [reason]
   broker merge <owner/repo> <n>
 `;
 
@@ -164,11 +166,12 @@ export async function buildRequest(argv: string[]): Promise<Request> {
       needArgCount(args, 2, 2);
       return { verb, repo: needRepo(args[0]), number: needNumber(args[1]) };
     case "review": {
-      needArgCount(args, 4, 5);
-      const [repo, number, sha, verdict, reason] = args;
+      needArgCount(args, 5, 6);
+      const [repo, number, sha, role, verdict, reason] = args;
       if (!isSha(sha)) throw new UsageError("sha must be a full 40-hex commit sha");
+      if (!isReviewerRole(role)) throw new UsageError(`role must be ${REVIEWER_ROLES.join(", ")}`);
       if (!isVerdict(verdict)) throw new UsageError("verdict must be pass, manual or block");
-      return { verb, repo: needRepo(repo), number: needNumber(number), sha, verdict, reason: reason ?? "" };
+      return { verb, repo: needRepo(repo), number: needNumber(number), sha, role, verdict, reason: reason ?? "" };
     }
     case "merge":
       needArgCount(args, 2, 2);
@@ -178,7 +181,7 @@ export async function buildRequest(argv: string[]): Promise<Request> {
   }
 }
 
-export function send(socketPath: string, request: Request | AdminRequest): Promise<Reply> {
+export function send(socketPath: string, request: Request): Promise<Reply> {
   const { promise, resolve, reject } = Promise.withResolvers<Reply>();
   const chunks: Buffer[] = [];
   const socket = connect(socketPath);
@@ -198,15 +201,14 @@ export function send(socketPath: string, request: Request | AdminRequest): Promi
   return promise;
 }
 
-async function importSync(reply: SyncReply, store: string | undefined): Promise<number> {
+async function importSync(reply: SyncReply): Promise<number> {
   const tempDir = await mkdtemp(join(tmpdir(), "broker-sync-"));
   try {
     const bundlePath = join(tempDir, "sync.bundle");
     await writeFile(bundlePath, Buffer.from(reply.bundle_b64, "base64"), { mode: 0o600 });
     const ref = `refs/remotes/origin/${reply.branch}`;
-    const git = store === undefined ? [] : ["--git-dir", store];
-    await execFileAsync("git", [...git, "fetch", "--quiet", "--no-tags", "--no-write-fetch-head", bundlePath, `+refs/heads/${reply.branch}:${ref}`]);
-    const { stdout } = await execFileAsync("git", [...git, "rev-parse", "--verify", `${ref}^{commit}`], { encoding: "utf8" });
+    await execFileAsync("git", ["fetch", "--quiet", "--no-tags", "--no-write-fetch-head", bundlePath, `+refs/heads/${reply.branch}:${ref}`]);
+    const { stdout } = await execFileAsync("git", ["rev-parse", "--verify", `${ref}^{commit}`], { encoding: "utf8" });
     process.stdout.write(`origin/${reply.branch} is now ${stdout.trim()}\n`);
     return 0;
   } finally {
@@ -214,9 +216,10 @@ async function importSync(reply: SyncReply, store: string | undefined): Promise<
   }
 }
 
-export async function importPr(reply: SyncPrReply, store: string): Promise<number> {
-  const git = async (args: string[]): Promise<string> =>
-    (await execFileAsync("git", ["--git-dir", store, ...args], { encoding: "utf8" })).stdout.trim();
+// Imports the PR head into the session's own repo as origin/pr/<n>, and checks it against the head
+// that GitHub names. Reviewers read the PR there (docs/SPEC.md, B8).
+export async function importPr(reply: SyncPrReply, cwd: string = process.cwd()): Promise<number> {
+  const git = async (args: string[]): Promise<string> => (await execFileAsync("git", args, { cwd, encoding: "utf8" })).stdout.trim();
   const ref = `refs/remotes/origin/pr/${reply.pr}`;
   const tempDir = await mkdtemp(join(tmpdir(), "broker-sync-"));
   try {
@@ -228,7 +231,7 @@ export async function importPr(reply: SyncPrReply, store: string): Promise<numbe
     await git(["fetch", "--quiet", "--no-tags", "--no-write-fetch-head", bundlePath, `+${source}:${ref}`]);
     const imported = await git(["rev-parse", "--verify", `${ref}^{commit}`]);
     if (imported !== reply.head) throw new Error(`the imported commit ${imported} is not the PR head ${reply.head}`);
-    process.stdout.write(`origin/pr/${reply.pr} is now ${imported} in ${store}\n`);
+    process.stdout.write(`origin/pr/${reply.pr} is now ${imported}\n`);
     return 0;
   } catch (error) {
     await git(["update-ref", "-d", ref]).catch(() => "");
@@ -238,11 +241,7 @@ export async function importPr(reply: SyncPrReply, store: string): Promise<numbe
   }
 }
 
-export async function main(
-  argv: string[],
-  socketPath: string | undefined = process.env[SOCKET_ENV],
-  store: string | undefined = process.env[STORE_ENV] || undefined,
-): Promise<number> {
+export async function main(argv: string[], socketPath: string | undefined = process.env[SOCKET_ENV]): Promise<number> {
   let request: Request;
   try {
     request = await buildRequest(argv);
@@ -257,13 +256,8 @@ export async function main(
     return 1;
   }
   if (socketPath === undefined || socketPath === "") {
-    process.stderr.write(`broker: this session has no broker socket (${SOCKET_ENV} is not set; the wrapper sets it only for a repo in the broker repos list)\n`);
+    process.stderr.write(`broker: this session has no broker socket (${SOCKET_ENV} is not set; the arena wrapper sets it)\n`);
     return EXIT_UNAVAILABLE;
-  }
-  const prStore = request.verb === "sync" && request.pr !== undefined ? store : null;
-  if (prStore === undefined) {
-    process.stderr.write(`broker: this session has no reviewer git store (${STORE_ENV} is not set; omp sets it for reviewer roles only)\n`);
-    return EXIT_USAGE;
   }
   let reply: Reply;
   try {
@@ -285,10 +279,10 @@ export async function main(
   if (reply.exit !== 0) return reply.exit;
   if (request.verb !== "sync") return 0;
   try {
-    if (prStore !== null) {
-      if (isSyncPrReply(reply)) return await importPr(reply, prStore);
+    if (request.pr !== undefined) {
+      if (isSyncPrReply(reply)) return await importPr(reply);
     } else if (isSyncReply(reply)) {
-      return await importSync(reply, store);
+      return await importSync(reply);
     }
   } catch (error) {
     process.stderr.write(`broker: cannot import sync bundle: ${error instanceof Error ? error.message : String(error)}\n`);

@@ -7,12 +7,14 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
 import { MAX_REQUEST_BYTES, REVIEWER_ROLES, isMergeReply } from "../../host/broker/protocol.ts";
-import type { Binding, PushRecord, Reply } from "../../host/broker/protocol.ts";
+import type { PushRecord, Reply } from "../../host/broker/protocol.ts";
 import { readPushRecord, writePushRecord } from "../../host/broker/push-record.ts";
 import { appendReviewRecord, readReviewRecords } from "../../host/broker/review-records.ts";
-import { defaultConfig, handleRequest, serveConnection } from "../../host/broker/server.ts";
+import { defaultConfig, serveConnection } from "../../host/broker/server.ts";
 import type { ServerConfig } from "../../host/broker/server.ts";
 import { FAKE_TOKEN, fakeTokens, tokenRemote } from "./fake-app.ts";
+import { handleAs } from "./session.ts";
+import type { Session as Binding } from "./session.ts";
 import { tempDir } from "../temp.ts";
 
 const REPO = "o/r";
@@ -87,7 +89,7 @@ function bundleOf(branch: string): string {
 }
 
 function request(input: Record<string, unknown>, binding: Binding = AUTHOR): Promise<Reply> {
-  return handleRequest(config, binding, { repo: REPO, ...input }, new AbortController().signal);
+  return handleAs(config, binding, { repo: REPO, ...input }, new AbortController().signal);
 }
 
 function push(branch: string, sha: string, bundleBranch: string = branch): Promise<Reply> {
@@ -203,10 +205,7 @@ beforeEach(async () => {
   remote = join(root, "remote.git");
   config = {
     ...defaultConfig(),
-    runDir: join(root, "run"),
-    bindingsFile: join(root, "bindings.json"),
-    reposFile: join(root, "repos"),
-    rolesFile: join(root, "roles"),
+    socketPath: join(root, "run", "broker.sock"),
     reposRoot: join(root, "bare"),
     reviewsDir: join(root, "reviews"),
     legacyReviewsFile: join(root, "reviews.json"),
@@ -220,8 +219,6 @@ beforeEach(async () => {
   };
   await mkdir(config.home);
   await writeHome("repo.json", '{"defaultBranchRef":{"name":"main"}}\n');
-  await writeFile(config.reposFile, `${REPO}\n`);
-  await writeFile(config.rolesFile, "author author\ncode-review code-review\n");
   await writeFile(config.ghPath, FAKE_GH, { mode: 0o755 });
   await writeFile(config.gitPath, fakeGit(remote), { mode: 0o755 });
   execFileSync(REAL_GIT, ["init", "--bare", "--quiet", remote], { env: GIT_ENV });
@@ -238,32 +235,6 @@ afterEach(async () => {
 });
 
 // --- the files that every request reads ---
-
-test("a request is refused when the roles file is missing or unparseable, and calls no gh", async () => {
-  await rm(config.rolesFile);
-  assertRefused(await request({ verb: "pr-create", head: BRANCH, title: "t", body: "" }), "roles file missing");
-
-  await writeFile(config.rolesFile, "author writer\n");
-  assertRefused(await request({ verb: "pr-create", head: BRANCH, title: "t", body: "" }), "roles file line 1");
-
-  assert.equal(await readHome("gh-calls"), "");
-  assert.equal(await readHome("created"), "");
-});
-
-test("a request is refused when the repos file is missing, and calls no gh", async () => {
-  await rm(config.reposFile);
-  assertRefused(await request({ verb: "pr-create", head: BRANCH, title: "t", body: "" }), "repos file missing");
-  assert.equal(await readHome("gh-calls"), "");
-  assert.equal(await readHome("created"), "");
-});
-
-test("a request for a repo that the repos file does not list is refused, even from a binding of that repo", async () => {
-  const binding: Binding = { repo: "o/unlisted", role_name: "author", role: "author" };
-  const reply = await handleRequest(config, binding, { verb: "pr-create", repo: "o/unlisted", head: BRANCH, title: "t", body: "" }, new AbortController().signal);
-  assertRefused(reply, "repo not allowed");
-  assert.equal(await readHome("gh-calls"), "");
-  assert.equal(await readHome("created"), "");
-});
 
 // --- the connection: one JSON line in, one JSON reply out ---
 

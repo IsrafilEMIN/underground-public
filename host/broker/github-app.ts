@@ -21,8 +21,8 @@ const INSTALLATION_TOKEN_TEXT = /ghs_[A-Za-z0-9_.-]+/g;
 
 export function appFiles(home: string): AppFiles {
   return {
-    configFile: join(home, ".config/underground-broker/github-app.json"),
-    keyFile: join(home, ".config/underground-broker/github-app.pem"),
+    configFile: join(home, ".ug/host/github-app.json"),
+    keyFile: join(home, ".ug/host/github-app.pem"),
   };
 }
 
