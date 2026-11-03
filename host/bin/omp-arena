@@ -115,6 +115,22 @@ if [[ ! -S $broker_socket ]]; then
   broker_socket=""
 fi
 
+# --- the arena backup -----------------------------------------------------------------------------
+# A backup that stopped is false safety, so each start says when the last good one is more than an
+# hour old (host/bin/ug-backup writes the times; docs/SPEC.md, B10).
+backup_dir="$HOME/.ug/host/backup"
+backup_names=(local)
+[[ -f $backup_dir/remote ]] && backup_names+=(remote)
+now=$(date +%s)
+for name in "${backup_names[@]}"; do
+  last=$(cat "$backup_dir/last-$name" 2>/dev/null) || last=""
+  if [[ ! $last =~ ^[0-9]+$ ]]; then
+    printf 'omp: warning: the %s arena backup has never run; check the launchd job com.underground.backup and %s/backup.log\n' "$name" "$backup_dir" >&2
+  elif ((now - last > 3600)); then
+    printf 'omp: warning: the last %s arena backup is %s minutes old; check the launchd job com.underground.backup and %s/backup.log\n' "$name" "$(((now - last) / 60))" "$backup_dir" >&2
+  fi
+done
+
 # --- this session's files in ~/.ug/run ------------------------------------------------------------
 
 find "$run_root" -mindepth 1 -maxdepth 1 -name 'session.*' -mtime +1 -exec rm -rf {} + 2>/dev/null || true

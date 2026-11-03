@@ -7,6 +7,8 @@
 #   - ~/.ug/sys/bin/omp, a link to the arena wrapper in this checkout
 #   - the four launchd services: the GitHub broker and the usage broker run from this checkout,
 #     the auth broker and the auth gateway run the pinned omp
+#   - the arena backup: the pinned restic in ~/.ug/sys, its password and repos in ~/.ug/host/backup,
+#     and the launchd job com.underground.backup that runs host/bin/ug-backup every 15 minutes
 #   - the proof: it runs scripts/probe-arena.sh and records the macOS build only when the probe
 #     passes; the wrapper refuses to start on any other build
 # The auth broker and the auth gateway keep their logins and tokens in ~/.ug/host/auth. The GitHub
@@ -33,7 +35,7 @@ sys="$HOME/.ug/sys"
 node_bin=/opt/homebrew/bin/node
 npm_bin=/opt/homebrew/bin/npm
 srt_package=@anthropic-ai/sandbox-runtime
-labels="com.underground.broker com.underground.auth-broker com.underground.auth-gateway com.underground.usage-broker"
+labels="com.underground.broker com.underground.auth-broker com.underground.auth-gateway com.underground.usage-broker com.underground.backup"
 agents_dir="$HOME/Library/LaunchAgents"
 addresses_file="$HOME/.ug/host/addresses"
 host_zone="$HOME/.ug/host"
@@ -64,6 +66,11 @@ omp_pin=$(pin omp '^[0-9A-Za-z.+-]+$')
 omp_sha=$(pin omp_sha256 '^[0-9a-f]{64}$')
 omp_release=$(pin omp_release '^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/releases/download$')
 srt_pin=$(pin srt '^[0-9A-Za-z.+-]+$')
+restic_pin=$(pin restic '^[0-9A-Za-z.+-]+$')
+restic_sha=$(pin restic_sha256 '^[0-9a-f]{64}$')
+restic_bz2_sha=$(pin restic_bz2_sha256 '^[0-9a-f]{64}$')
+restic_release=$(pin restic_release '^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/releases/download$')
+backup="$HOME/.ug/host/backup"
 
 [[ $(uname -s) == Darwin && $(uname -m) == arm64 ]] || die "the omp pin names omp-darwin-arm64; this mac is $(uname -s) $(uname -m)"
 [[ -x $node_bin ]] || die "missing $node_bin"
@@ -90,7 +97,7 @@ run_tests() {
 run_tests
 
 [[ -d $HOME/.ug ]] || install -d -m 700 "$HOME/.ug"
-install -d -m 700 "$sys" "$sys/omp" "$sys/srt" "$sys/bin" "$sys/agent-bin" "$sys/libexec" "$sys/broker" "$HOME/.ug/run"
+install -d -m 700 "$sys" "$sys/omp" "$sys/srt" "$sys/restic" "$sys/bin" "$sys/agent-bin" "$sys/libexec" "$sys/broker" "$HOME/.ug/run"
 
 install_omp() {
   local dir="$sys/omp/$omp_pin" dest tmp have url
@@ -130,6 +137,69 @@ install_srt() {
   rm -rf "$dir"
   mv "$tmp" "$dir"
   printf 'srt %s: installed in %s\n' "$srt_pin" "$dir"
+}
+
+install_restic() {
+  local dir="$sys/restic/$restic_pin" dest tmp bin have url
+  dest="$dir/restic"
+  if [[ -f $dest && ! -L $dest ]] && [[ $(sha256 "$dest") == "$restic_sha" ]]; then
+    printf 'restic %s: in place\n' "$restic_pin"
+    return 0
+  fi
+  url="$restic_release/v$restic_pin/restic_${restic_pin}_darwin_arm64.bz2"
+  tmp=$(mktemp "$sys/restic/.download.XXXXXX")
+  bin=$(mktemp "$sys/restic/.binary.XXXXXX")
+  cleanup+=("$tmp" "$bin")
+  curl -fsSL --proto '=https' --retry 3 -o "$tmp" "$url" || die "download of $url failed"
+  have=$(sha256 "$tmp")
+  [[ $have == "$restic_bz2_sha" ]] || die "restic $restic_pin from $url has SHA-256 $have, want $restic_bz2_sha; nothing changed"
+  bunzip2 -c "$tmp" >"$bin" || die "bunzip2 of $url failed; nothing changed"
+  have=$(sha256 "$bin")
+  [[ $have == "$restic_sha" ]] || die "restic $restic_pin unpacked has SHA-256 $have, want $restic_sha; nothing changed"
+  chmod 555 "$bin"
+  install -d -m 700 "$dir"
+  mv -f "$bin" "$dest"
+  printf 'restic %s: installed in %s\n' "$restic_pin" "$dest"
+}
+
+# The arena backup's password and repos (docs/SPEC.md, B10). The password and the backup's ssh key
+# are made once and never replaced: a new password would lock every old snapshot. The remote repo
+# exists only when the owner names it in $backup/remote.
+setup_backup() {
+  local restic="$sys/restic/$restic_pin/restic" remote status
+  install -d -m 700 "$backup"
+  if [[ ! -s $backup/password ]]; then
+    (umask 077 && openssl rand -base64 32 >"$backup/password") || die "cannot write $backup/password"
+    printf 'backup: made the password %s; save a copy in your password manager, or the remote backup cannot be read after a loss of this mac\n' "$backup/password"
+  fi
+  if [[ ! -e $backup/ssh_key ]]; then
+    ssh-keygen -q -t ed25519 -N "" -C "underground-backup" -f "$backup/ssh_key" || die "ssh-keygen for $backup/ssh_key failed"
+  fi
+  export RESTIC_PASSWORD_FILE="$backup/password"
+  status=0
+  "$restic" -r "$backup/repo" cat config >/dev/null 2>&1 || status=$?
+  if [[ $status -eq 10 ]]; then
+    "$restic" -r "$backup/repo" init >/dev/null || die "restic init of $backup/repo failed"
+    printf 'backup: made the local repo %s\n' "$backup/repo"
+  elif [[ $status -ne 0 ]]; then
+    die "the local backup repo $backup/repo does not open (restic exit $status)"
+  fi
+  if [[ -f $backup/remote ]]; then
+    remote=$(sed -n '1p' "$backup/remote")
+    [[ $remote =~ ^sftp:([^:/]+):(.+)$ ]] || die "$backup/remote must hold one line sftp:<user>@<host>:<path>"
+    local sftp="sftp.command=ssh -i $backup/ssh_key -o IdentitiesOnly=yes -o IdentityAgent=none -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$backup/known_hosts ${BASH_REMATCH[1]} -s sftp"
+    status=0
+    "$restic" -r "$remote" -o "$sftp" cat config >/dev/null 2>&1 || status=$?
+    if [[ $status -eq 10 ]]; then
+      "$restic" -r "$remote" -o "$sftp" init >/dev/null || die "restic init of $remote failed"
+      printf 'backup: made the remote repo %s\n' "$remote"
+    elif [[ $status -ne 0 ]]; then
+      die "the remote backup repo $remote does not open (restic exit $status); check that $backup/ssh_key.pub is in the authorized_keys of ${BASH_REMATCH[1]}"
+    fi
+  else
+    printf 'backup: no remote repo yet; to add one, write sftp:<user>@<host>:<path> to %s and add %s to that login'"'"'s authorized_keys\n' "$backup/remote" "$backup/ssh_key.pub"
+  fi
+  unset RESTIC_PASSWORD_FILE
 }
 
 # Write a file in place of the old one, never through it: a new file next to it, then a rename.
@@ -243,6 +313,8 @@ install_services() {
 
 install_omp
 install_srt
+install_restic
 install_arena_files
+setup_backup
 install_services
 prove

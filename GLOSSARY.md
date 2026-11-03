@@ -27,7 +27,7 @@ The folder `~/.ug/run`: the broker socket `broker.sock`, the session folders, an
 _Avoid_: run dir, socket dir
 
 **Host zone**:
-The folder `~/.ug/host`: everything the sandbox gets nothing of. The broker app's private key, the auth broker's own root with the model logins, the broker's records, and the owner's hand-edited broker files, such as the addresses file (owner decision, 2026-11-03). Setup moved them there from `~/.agents/broker`, `~/.config/underground-broker`, and `~/.omp` (`docs/SPEC.md`, B6 and B7).
+The folder `~/.ug/host`: everything the sandbox gets nothing of. The broker app's private key, the auth broker's own root with the model logins, the broker's records, the arena backup's repo and password, and the owner's hand-edited broker files, such as the addresses file (owner decision, 2026-11-03). Setup moved them there from `~/.agents/broker`, `~/.config/underground-broker`, and `~/.omp` (`docs/SPEC.md`, B6 and B7).
 _Avoid_: vault, keys dir
 
 **Owner's zone**:
@@ -76,8 +76,12 @@ _Avoid_: plain omp, unwrapped session
 The owner's command for the auth services: the pinned omp with its root in `~/.ug/host/auth`, limited to `auth-broker` and `auth-gateway`, for example `ug-auth auth-broker login anthropic` or `ug-auth auth-broker token --regenerate`. Setup links it as `~/.ug/sys/bin/ug-auth`.
 _Avoid_: raw omp, admin omp
 
+**Arena backup**:
+The snapshots of `~/.ug/home` and `~/.ug/host` that the pinned restic makes every 15 minutes (launchd `com.underground.backup`, `host/bin/ug-backup`), into a local repo in `~/.ug/host/backup/repo` and a remote one on `v100-server`. It makes harm to the arena undoable without a list of files (`docs/SPEC.md`, B10).
+_Avoid_: archive, sync, Time Machine
+
 **Setup**:
-The host script that does what `git pull` cannot: install the pinned omp and srt, make the zones and their modes, register and restart the launchd services, put the wrapper on `PATH`, run the arena probe, and record the macOS build. The owner runs the U1 and U2 probes by hand (`docs/SPEC.md`, Checks). It runs when a pin changes, a host service changes, or macOS updates. It replaces the install (`docs/adr/0012-pinned-omp-and-setup.md`).
+The host script that does what `git pull` cannot: install the pinned omp, srt, and restic, make the zones and their modes, make the backup password and repos, register and restart the launchd services, put the wrapper on `PATH`, run the arena probe, and record the macOS build. The owner runs the U1 and U2 probes by hand (`docs/SPEC.md`, Checks). It runs when a pin changes, a host service changes, or macOS updates. It replaces the install (`docs/adr/0012-pinned-omp-and-setup.md`).
 _Avoid_: install, installer, bootstrap
 
 **Preflight**:

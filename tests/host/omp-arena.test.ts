@@ -437,3 +437,43 @@ test("omp-arena refuses a config repo with models.yaml, whose gateway markers it
   assert.doesNotMatch(r.stdout, /^CWD=/m, "omp started");
   assert.equal(existsSync(agentFile(arena, "models.yaml")), false);
 });
+
+// --- the arena backup's freshness (docs/SPEC.md, B10) -------------------------------------------------
+
+test("omp-arena warns when the arena backup never ran or is over an hour old, and is quiet when it is fresh", async (t) => {
+  const { home, checkout } = await fakeHome();
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const backup = join(home, ".ug/host/backup");
+  await mkdir(backup, { recursive: true });
+  const now = Math.floor(Date.now() / 1000);
+  let r = run(home, checkout);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stderr, /the local arena backup has never run/);
+  await writeFile(join(backup, "last-local"), `${now - 2 * 3600}\n`);
+  r = run(home, checkout);
+  assert.match(r.stderr, /the last local arena backup is 1[12][0-9] minutes old/);
+  await writeFile(join(backup, "last-local"), "garbage\n");
+  r = run(home, checkout);
+  assert.match(r.stderr, /the local arena backup has never run/, "a garbled time counts as fresh");
+  await writeFile(join(backup, "last-local"), `${now - 60}\n`);
+  r = run(home, checkout);
+  assert.equal(r.status, 0, r.stderr);
+  assert.doesNotMatch(r.stderr, /arena backup/);
+  assert.match(r.stdout, /^CWD=/m, "omp did not start");
+});
+
+test("omp-arena checks the remote backup too, once the owner names a remote repo", async (t) => {
+  const { home, checkout } = await fakeHome();
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const backup = join(home, ".ug/host/backup");
+  await mkdir(backup, { recursive: true });
+  const now = Math.floor(Date.now() / 1000);
+  await writeFile(join(backup, "last-local"), `${now}\n`);
+  await writeFile(join(backup, "remote"), "sftp:owner@v100-server:backups/mac-arena\n");
+  let r = run(home, checkout);
+  assert.match(r.stderr, /the remote arena backup has never run/);
+  assert.doesNotMatch(r.stderr, /local arena backup/);
+  await writeFile(join(backup, "last-remote"), `${now - 7200}\n`);
+  r = run(home, checkout);
+  assert.match(r.stderr, /the last remote arena backup is \d+ minutes old/);
+});

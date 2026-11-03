@@ -34,6 +34,8 @@ pin() { sed -n "s/^$1=//p" "$src/VERSIONS"; }
 omp_pin=$(pin omp)
 omp_sha=$(pin omp_sha256)
 srt_pin=$(pin srt)
+restic_pin=$(pin restic)
+restic_sha=$(pin restic_sha256)
 sys="$HOME/.ug/sys"
 omp_bin="$sys/omp/$omp_pin/omp"
 srt_cli="$sys/srt/$srt_pin/node_modules/@anthropic-ai/sandbox-runtime/dist/cli.js"
@@ -288,6 +290,33 @@ else
   if [[ $rc -eq 0 && $out == *391* ]]; then breach raw-omp "a raw omp by full path answered with no sandbox; it found a login or a token"
   else pass raw-omp "a raw omp by full path gets no answer (rc $rc): $(first "$out")"; fi
 fi
+# --- the arena backup (docs/SPEC.md, B10) ------------------------------------------------------------
+# The backup undoes what an agent destroys in the arena only if no agent can reach it: the sandbox
+# must not read its password or its repo, so it cannot delete or rewrite a snapshot.
+backup="$HOME/.ug/host/backup"
+restic_bin="$sys/restic/$restic_pin/restic"
+have=$(shasum -a 256 "$restic_bin" 2>/dev/null) && have=${have%% *} || have=missing
+if [[ $have == "$restic_sha" ]]; then pass restic-pin "restic $restic_pin has the SHA-256 in VERSIONS"; else fail restic-pin "restic $restic_pin at $restic_bin has SHA-256 $have, want $restic_sha"; fi
+if [[ ! -s $backup/password || ! -d $backup/repo ]]; then
+  fail backup "no backup password or local repo in $backup; run host/bin/ug-setup"
+else
+  secret=$(<"$backup/password")
+  box /bin/cat "$backup/password"
+  if [[ -n $secret && $out == *"$secret"* ]]; then breach backup-key "the sandbox read the backup password"
+  elif [[ $rc -ne 0 && $out == *"$denied"* ]]; then pass backup-key "the sandbox cannot read the backup password"
+  else inc backup-key "cat failed for another reason (rc $rc): $(first "$out")"; fi
+  box /bin/ls "$backup/repo"
+  if [[ $rc -eq 0 ]]; then breach backup-repo "the sandbox lists the backup repo: $(first "$out")"
+  elif [[ $out == *"$denied"* ]]; then pass backup-repo "the sandbox cannot reach the backup repo"
+  else inc backup-repo "ls failed for another reason (rc $rc): $(first "$out")"; fi
+  # A write, never a delete: if the sandbox leaked, a delete would destroy the snapshots that this
+  # check protects. A planted file is removed again by the host.
+  box /usr/bin/touch "$backup/repo/ug-probe-write"
+  if [[ -e $backup/repo/ug-probe-write ]]; then rm -f "$backup/repo/ug-probe-write"; breach backup-write "the sandbox wrote into $backup/repo"
+  elif [[ $out == *"$denied"* ]]; then pass backup-write "the sandbox cannot write into the backup repo"
+  else inc backup-write "touch failed for another reason (rc $rc): $(first "$out")"; fi
+fi
+
 if out=$(BUN_BE_BUN=1 "$omp_bin" "$srt_cli" --version 2>&1) && [[ $out == "$srt_pin" ]]; then
   info srt-on-bun "srt starts on the bun inside omp; a sandboxed run on it is not tested yet"
 else

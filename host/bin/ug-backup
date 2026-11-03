@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+# The arena backup (docs/SPEC.md, B10). launchd (com.underground.backup) runs it every 15 minutes.
+# It backs up the arena ~/.ug/home and the host zone ~/.ug/host with the pinned restic into each
+# repo: the local one in ~/.ug/host/backup/repo, and the remote one that the owner names in
+# ~/.ug/host/backup/remote (for example sftp:user@v100-server:backups/mac-arena). The repos and
+# their password sit in the host zone, which the sandbox cannot read, so no agent can delete or
+# rewrite a snapshot; whatever an agent destroys in the arena comes back from one.
+#
+# restic stores links as links and never follows them (restic docs, 040_backup.rst:650), so a link
+# that an agent planted in the arena brings nothing from outside into a backup. It only reads the
+# arena; nothing here runs a file that an agent wrote.
+#
+# After each good run it writes the time to ~/.ug/host/backup/last-<repo>, which the arena wrapper
+# checks at each start. Once a day per repo it applies the keep rule and prunes.
+set -uo pipefail
+
+if [[ $# -ne 0 ]]; then
+  printf 'usage: ug-backup\n' >&2
+  exit 64
+fi
+
+src=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)
+restic_pin=$(sed -n 's/^restic=//p' "$src/VERSIONS")
+restic_bin="$HOME/.ug/sys/restic/$restic_pin/restic"
+backup="$HOME/.ug/host/backup"
+password_file="$backup/password"
+ssh_key="$backup/ssh_key"
+day=86400
+
+log() { printf '%s ug-backup: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >&2; }
+
+[[ -n $restic_pin && -x $restic_bin ]] || { log "the pinned restic $restic_bin is missing; run host/bin/ug-setup"; exit 1; }
+[[ -f $password_file && -s $password_file ]] || { log "the backup password $password_file is missing; run host/bin/ug-setup"; exit 1; }
+export RESTIC_PASSWORD_FILE=$password_file
+
+# The remote repo goes over sftp with the backup's own key, never the owner's ssh agent.
+sftp_opts=()
+remote=""
+if [[ -f $backup/remote ]]; then
+  remote=$(sed -n '1p' "$backup/remote")
+  if [[ $remote =~ ^sftp:([^:/]+):(.+)$ ]]; then
+    sftp_opts=(-o "sftp.command=ssh -i $ssh_key -o IdentitiesOnly=yes -o IdentityAgent=none -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$backup/known_hosts ${BASH_REMATCH[1]} -s sftp")
+  else
+    log "$backup/remote must hold one line sftp:<user>@<host>:<path>; the remote repo is skipped"
+    remote=""
+  fi
+fi
+
+failed=0
+run() {
+  local name=$1 repo=$2 status now last_prune
+  shift 2
+  "$restic_bin" -r "$repo" "$@" backup --quiet --tag ug --exclude-caches \
+    --exclude "$HOME/.ug/home/tmp" --exclude "$HOME/.ug/home/.omp/agent/cache" --exclude node_modules \
+    --exclude "$backup" \
+    "$HOME/.ug/home" "$HOME/.ug/host"
+  status=$?
+  # 3: some files could not be read, for example one that a session deleted during the run. The
+  # snapshot holds the rest, so it counts.
+  if [[ $status -ne 0 && $status -ne 3 ]]; then
+    log "backup to $name ($repo) failed with restic exit $status"
+    failed=1
+    return
+  fi
+  [[ $status -eq 0 ]] || log "backup to $name: some files could not be read (restic exit 3); the snapshot holds the rest"
+  now=$(date +%s)
+  printf '%s\n' "$now" >"$backup/last-$name"
+  last_prune=$(cat "$backup/prune-$name" 2>/dev/null) || last_prune=0
+  [[ $last_prune =~ ^[0-9]+$ ]] || last_prune=0
+  if ((now - last_prune >= day)); then
+    if "$restic_bin" -r "$repo" "$@" forget --quiet --tag ug --keep-within 1d --keep-daily 30 --keep-monthly 12 --prune; then
+      printf '%s\n' "$now" >"$backup/prune-$name"
+    else
+      log "the keep rule on $name failed; the snapshots stay, and the next run tries again"
+    fi
+  fi
+}
+
+run local "$backup/repo"
+if [[ -n $remote ]]; then
+  run remote "$remote" "${sftp_opts[@]}"
+fi
+exit "$failed"
