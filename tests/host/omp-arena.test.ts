@@ -519,3 +519,30 @@ test("omp-arena refuses a link at raw-omp/config.yml, at ~/.omp/agent, or at its
     assert.equal(await readFile(join(outside, "config.yml"), "utf8"), "owner file\n", `${label}: wrote through the link`);
   }
 });
+
+// --- the arena backup's freshness (docs/SPEC.md, B10) -------------------------------------------------
+
+test("omp-arena warns when the arena backup never ran or is over two days old, and is quiet when it is fresh", async (t) => {
+  const { home, checkout } = await fakeHome();
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const last = join(home, ".ug/host/backup/last");
+  await mkdir(join(home, ".ug/host/backup"), { recursive: true });
+  const now = Math.floor(Date.now() / 1000);
+  let r = run(home, checkout);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stderr, /the arena backup has never run/);
+  for (const [stamp, pattern] of [
+    [`${now - 3 * 86400}`, /the last arena backup is 3 days old/],
+    ["garbage", /the arena backup has never run/],
+    ["", /the arena backup has never run/],
+  ] as const) {
+    await writeFile(last, `${stamp}\n`);
+    r = run(home, checkout);
+    assert.match(r.stderr, pattern, `last=${stamp}`);
+  }
+  await writeFile(last, `${now - 36 * 3600}\n`);
+  r = run(home, checkout);
+  assert.equal(r.status, 0, r.stderr);
+  assert.doesNotMatch(r.stderr, /arena backup/, "a day and a half warned, but one missed night is allowed");
+  assert.match(r.stdout, /^CWD=/m, "omp did not start");
+});

@@ -146,6 +146,17 @@ if [[ ! -S $broker_socket ]]; then
   broker_socket=""
 fi
 
+# --- the arena backup -----------------------------------------------------------------------------
+# A backup that stopped is false safety, so each start says when the last good one is more than two
+# days old: the daily job may miss one night (docs/SPEC.md, B10; host/bin/ug-backup writes the time).
+backup_last="$HOME/.ug/host/backup/last"
+last=$(cat "$backup_last" 2>/dev/null) || last=""
+if [[ ! $last =~ ^[0-9]+$ ]]; then
+  printf 'omp: warning: the arena backup has never run; see ~/.ug/host/backup/backup.log and docs/SPEC.md, B10\n' >&2
+elif (($(date +%s) - last > 2 * 86400)); then
+  printf 'omp: warning: the last arena backup is %s days old; see ~/.ug/host/backup/backup.log\n' "$((($(date +%s) - last) / 86400))" >&2
+fi
+
 # --- this session's files in ~/.ug/run ------------------------------------------------------------
 
 find "$run_root" -mindepth 1 -maxdepth 1 -name 'session.*' -mtime +1 -exec rm -rf {} + 2>/dev/null || true

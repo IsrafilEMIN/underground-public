@@ -68,6 +68,10 @@ esac
   await mkdir(join(home, ".ug/host/auth"), { recursive: true });
   await writeFile(join(home, ".ug/host/auth/auth-gateway.token"), "test-bearer\n");
   await writeFile(join(home, ".ug/host/addresses"), "gateway=192.0.2.1:4000\nengine=192.0.2.2:8081\n");
+  // The arena backup's password and config (docs/SPEC.md, B10).
+  await mkdir(join(home, ".ug/host/backup"), { recursive: true });
+  await writeFile(join(home, ".ug/host/backup/password"), "backup-password-for-the-probe\n");
+  await writeFile(join(home, ".ug/host/backup/config"), "repo=sftp:owner@other-box:backups/arena\n");
   return home;
 }
 
@@ -86,7 +90,7 @@ function runProbe(home: string, extra: Record<string, string> = {}) {
   return { run, lines, result };
 }
 
-const DENY_CHECKS = ["read-deny", "omp-read", "write-deny", "symlink", "hardlink"];
+const DENY_CHECKS = ["read-deny", "omp-read", "write-deny", "symlink", "hardlink", "backup-password", "backup-config"];
 
 test("probe-arena reports a BREACH for every deny check when srt runs commands with no sandbox", async (t) => {
   const home = await fakeHome(LEAKY);
