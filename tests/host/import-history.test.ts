@@ -133,3 +133,23 @@ test("import-history refuses while a session of this home's arena runs, and igno
   assert.match(busy.stderr, /an arena session is running/);
   assert.deepEqual(await listAll(old), before, "it moved files while a session ran");
 });
+
+test("import-history --go --all brings in the files with a secret too, and still refuses a planted link", async (t) => {
+  const { home, old, target } = await fakeHome();
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const r = run(home, "--go", "--all");
+  assert.equal(r.status, 0, r.stderr);
+  assert.doesNotMatch(r.stdout, /skip/);
+  for (const leak of ["leak", "app", "strata", "refresh"]) {
+    assert.ok(existsSync(join(target, `ug-proj-1234abcd/2026-10-31_${leak}.jsonl`)), `${leak} was left out`);
+    assert.equal(existsSync(join(old, `ug-proj-1234abcd/2026-10-31_${leak}.jsonl`)), false, `${leak} was not moved`);
+  }
+  const again = await fakeHome();
+  t.after(() => rm(again.home, { recursive: true, force: true }));
+  await mkdir(join(again.home, "outside"));
+  await mkdir(again.target, { recursive: true });
+  await symlink(join(again.home, "outside"), join(again.target, "ug-proj-1234abcd"));
+  const linked = run(again.home, "--go", "--all");
+  assert.notEqual(linked.status, 0);
+  assert.deepEqual(await readdir(join(again.home, "outside")), []);
+});

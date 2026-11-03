@@ -4,6 +4,9 @@
 #
 #   scripts/import-history.sh        show what it would do; changes nothing
 #   scripts/import-history.sh --go   do it
+#   scripts/import-history.sh --go --all
+#                                    do it, and also bring in files with a token shape or a known
+#                                    secret value; only after every key in them is rotated
 #
 # Sources:
 #   ~/.ug/omp/agent/sessions   the old wrapper's root; nothing uses it now, so files are moved
@@ -20,11 +23,14 @@
 set -euo pipefail
 
 go=0
-case ${1:-} in
-  "") ;;
-  --go) go=1 ;;
-  *) printf 'usage: import-history.sh [--go]\n' >&2; exit 64 ;;
-esac
+all=0
+for arg in "$@"; do
+  case $arg in
+    --go) go=1 ;;
+    --all) all=1 ;;
+    *) printf 'usage: import-history.sh [--go] [--all]\n' >&2; exit 64 ;;
+  esac
+done
 
 target="$HOME/.ug/home/.omp/agent/sessions"
 old_wrapper="$HOME/.ug/omp/agent/sessions"
@@ -92,7 +98,7 @@ import_root() {
   while IFS= read -r -d '' file; do
     rel=${file#"$root"/}
     dest="$target/$(place "$rel")"
-    if grep -a -q -E -f "$patterns" "$file" || { [[ -s $secrets ]] && grep -a -q -F -f "$secrets" "$file"; }; then
+    if [[ $all -eq 0 ]] && { grep -a -q -E -f "$patterns" "$file" || { [[ -s $secrets ]] && grep -a -q -F -f "$secrets" "$file"; }; }; then
       printf 'skip (holds a secret or a token shape): %s\n' "$file"
       skipped=$((skipped + 1))
       continue
