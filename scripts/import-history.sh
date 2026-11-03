@@ -32,7 +32,10 @@ raw="$HOME/.omp/agent/sessions"
 
 die() { printf 'import-history: %s\n' "$*" >&2; exit 1; }
 
-if pgrep -f '\.ug/run/session\.' >/dev/null 2>&1; then
+# A session of this home's arena has its srt settings in $HOME/.ug/run/session.*, on its command line.
+# shellcheck disable=SC2016  # the $ in the sed bracket is a literal character to escape
+running=$(printf '%s' "$HOME/.ug/run/session." | sed 's/[][\.*^$()+?{}|]/\\&/g')
+if pgrep -f -- "$running" >/dev/null 2>&1; then
   die "an arena session is running; close every omp session first"
 fi
 

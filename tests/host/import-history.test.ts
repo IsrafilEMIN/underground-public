@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -109,4 +109,27 @@ test("import-history refuses a target folder that is a link, before it writes an
   assert.notEqual(r.status, 0);
   assert.match(r.stderr, /\.omp must be a folder that you own, not a link/);
   assert.deepEqual(await readdir(join(outside, "agent")), []);
+});
+
+test("import-history refuses while a session of this home's arena runs, and ignores another home's", async (t) => {
+  const { home, old } = await fakeHome();
+  const other = await tempDir(join(tmpdir(), "ug-import-other-"));
+  const holder = (h: string) => spawn(process.execPath, ["-e", "setTimeout(() => {}, 30000)", join(h, ".ug/run/session.ab12cd/srt.json")], { stdio: "ignore" });
+  const otherSession = holder(other);
+  t.after(async () => {
+    otherSession.kill();
+    await rm(home, { recursive: true, force: true });
+    await rm(other, { recursive: true, force: true });
+  });
+  await new Promise((r) => setTimeout(r, 200));
+  const before = await listAll(old);
+  const free = run(home);
+  assert.equal(free.status, 0, `another home's session stopped it: ${free.stderr}`);
+  const ownSession = holder(home);
+  t.after(() => ownSession.kill());
+  await new Promise((r) => setTimeout(r, 200));
+  const busy = run(home, "--go");
+  assert.notEqual(busy.status, 0);
+  assert.match(busy.stderr, /an arena session is running/);
+  assert.deepEqual(await listAll(old), before, "it moved files while a session ran");
 });
