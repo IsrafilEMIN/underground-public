@@ -17,7 +17,8 @@ const CANARY = "UG-CANARY-7f3a9c2e";
 // security and defaults: the default keychain and the preference domain resolve under the arena
 // HOME, so they find nothing; a full path reads that file. pbpaste leaks the clipboard.
 const TOOLS: Record<string, string> = {
-  security: `last=""; for a in "$@"; do last=$a; done
+  security: `[ "$1" = find-internet-password ] && [ -n "\${FAKE_DP:-}" ] && { printf '%s' "${CANARY}"; exit 0; }
+last=""; for a in "$@"; do last=$a; done
 case $last in /*) [ -f "$last" ] && grep -q "${CANARY}" "$last" && { printf '%s' "${CANARY}"; exit 0; } ;; esac
 echo "security: SecKeychainSearchCopyNext: The specified item could not be found in the keychain." >&2; exit 44`,
   defaults: `case $2 in /*) [ -f "$2.plist" ] && { cat "$2.plist"; exit 0; } ;; esac
@@ -25,6 +26,14 @@ echo "Domain $2 not found" >&2; exit 1`,
   pbpaste: `printf '%s' "${CANARY}"`,
   osascript: `exit 1`,
   screencapture: `exit 1`,
+  // Stands in for python3 -I -c <lookup> <service names>: prints "<name> <code>" per name, with the
+  // code from FAKE_CODES ("name=code ...") or FAKE_DEFAULT.
+  "fake-python": `shift 3
+for name in "$@"; do
+  code=\${FAKE_DEFAULT:-0}
+  for pair in \${FAKE_CODES:-}; do [ "\${pair%%=*}" = "$name" ] && code=\${pair#*=}; done
+  echo "$name $code"
+done`,
 };
 
 async function fixture(): Promise<{ root: string; bin: string }> {
@@ -48,10 +57,10 @@ async function plantSecrets(home: string): Promise<void> {
   await writeFile(join(home, ".ssh/id_ed25519"), "key\n");
 }
 
-function read(home: string, bin: string): Map<string, string> {
+function read(home: string, bin: string, extra: Record<string, string> = {}): Map<string, string> {
   const r = spawnSync("bash", [PROBE, "read"], {
     encoding: "utf8",
-    env: { PATH: `${bin}:/usr/bin:/bin`, HOME: home, TMPDIR: tmpdir() },
+    env: { PATH: `${bin}:/usr/bin:/bin`, HOME: home, TMPDIR: tmpdir(), UG_PROBE_PYTHON: join(bin, "fake-python"), ...extra },
   });
   assert.equal(r.status, 0, r.stderr);
   const verdicts = new Map<string, string>();
@@ -85,4 +94,51 @@ test("on the host, the same reads of the home say ok", async () => {
   const verdicts = read(root, bin);
   for (const probe of [...REAL_HOME_PROBES, "U2 clipboard"]) assert.equal(verdicts.get(probe), "ok", probe);
   assert.equal(verdicts.get("U2 screen"), "broken");
+});
+
+// --- the services that the camera, the microphone, keystrokes, and privacy prompts need ------------
+
+const SERVICE_PROBES = ["U2 svc-microphone", "U2 svc-camera", "U2 svc-camera-vdc", "U2 svc-keystrokes", "U2 svc-tcc", "U2 svc-tcc-system"];
+
+test("in the arena, a sandbox that lets every service lookup through reads open for each", async () => {
+  const { root, bin } = await fixture();
+  const verdicts = read(join(root, ".ug/home"), bin, { FAKE_DEFAULT: "0" });
+  assert.equal(verdicts.get("U2 svc-control"), "ok");
+  for (const probe of SERVICE_PROBES) assert.equal(verdicts.get(probe), "open", probe);
+});
+
+test("in the arena, a sandbox that refuses each lookup but the allowed one reads blocked", async () => {
+  const { root, bin } = await fixture();
+  const verdicts = read(join(root, ".ug/home"), bin, { FAKE_DEFAULT: "1100", FAKE_CODES: "com.apple.system.logger=0" });
+  assert.equal(verdicts.get("U2 svc-control"), "ok");
+  for (const probe of SERVICE_PROBES) assert.equal(verdicts.get(probe), "blocked", probe);
+});
+
+test("in the arena, when even the allowed lookup fails, no service line counts as blocked", async () => {
+  const { root, bin } = await fixture();
+  const verdicts = read(join(root, ".ug/home"), bin, { FAKE_DEFAULT: "1100" });
+  assert.equal(verdicts.get("U2 svc-control"), "inconclusive");
+  for (const probe of SERVICE_PROBES) assert.equal(verdicts.get(probe), "inconclusive", probe);
+});
+
+test("in the arena, an odd code or a broken lookup is inconclusive, never blocked", async () => {
+  const { root, bin } = await fixture();
+  let verdicts = read(join(root, ".ug/home"), bin, { FAKE_DEFAULT: "1101", FAKE_CODES: "com.apple.system.logger=0" });
+  for (const probe of SERVICE_PROBES) assert.equal(verdicts.get(probe), "inconclusive", probe);
+  verdicts = read(join(root, ".ug/home"), bin, { UG_PROBE_PYTHON: "/nonexistent/python3" });
+  for (const probe of ["U2 svc-control", ...SERVICE_PROBES]) assert.equal(verdicts.get(probe), "inconclusive", probe);
+});
+
+test("on the host, each service lookup reads ok, and a service that this macOS lacks reads absent", async () => {
+  const { root, bin } = await fixture();
+  const verdicts = read(root, bin, { FAKE_DEFAULT: "0", FAKE_CODES: "com.apple.cmio.VDCAssistant=1102" });
+  for (const probe of ["U2 svc-control", ...SERVICE_PROBES.filter((p) => p !== "U2 svc-camera-vdc")]) assert.equal(verdicts.get(probe), "ok", probe);
+  assert.equal(verdicts.get("U2 svc-camera-vdc"), "absent");
+});
+
+test("the newer keychain: a read of the Passwords-app canary is open in the arena and ok on the host", async () => {
+  const { root, bin } = await fixture();
+  assert.equal(read(join(root, ".ug/home"), bin, { FAKE_DP: "1" }).get("U1 dp-keychain"), "open");
+  assert.equal(read(root, bin, { FAKE_DP: "1" }).get("U1 dp-keychain"), "ok");
+  assert.equal(read(join(root, ".ug/home"), bin).get("U1 dp-keychain"), "inconclusive");
 });
