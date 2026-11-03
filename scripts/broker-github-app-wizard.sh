@@ -84,7 +84,7 @@ ask() {
   local key="$1" prompt="$2" current input s=$'\001' e=$'\002' p rc=0
   current=$(_existing "$key" || true)
   p="  $s$BOLD$e$prompt$s$RESET$e "
-  [[ -n "$current" ]] && p+="$s$DIM$e[Enter keeps current]$s$RESET$e "
+  [[ -n "$current" ]] && p+="$s$DIM${e}[Enter keeps current]$s$RESET$e "
   read -e -r -p "$p" input || rc=1
   if (( rc )) && [[ -z "$input" ]]; then return 1; fi
   [[ -z "$input" && -n "$current" ]] && input="$current"
@@ -180,6 +180,16 @@ repo_from_checkout() {
   printf '%s\n' "$repo"
 }
 
+# The newest <slug>.<date>.private-key.pem in a folder, or nothing. A glob, not ls, so any file name works.
+newest_key() {
+  local newest="" file
+  for file in "$1/$2".*.private-key.pem; do
+    [[ -f $file ]] || continue
+    if [[ -z $newest || $file -nt $newest ]]; then newest=$file; fi
+  done
+  printf '%s' "$newest"
+}
+
 run_wizard() {
 
 TOTAL_STAGES=5
@@ -221,7 +231,7 @@ say "The broker signs with this key to get a one-hour token for each repo."
 open_url "https://github.com/settings/apps/$APP_SLUG"
 step "Under 'Private keys', click 'Generate a private key'. On the newer page: 'Credentials' > 'Key pairs' > 'New key'."
 step "Your browser downloads a file named $APP_SLUG.<date>.private-key.pem."
-NEWEST_KEY=$(ls -t "$HOME/Downloads/$APP_SLUG".*.private-key.pem 2>/dev/null | head -n 1 || true)
+NEWEST_KEY=$(newest_key "$HOME/Downloads" "$APP_SLUG")
 [[ -n $NEWEST_KEY ]] && note "newest download: $NEWEST_KEY"
 ask KEY_DOWNLOAD "Path of the downloaded key (Enter takes the newest download):"
 [[ -n $KEY_DOWNLOAD ]] || KEY_DOWNLOAD=$NEWEST_KEY

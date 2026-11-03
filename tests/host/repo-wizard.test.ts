@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { rm, writeFile } from "node:fs/promises";
+import { rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -95,4 +95,22 @@ run_wizard
   assert.match(run.stdout, /Homepage URL: https:\/\/github.com\/Selected-Owner\/selected-repo/);
   assert.equal(run.stdout.split("ask:CHECKOUT\n").length, 2);
   assert.ok(run.stdout.endsWith("ask:APP_CLIENT_ID\n"), run.stdout);
+});
+
+test("newest_key picks the newest key of the app, by any file name, and prints nothing without one", async (t) => {
+  const folder = await tempDir(join(tmpdir(), "repo-wizard-keys-"));
+  t.after(() => rm(folder, { recursive: true, force: true }));
+  const pick = () => source(folder, 'newest_key "$2" my-app');
+  assert.equal(pick().stdout, "");
+
+  const old = join(folder, "my-app.2026-01-01.private-key.pem");
+  const odd = join(folder, "my-app.2026 02\nnew.private-key.pem");
+  const other = join(folder, "other-app.2026-03-01.private-key.pem");
+  for (const file of [old, odd, other]) await writeFile(file, "key\n");
+  await utimes(old, 1_000, 1_000);
+  await utimes(odd, 2_000, 2_000);
+  await utimes(other, 3_000, 3_000);
+  const run = pick();
+  assert.equal(run.status, 0, run.stderr);
+  assert.equal(run.stdout, odd);
 });
