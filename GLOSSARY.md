@@ -69,7 +69,7 @@ A version and a SHA-256 in `VERSIONS`. The omp pin names the release file `omp-d
 _Avoid_: lock, current version
 
 **Raw omp**:
-The pinned omp binary started by its full path, without the wrapper. It runs without the sandbox, but its home `~/.omp` holds no login and no token, so it cannot call a model. The probe tries one each time setup runs.
+The pinned omp binary started by its full path, without the wrapper. It runs without the sandbox, but its home `~/.omp` holds no login and no token, and the wrapper writes its `~/.omp/agent/config.yml` from the config repo's `raw-omp/config.yml`, whose `disabledProviders` line turns off the keyless built-in providers. So it cannot call a model. The probe tries one each time setup runs.
 _Avoid_: plain omp, unwrapped session
 
 **ug-auth**:
