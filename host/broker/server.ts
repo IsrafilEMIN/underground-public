@@ -435,7 +435,6 @@ async function handleReview(config: ServerConfig, req: ReviewRequest, signal: Ab
   const record: ReviewRecord = {
     repo: req.repo,
     pr: req.number,
-    role_name: req.role,
     role: req.role,
     head: req.sha,
     verdict: req.verdict,

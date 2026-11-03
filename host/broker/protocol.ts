@@ -38,8 +38,8 @@ export type Request =
   | MergeRequest;
 
 export type LegacyReviewRecord = { repo: string; pr: number; head: string; verdict: Verdict; reason: string; at: string };
-export type ReviewAuthor = { role_name: string; role: ReviewerRole } | { role_name: null; role: null };
-export type ReviewRecord = Pick<LegacyReviewRecord, "repo" | "pr"> & ReviewAuthor & Omit<LegacyReviewRecord, "repo" | "pr">;
+// role is null only in a record moved from the old reviews.json, which named no reviewer.
+export type ReviewRecord = { repo: string; pr: number; role: ReviewerRole | null; head: string; verdict: Verdict; reason: string; at: string };
 export type ReviewRecords = { kind: "records"; records: ReviewRecord[] } | { kind: "unreadable" };
 
 export type ResultReply = { exit: number; stdout: string; stderr: string };
@@ -56,9 +56,6 @@ const AGENT_BRANCH_RE = /^agent\/[A-Za-z0-9._-]+(\/[A-Za-z0-9._-]+)*$/;
 const SHA_RE = /^[0-9a-f]{40}$/;
 const BASE64_RE = /^[A-Za-z0-9+/]*={0,2}$/;
 const DEFAULT_BRANCH_RE = /^[A-Za-z0-9_][A-Za-z0-9._/-]*$/;
-export const MAX_ROLE_NAME_CHARS = 32;
-// The name in a review record. Records before 2026-11-03 carry a role name from the old role table.
-const ROLE_NAME_RE = new RegExp(`^[a-z][a-z0-9-]{0,${MAX_ROLE_NAME_CHARS - 1}}$`);
 
 export function isVerb(value: unknown): value is Verb {
   return typeof value === "string" && (VERBS as readonly string[]).includes(value);
@@ -112,10 +109,6 @@ export function isVerdict(value: unknown): value is Verdict {
 
 export function isReviewerRole(value: unknown): value is ReviewerRole {
   return typeof value === "string" && (REVIEWER_ROLES as readonly string[]).includes(value);
-}
-
-export function isRoleName(value: unknown): value is string {
-  return typeof value === "string" && ROLE_NAME_RE.test(value);
 }
 
 export function isReason(verdict: Verdict, value: unknown): value is string {
@@ -299,13 +292,19 @@ export function isLegacyReviewRecord(value: unknown): value is LegacyReviewRecor
   );
 }
 
-function isReviewAuthor(value: Record<string, unknown>): boolean {
-  if (value.role_name === null) return value.role === null;
-  return isRoleName(value.role_name) && isReviewerRole(value.role);
+// Records written before 2026-11-03 also carry role_name, the name from the old role table: null
+// when role is null, else a name. The reader accepts it and drops it.
+function isOldRoleName(value: Record<string, unknown>): boolean {
+  if (!("role_name" in value)) return true;
+  return value.role === null ? value.role_name === null : typeof value.role_name === "string";
 }
 
-export function isReviewRecord(value: unknown): value is ReviewRecord {
-  return isLegacyReviewRecord(value) && isRecord(value) && isReviewAuthor(value);
+export function parseReviewRecord(value: unknown): ReviewRecord | undefined {
+  if (!isLegacyReviewRecord(value) || !isRecord(value)) return undefined;
+  const role = value.role;
+  if (role !== null && !isReviewerRole(role)) return undefined;
+  if (!isOldRoleName(value)) return undefined;
+  return { repo: value.repo, pr: value.pr, role, head: value.head, verdict: value.verdict, reason: value.reason, at: value.at };
 }
 
 export const ATTEMPTS_BEFORE_HOLD = 3;
@@ -334,8 +333,7 @@ export function holds(records: ReviewRecord[], protectedFiles: string[]): Hold[]
 }
 
 function reviewerName(record: ReviewRecord): string {
-  if (record.role_name === null) return "an old record with no role name";
-  return record.role_name === record.role ? record.role : `${record.role_name} (role ${record.role})`;
+  return record.role ?? "an old record with no role";
 }
 
 function holdRefusal(hold: Hold): string {

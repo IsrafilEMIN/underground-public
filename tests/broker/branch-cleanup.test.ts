@@ -15,12 +15,12 @@ import type { ServerConfig } from "../../host/broker/server.ts";
 import type { GithubTokens } from "../../host/broker/github-app.ts";
 import { FAKE_TOKEN, fakeTokens, tokenRemote } from "./fake-app.ts";
 import { handleAs } from "./session.ts";
-import type { Session as Binding } from "./session.ts";
+import type { Session } from "./session.ts";
 import { tempDir } from "../temp.ts";
 
 const REPO = "o/r";
 const BRANCH = "agent/x";
-const AUTHOR: Binding = { repo: REPO, role_name: "author", role: "author" };
+const AUTHOR: Session = { role: "author" };
 const GIT_ENV = { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" };
 
 const FAKE_GH = `#!/bin/sh
@@ -81,7 +81,7 @@ async function readyToMerge(head: string): Promise<void> {
   await rm(reviewRecordsPath(config.reviewsDir, { repo: REPO, pr: 7 }), { force: true });
   const at = new Date().toISOString();
   for (const role of REVIEWER_ROLES) {
-    await appendReviewRecord(config.reviewsDir, { repo: REPO, pr: 7, role_name: role, role, head, verdict: "pass", reason: "", at });
+    await appendReviewRecord(config.reviewsDir, { repo: REPO, pr: 7, role, head, verdict: "pass", reason: "", at });
   }
 }
 

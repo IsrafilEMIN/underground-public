@@ -15,11 +15,10 @@ import { tempDir } from "../temp.ts";
 
 const REPO = "o/r";
 const BRANCH = "agent/x";
-const AUTHOR: Session = { repo: REPO, role_name: "author", role: "author" };
-const CODE: Session = { repo: REPO, role_name: "code-review", role: "code-review" };
-const SECURITY: Session = { repo: REPO, role_name: "sec-a", role: "security-review" };
-const SECURITY_B: Session = { repo: REPO, role_name: "sec-b", role: "security-review" };
-const RISK: Session = { repo: REPO, role_name: "risk-review", role: "risk-review" };
+const AUTHOR: Session = { role: "author" };
+const CODE: Session = { role: "code-review" };
+const SECURITY: Session = { role: "security-review" };
+const RISK: Session = { role: "risk-review" };
 const REVIEWERS = [CODE, SECURITY, RISK];
 const GIT_ENV = { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" };
 const HOLD = "a hold refuses, so the owner merges this PR on GitHub";
@@ -182,9 +181,8 @@ test("a missing role verdict refuses and names the role", async () => {
 test("a block on the head refuses and names the role, and a later pass on the same head does not clear it", async () => {
   const head = await pushedHead();
   await passAll(head);
-  await review(SECURITY_B, head, "block", "token in log");
+  await review(SECURITY, head, "block", "token in log");
   await assertRefuses("security-review blocks it: token in log");
-  await review(SECURITY_B, head, "pass");
   await review(SECURITY, head, "pass");
   await assertRefuses("security-review blocks it: token in log");
 });
@@ -222,7 +220,7 @@ test("a block on the fourth distinct blocked head is a hold, and two roles that 
   await blockedHead([CODE]);
   await blockedHead([CODE, SECURITY]);
   await blockedHead([SECURITY]);
-  const fourth = await blockedHead([SECURITY_B]);
+  const fourth = await blockedHead([SECURITY]);
   const last = await pushedHead();
   await passAll(last);
   const hold = new RegExp(`^${HOLD}: attempt 4 \\(${fourth}\\) got a block at .* from security-review: bug in ${fourth}$`);
@@ -232,7 +230,7 @@ test("a block on the fourth distinct blocked head is a hold, and two roles that 
 test("three blocked heads, with two roles on one, make no attempt-limit hold", async () => {
   await blockedHead([CODE]);
   await blockedHead([CODE, SECURITY]);
-  await blockedHead([SECURITY_B]);
+  await blockedHead([SECURITY]);
   const last = await pushedHead();
   await passAll(last);
   await assertMerges(last);

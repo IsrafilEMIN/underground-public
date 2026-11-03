@@ -3,7 +3,7 @@ import type { Server } from "node:http";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { parseAddresses } from "./gateway.ts";
+import { parseAddresses } from "./addresses.ts";
 
 export const USAGE_BROKER_HOST = "127.0.0.1";
 export const USAGE_BROKER_PORT = 18765;

@@ -14,14 +14,14 @@ import { defaultConfig, serveConnection } from "../../host/broker/server.ts";
 import type { ServerConfig } from "../../host/broker/server.ts";
 import { FAKE_TOKEN, fakeTokens, tokenRemote } from "./fake-app.ts";
 import { handleAs } from "./session.ts";
-import type { Session as Binding } from "./session.ts";
+import type { Session } from "./session.ts";
 import { tempDir } from "../temp.ts";
 
 const REPO = "o/r";
 const BRANCH = "agent/x";
 const CI_HEAD = "a".repeat(40);
-const AUTHOR: Binding = { repo: REPO, role_name: "author", role: "author" };
-const REVIEWER: Binding = { repo: REPO, role_name: "code-review", role: "code-review" };
+const AUTHOR: Session = { role: "author" };
+const REVIEWER: Session = { role: "code-review" };
 const REAL_GIT = defaultConfig().gitPath;
 const GIT_ENV = { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" };
 const UNREADABLE_DEFAULT_BRANCHES = [
@@ -88,8 +88,8 @@ function bundleOf(branch: string): string {
   return execFileSync(REAL_GIT, ["bundle", "create", "-", `refs/heads/${branch}`], { cwd: work, env: GIT_ENV }).toString("base64");
 }
 
-function request(input: Record<string, unknown>, binding: Binding = AUTHOR): Promise<Reply> {
-  return handleAs(config, binding, { repo: REPO, ...input }, new AbortController().signal);
+function request(input: Record<string, unknown>, session: Session = AUTHOR): Promise<Reply> {
+  return handleAs(config, session, { repo: REPO, ...input }, new AbortController().signal);
 }
 
 function push(branch: string, sha: string, bundleBranch: string = branch): Promise<Reply> {
@@ -149,7 +149,7 @@ async function pushedHead(): Promise<string> {
   await writePushRecord(config.pushesDir, { repo: REPO, branch: BRANCH }, head);
   const at = new Date().toISOString();
   for (const role of REVIEWER_ROLES) {
-    await appendReviewRecord(config.reviewsDir, { repo: REPO, pr: 7, role_name: role, role, head, verdict: "pass", reason: "", at });
+    await appendReviewRecord(config.reviewsDir, { repo: REPO, pr: 7, role, head, verdict: "pass", reason: "", at });
   }
   return head;
 }
@@ -520,12 +520,12 @@ test("pr-create that gh fails gives gh's exit code and error", async () => {
 
 // --- the PR view that pr-status, ci-log, review, merge and sync --pr read ---
 
-const PR_VERBS: { name: string; input: Record<string, unknown>; binding: Binding }[] = [
-  { name: "sync --pr", input: { verb: "sync", pr: 7 }, binding: REVIEWER },
-  { name: "pr-status", input: { verb: "pr-status", number: 7 }, binding: AUTHOR },
-  { name: "ci-log", input: { verb: "ci-log", number: 7 }, binding: AUTHOR },
-  { name: "review", input: { verb: "review", number: 7, sha: CI_HEAD, verdict: "pass", reason: "" }, binding: REVIEWER },
-  { name: "merge", input: { verb: "merge", number: 7 }, binding: AUTHOR },
+const PR_VERBS: { name: string; input: Record<string, unknown>; session: Session }[] = [
+  { name: "sync --pr", input: { verb: "sync", pr: 7 }, session: REVIEWER },
+  { name: "pr-status", input: { verb: "pr-status", number: 7 }, session: AUTHOR },
+  { name: "ci-log", input: { verb: "ci-log", number: 7 }, session: AUTHOR },
+  { name: "review", input: { verb: "review", number: 7, sha: CI_HEAD, verdict: "pass", reason: "" }, session: REVIEWER },
+  { name: "merge", input: { verb: "merge", number: 7 }, session: AUTHOR },
 ];
 
 for (const verb of PR_VERBS) {
@@ -535,7 +535,7 @@ for (const verb of PR_VERBS) {
     const recordsBefore = await reviewRecords();
     await failGh("pr view");
 
-    const reply = await request(verb.input, verb.binding);
+    const reply = await request(verb.input, verb.session);
     assertForwarded(reply, 4, "HTTP 502");
     assert.equal(reply.stdout, "");
     assert.deepEqual(await apiCalls(), []);
@@ -550,7 +550,7 @@ for (const verb of PR_VERBS) {
     const recordsBefore = await reviewRecords();
     for (const answer of ["not json", "[1]", "null"]) {
       await writeHome("pr.json", answer);
-      assert.deepEqual(await request(verb.input, verb.binding), { exit: 2, refused: "cannot read pull request" }, answer);
+      assert.deepEqual(await request(verb.input, verb.session), { exit: 2, refused: "cannot read pull request" }, answer);
     }
     assert.deepEqual(await apiCalls(), []);
     assert.equal(await readHome("merged"), "");

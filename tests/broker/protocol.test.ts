@@ -155,7 +155,7 @@ test("review refuses a reason over 2000 characters, with NUL, or not a string, f
 });
 
 function pass(role: ReviewerRole): ReviewRecord {
-  return { repo: REPO, pr: 7, role_name: role, role, head: HEAD, verdict: "pass", reason: "", at: "2026-11-01T00:00:00Z" };
+  return { repo: REPO, pr: 7, role, head: HEAD, verdict: "pass", reason: "", at: "2026-11-01T00:00:00Z" };
 }
 
 const GREEN_CHECK = { __typename: "CheckRun", name: "ci", status: "COMPLETED", conclusion: "SUCCESS" };

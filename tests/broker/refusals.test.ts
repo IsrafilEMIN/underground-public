@@ -12,13 +12,13 @@ import { defaultConfig } from "../../host/broker/server.ts";
 import type { ServerConfig } from "../../host/broker/server.ts";
 import { fakeTokens, tokenRemote } from "./fake-app.ts";
 import { handleAs } from "./session.ts";
-import type { Session as Binding } from "./session.ts";
+import type { Session } from "./session.ts";
 import { tempDir } from "../temp.ts";
 
 const REPO = "o/r";
 const OTHER_REPO = "o/other";
 const BRANCH = "agent/x";
-const AUTHOR: Binding = { repo: REPO, role_name: "author", role: "author" };
+const AUTHOR: Session = { role: "author" };
 const GIT_ENV = { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" };
 
 // The fake gh logs every call. The default branch comes from $HOME/default-branch.
@@ -55,8 +55,8 @@ async function commit(branch: string, file: string): Promise<string> {
   return git(work, "rev-parse", "HEAD");
 }
 
-function request(input: Record<string, unknown>, binding: Binding = AUTHOR): Promise<Reply> {
-  return handleAs(config, binding, { repo: REPO, ...input }, new AbortController().signal);
+function request(input: Record<string, unknown>, session: Session = AUTHOR): Promise<Reply> {
+  return handleAs(config, session, { repo: REPO, ...input }, new AbortController().signal);
 }
 
 function push(branch: string, sha: string): Promise<Reply> {
@@ -82,7 +82,7 @@ async function readyPr(head: string, pr: Record<string, unknown> = {}): Promise<
   await writeFile(join(config.home, "gh-files.json"), JSON.stringify([[{ filename: "a.txt" }]]));
   const at = new Date().toISOString();
   for (const role of REVIEWER_ROLES) {
-    await appendReviewRecord(config.reviewsDir, { repo: REPO, pr: 7, role_name: role, role, head, verdict: "pass", reason: "", at });
+    await appendReviewRecord(config.reviewsDir, { repo: REPO, pr: 7, role, head, verdict: "pass", reason: "", at });
   }
 }
 
