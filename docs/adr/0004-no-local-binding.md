@@ -2,7 +2,7 @@
 
 Date: 2026-10-30. Owner decision.
 
-Holds under the redesign (2026-11-02), with `allowLocalBinding: true`. The localhost question is deferred: a test with it off decides (`../SPEC.md`, Deferred). The auth gateway stays on the tailscale address, and the usage broker moves there too (`0005-model-auth-gateway.md`).
+Holds under the redesign (2026-11-02), with `allowLocalBinding: true`. Amendment 2026-11-03 (owner decision): localhost stays on in the arena. omp's own features open a server inside the sandbox on `127.0.0.1` and talk to it there: the python tool bridge (omp `eval/py/tool-bridge.ts:153`), the browser tool (`tools/browser/relay/server.ts:112`, `tools/browser/attach.ts:25`), the debugger (`dap/client.ts:169`), and `/stats` (`stats-dashboard.ts:4`), all in omp 18.13.2, read 2026-11-03; so do the agent's dev servers. No broker or tailscale address can stand in for a server inside the sandbox, and srt has only an on or off switch (srt 0.0.81 `dist/sandbox/sandbox-config.js:619`). The usage broker stays on `127.0.0.1:18765`, because a move would close nothing while localhost is on. The cost and its guard: `../SPEC.md`, B5 and Checks; `../THREAT-MODEL.md`, U7.
 
 With `allowLocalBinding: true`, srt lets the sandbox connect to every localhost port (srt 0.0.81, `src/sandbox/macos-sandbox-utils.ts:1280` to `:1284`), so every local service is reachable (U7).
 

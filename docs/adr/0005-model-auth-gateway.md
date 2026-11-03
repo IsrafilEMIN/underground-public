@@ -2,7 +2,7 @@
 
 Date: 2026-10-30. Updated 2026-10-31 by owner decision.
 
-Holds under the redesign (2026-11-02), with three changes from `0011-one-agent-arena.md`: the auth broker keeps its logins in `~/.ug/host/auth`, not in `~/.omp`; no session is a broker client; and the usage broker moves to the tailscale address. The role isolation named below is gone.
+Holds under the redesign (2026-11-02), with three changes from `0011-one-agent-arena.md`: the auth broker keeps its logins in `~/.ug/host/auth`, not in `~/.omp`; no session is a broker client; and the usage broker stays on `127.0.0.1:18765` (amendment 2026-11-03 in `0004-no-local-binding.md`). The role isolation named below is gone.
 
 The sandbox could read the model logins in omp's store (U15). A leaked login is irreversible: a revoke stops later use, but it does not undo calls, spending, or data access before it.
 
