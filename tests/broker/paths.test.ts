@@ -14,9 +14,9 @@ const HOME = homedir();
 const HOST = join(HOME, ".ug/host");
 
 test("the broker listens on ~/.ug/run/broker.sock and keeps every file in the host zone", () => {
-  const { socketPath, reposRoot, reviewsDir, legacyReviewsFile, pushesDir, protectedDir, tempRoot } = defaultConfig();
+  const { socketPath, reposRoot, reviewsDir, pushesDir, protectedDir, tempRoot } = defaultConfig();
   assert.equal(socketPath, join(HOME, ".ug/run/broker.sock"));
-  for (const path of [reposRoot, reviewsDir, legacyReviewsFile, pushesDir, protectedDir, tempRoot]) {
+  for (const path of [reposRoot, reviewsDir, pushesDir, protectedDir, tempRoot]) {
     assert.ok(path.startsWith(`${HOST}/`), `${path} is outside the host zone`);
   }
 });

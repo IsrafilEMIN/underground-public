@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, test } from "node:test";
+import { beforeEach, test } from "node:test";
 import type { Reply, ReviewRecord } from "../../host/broker/protocol.ts";
-import { appendReviewRecord, movedLegacyPath, moveLegacyReviews, readReviewRecords, reviewRecordsPath } from "../../host/broker/review-records.ts";
-import { defaultConfig, startServer, stopServer } from "../../host/broker/server.ts";
+import { appendReviewRecord, readReviewRecords, reviewRecordsPath } from "../../host/broker/review-records.ts";
+import { defaultConfig } from "../../host/broker/server.ts";
 import type { ServerConfig } from "../../host/broker/server.ts";
 import { fakeTokens, tokenRemote } from "./fake-app.ts";
 import { handleAs } from "./session.ts";
@@ -106,12 +106,11 @@ async function prLines(pr = 7): Promise<unknown[]> {
     .map((line): unknown => JSON.parse(line));
 }
 
-function legacy(pr: number, head: string, verdict: string, reason: string, repo = REPO): Record<string, unknown> {
-  return { repo, pr, head, verdict, reason, at: "2026-10-01T00:00:00.000Z" };
-}
-
-function migrated(record: Record<string, unknown>): Record<string, unknown> {
-  return { repo: record.repo, pr: record.pr, role: null, head: record.head, verdict: record.verdict, reason: record.reason, at: record.at };
+// A record that the broker moved from the old reviews.json before 2026-11-03 names no reviewer.
+async function writeOldRecord(head: string, verdict: string, reason: string): Promise<void> {
+  const line = { repo: REPO, pr: 7, role_name: null, role: null, head, verdict, reason, at: "2026-10-01T00:00:00.000Z" };
+  await mkdir(join(config.reviewsDir, REPO), { recursive: true });
+  await writeFile(reviewRecordsPath(config.reviewsDir, { repo: REPO, pr: 7 }), `${JSON.stringify(line)}\n`, { flag: "a" });
 }
 
 beforeEach(async () => {
@@ -121,7 +120,6 @@ beforeEach(async () => {
     socketPath: join(root, "run", "broker.sock"),
     reposRoot: join(root, "bare"),
     reviewsDir: join(root, "reviews"),
-    legacyReviewsFile: join(root, "reviews.json"),
     pushesDir: join(root, "pushes"),
     protectedDir: join(root, "protected"),
     ghPath: join(root, "gh"),
@@ -160,25 +158,6 @@ test("broker review appends one line to the file of its PR, with the reviewer ro
     { repo: REPO, pr: 7, role: "code-review", head, verdict: "pass", reason: "", at: firstRecord.at },
     { repo: REPO, pr: 7, role: "security-review", head, verdict: "block", reason: "token in log", at: secondRecord.at },
   ]);
-});
-
-test("on first start the broker moves reviews.json into the PR files, and a second start moves nothing", async () => {
-  const run = await tempDir(join(process.env.XDG_STATE_HOME ?? tmpdir(), "ugt-"));
-  const started = { ...config, socketPath: join(run, "broker.sock") };
-  const records = [legacy(7, "a".repeat(40), "block", "bug"), legacy(8, "a".repeat(40), "pass", "")];
-  await writeFile(config.legacyReviewsFile, JSON.stringify(records));
-  try {
-    await stopServer(await startServer(started));
-    assert.deepEqual(await prLines(7), [migrated(records[0])]);
-    assert.deepEqual(await prLines(8), [migrated(records[1])]);
-    await assert.rejects(readFile(config.legacyReviewsFile), { code: "ENOENT" });
-
-    await stopServer(await startServer(started));
-    assert.deepEqual(await prLines(7), [migrated(records[0])]);
-    assert.deepEqual(await prLines(8), [migrated(records[1])]);
-  } finally {
-    await rm(run, { recursive: true, force: true });
-  }
 });
 
 test("a review that names no reviewer role is refused, and writes no record", async () => {
@@ -272,42 +251,9 @@ test("a record whose role_name does not fit its role makes the file unreadable",
   }
 });
 
-test("the broker moves each record of reviews.json into the file of its PR once", async () => {
-  const head = "a".repeat(40);
-  const records = [
-    legacy(7, head, "pass", ""),
-    legacy(8, head, "block", "bug"),
-    legacy(7, "b".repeat(40), "manual", "migration"),
-    legacy(7, head, "pass", "", "o/other"),
-  ];
-  await writeFile(config.legacyReviewsFile, JSON.stringify(records, null, 2));
-
-  assert.deepEqual(await moveLegacyReviews(config.legacyReviewsFile, config.reviewsDir), { kind: "moved", count: 4 });
-  assert.deepEqual(await prLines(7), [migrated(records[0]), migrated(records[2])]);
-  assert.deepEqual(await prLines(8), [migrated(records[1])]);
-  const otherRepo = await readReviewRecords(config.reviewsDir, { repo: "o/other", pr: 7 });
-  assert.deepEqual(otherRepo, { kind: "records", records: [migrated(records[3])] });
-  await assert.rejects(readFile(config.legacyReviewsFile), { code: "ENOENT" });
-  assert.deepEqual(JSON.parse(await readFile(movedLegacyPath(config.legacyReviewsFile), "utf8")), records);
-
-  assert.deepEqual(await moveLegacyReviews(config.legacyReviewsFile, config.reviewsDir), { kind: "none" });
-  assert.deepEqual(await prLines(7), [migrated(records[0]), migrated(records[2])]);
-  assert.deepEqual(await prLines(8), [migrated(records[1])]);
-});
-
-test("a move that stopped before the rename moves nothing twice", async () => {
-  const records = [legacy(7, "a".repeat(40), "block", "bug")];
-  await writeFile(config.legacyReviewsFile, JSON.stringify(records));
-  assert.deepEqual(await moveLegacyReviews(config.legacyReviewsFile, config.reviewsDir), { kind: "moved", count: 1 });
-  await writeFile(config.legacyReviewsFile, JSON.stringify(records));
-  assert.deepEqual(await moveLegacyReviews(config.legacyReviewsFile, config.reviewsDir), { kind: "moved", count: 0 });
-  assert.deepEqual(await prLines(7), [migrated(records[0])]);
-});
-
-test("a migrated block still refuses merge, even after a pass with a role on the head", async () => {
+test("an old block with no role still refuses merge, even after a pass with a role on the head", async () => {
   const head = await pushedPr("a.txt");
-  await writeFile(config.legacyReviewsFile, JSON.stringify([legacy(7, head, "block", "bug")]));
-  await moveLegacyReviews(config.legacyReviewsFile, config.reviewsDir);
+  await writeOldRecord(head, "block", "bug");
   await review(CODE, head, "pass");
 
   const reply = await merge();
@@ -318,10 +264,9 @@ test("a migrated block still refuses merge, even after a pass with a role on the
   assert.equal(await merged(), "");
 });
 
-test("a migrated manual on the head still refuses merge", async () => {
+test("an old manual with no role on the head still refuses merge", async () => {
   const head = await pushedPr("a.txt");
-  await writeFile(config.legacyReviewsFile, JSON.stringify([legacy(7, head, "manual", "migration")]));
-  await moveLegacyReviews(config.legacyReviewsFile, config.reviewsDir);
+  await writeOldRecord(head, "manual", "migration");
   await review(CODE, head, "pass");
 
   const reply = await merge();
@@ -332,10 +277,9 @@ test("a migrated manual on the head still refuses merge", async () => {
   assert.equal(await merged(), "");
 });
 
-test("a migrated pass counts for no role", async () => {
+test("an old pass with no role counts for no role", async () => {
   const head = await pushedPr("a.txt");
-  await writeFile(config.legacyReviewsFile, JSON.stringify([legacy(7, head, "pass", "")]));
-  await moveLegacyReviews(config.legacyReviewsFile, config.reviewsDir);
+  await writeOldRecord(head, "pass", "");
 
   const reply = await merge();
   assert.deepEqual(reply, { exit: 2, refused: "code-review has no verdict on it" });
@@ -343,17 +287,6 @@ test("a migrated pass counts for no role", async () => {
   await passAll(head);
   const ok = await merge();
   assert.equal(ok.exit, 0, JSON.stringify(ok));
-});
-
-test("a reviews.json that the broker could not move refuses merge and stays in place", async () => {
-  const head = await pushedPr("a.txt");
-  await review(CODE, head, "pass");
-  await writeFile(config.legacyReviewsFile, "not json");
-  const moved = await moveLegacyReviews(config.legacyReviewsFile, config.reviewsDir);
-  assert.equal(moved.kind, "failed");
-
-  assert.deepEqual(await merge(), { exit: 2, refused: "cannot read review records" });
-  assert.equal(await readFile(config.legacyReviewsFile, "utf8"), "not json");
 });
 
 test("records of a merged PR stay in its file", async () => {
@@ -394,53 +327,3 @@ test("appends that run at once land whole, one per line, in the order they were 
   assert.deepEqual(await readReviewRecords(config.reviewsDir, { repo: REPO, pr: 7 }), { kind: "records", records });
 });
 
-test("a review that arrives during the move of reviews.json lands whole, after the moved records", async () => {
-  const old = legacy(7, "a".repeat(40), "block", "o".repeat(BIG));
-  await writeFile(config.legacyReviewsFile, JSON.stringify([old]));
-  const fresh = record(7, "n".repeat(BIG));
-  const [moved] = await Promise.all([moveLegacyReviews(config.legacyReviewsFile, config.reviewsDir), appendReviewRecord(config.reviewsDir, fresh)]);
-  assert.deepEqual(moved, { kind: "moved", count: 1 });
-  assert.deepEqual(await readReviewRecords(config.reviewsDir, { repo: REPO, pr: 7 }), { kind: "records", records: [migrated(old), fresh] });
-});
-
-test("a reviews.json that cannot be read fails the move, and nothing moves", async () => {
-  await mkdir(join(config.legacyReviewsFile, "x"), { recursive: true });
-  assert.deepEqual(await moveLegacyReviews(config.legacyReviewsFile, config.reviewsDir), { kind: "failed", reason: `cannot read ${config.legacyReviewsFile}` });
-  await assert.rejects(stat(movedLegacyPath(config.legacyReviewsFile)), { code: "ENOENT" });
-  await assert.rejects(stat(config.reviewsDir), { code: "ENOENT" });
-});
-
-test("a reviews.json that holds something other than review records fails the move, stays, and moves nothing", async () => {
-  const good = legacy(7, "a".repeat(40), "block", "bug");
-  for (const content of [[good, { repo: REPO, pr: 7 }], [good, { ...good, verdict: "maybe" }], { 0: good }]) {
-    const text = JSON.stringify(content);
-    await writeFile(config.legacyReviewsFile, text);
-    const moved = await moveLegacyReviews(config.legacyReviewsFile, config.reviewsDir);
-    assert.equal(moved.kind, "failed", text);
-    assert.ok(("reason" in moved ? moved.reason : "").startsWith(`${config.legacyReviewsFile} `), text);
-    assert.equal(await readFile(config.legacyReviewsFile, "utf8"), text);
-    assert.deepEqual(await readReviewRecords(config.reviewsDir, { repo: REPO, pr: 7 }), { kind: "records", records: [] }, text);
-  }
-});
-
-test("an empty reviews.json moves no record and is set aside like a full one", async () => {
-  for (const text of ["", " \n"]) {
-    await rm(movedLegacyPath(config.legacyReviewsFile), { force: true });
-    await writeFile(config.legacyReviewsFile, text);
-    assert.deepEqual(await moveLegacyReviews(config.legacyReviewsFile, config.reviewsDir), { kind: "moved", count: 0 }, JSON.stringify(text));
-    await assert.rejects(stat(config.legacyReviewsFile), { code: "ENOENT" });
-    assert.equal(await readFile(movedLegacyPath(config.legacyReviewsFile), "utf8"), text);
-  }
-});
-
-test("a move into a PR file that cannot be read fails, leaves that file and reviews.json as they were", async () => {
-  const text = JSON.stringify([legacy(7, "a".repeat(40), "block", "bug")]);
-  await writeFile(config.legacyReviewsFile, text);
-  const prFile = reviewRecordsPath(config.reviewsDir, { repo: REPO, pr: 7 });
-  await mkdir(join(config.reviewsDir, REPO), { recursive: true });
-  await writeFile(prFile, "not json\n");
-  assert.deepEqual(await moveLegacyReviews(config.legacyReviewsFile, config.reviewsDir), { kind: "failed", reason: `cannot read ${prFile}` });
-  assert.equal(await readFile(prFile, "utf8"), "not json\n");
-  assert.equal(await readFile(config.legacyReviewsFile, "utf8"), text);
-  await assert.rejects(stat(movedLegacyPath(config.legacyReviewsFile)), { code: "ENOENT" });
-});

@@ -212,7 +212,6 @@ beforeEach(async () => {
     socketPath: join(root, ".ug/run", "broker.sock"),
     reposRoot: join(agents, "repos"),
     reviewsDir: join(agents, "reviews"),
-    legacyReviewsFile: join(agents, "reviews.json"),
     pushesDir: join(agents, "pushes"),
     protectedDir: join(owner, "protected-paths"),
     ghPath: join(root, "gh"),

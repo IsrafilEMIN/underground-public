@@ -37,8 +37,8 @@ export type Request =
   | ReviewRequest
   | MergeRequest;
 
-export type LegacyReviewRecord = { repo: string; pr: number; head: string; verdict: Verdict; reason: string; at: string };
-// role is null only in a record moved from the old reviews.json, which named no reviewer.
+// role is null only in a record that the broker moved from the old reviews.json, which named no
+// reviewer. That file is gone from the host (owner, 2026-11-03), but its records stay in the PR files.
 export type ReviewRecord = { repo: string; pr: number; role: ReviewerRole | null; head: string; verdict: Verdict; reason: string; at: string };
 export type ReviewRecords = { kind: "records"; records: ReviewRecord[] } | { kind: "unreadable" };
 
@@ -279,7 +279,7 @@ export function isProtectedPath(path: string, globs: string[]): boolean {
   return globs.some((glob) => globRegExp(glob).test(path));
 }
 
-export function isLegacyReviewRecord(value: unknown): value is LegacyReviewRecord {
+function hasRecordFields(value: unknown): value is Omit<ReviewRecord, "role"> {
   return (
     isRecord(value) &&
     isRepo(value.repo) &&
@@ -300,7 +300,7 @@ function isOldRoleName(value: Record<string, unknown>): boolean {
 }
 
 export function parseReviewRecord(value: unknown): ReviewRecord | undefined {
-  if (!isLegacyReviewRecord(value) || !isRecord(value)) return undefined;
+  if (!hasRecordFields(value) || !isRecord(value)) return undefined;
   const role = value.role;
   if (role !== null && !isReviewerRole(role)) return undefined;
   if (!isOldRoleName(value)) return undefined;
