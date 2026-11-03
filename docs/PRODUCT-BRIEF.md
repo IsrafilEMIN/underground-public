@@ -134,7 +134,7 @@ Setup runs when a pin changes, a host service changes, or macOS updates. It inst
 
 ## Deferred
 
-- Localhost: limit it, or accept it. Test: turn `allowLocalBinding` off and record what fails.
+- Localhost: decided 2026-11-03, it stays on, because omp's own features need it (`SPEC.md`, B5). Still open: a per-port setting in srt.
 - Per-repo allowlists, with the data-out question.
 - The merge gate's machinery: what is still needed now that reviewers are quality only.
 - The runtime choice for scripts.

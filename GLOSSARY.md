@@ -149,7 +149,7 @@ The host service `omp auth-gateway serve` (launchd `com.underground.auth-gateway
 _Avoid_: model proxy, LLM proxy
 
 **Usage broker**:
-The host service `host/broker/usage-broker.ts` (launchd `com.underground.usage-broker`). It speaks omp's broker protocol with no credentials and passes `/v1/usage` to the auth gateway, so omp's native `/usage` works. It moves from `127.0.0.1:18765` to the tailscale address (`docs/SPEC.md`, B6).
+The host service `host/broker/usage-broker.ts` (launchd `com.underground.usage-broker`). It speaks omp's broker protocol with no credentials and passes `/v1/usage` to the auth gateway, so omp's native `/usage` works. It listens on `127.0.0.1:18765` and stays there, because localhost stays on for omp's own features (`docs/SPEC.md`, B5 and B6).
 _Avoid_: usage proxy, fake broker
 
 **Gateway bearer**:
