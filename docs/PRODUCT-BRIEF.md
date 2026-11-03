@@ -49,7 +49,7 @@ Before each decision, ask: does this stop an irreversible harm, or keep undo and
 - **Arena:** omp's own `~/.omp` (config, sessions, caches, helpers) and the agent's repo clones, proposed at `work/<owner>/<repo>`. The arena is the agent's `HOME`.
 - **Owner zone:** the pinned omp binary, the pinned srt, and `bin/omp`, a link to the wrapper. `bin/` is on `PATH`.
 - **Sockets:** the broker sockets and the rendered srt settings. The agent cannot write here, so it cannot plant a socket or a link.
-- **Host:** everything the agent gets nothing of: the GitHub App key, the auth broker's logins, the broker's records, and the owner's hand-edited broker files, such as the addresses file (owner decision, 2026-11-03).
+- **Host:** everything the agent gets nothing of: the GitHub App key, the auth broker's logins, the broker's records, the arena backup's password and settings (`SPEC.md`, B10), and the owner's hand-edited broker files, such as the addresses file (owner decision, 2026-11-03).
 - **Owner's zone:** the owner's checkouts. underground runs from its checkout. The owner's agent config repo lives here too.
 
 To uninstall: delete `~/.ug` and the launchd files.

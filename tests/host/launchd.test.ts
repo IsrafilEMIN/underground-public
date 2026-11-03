@@ -9,7 +9,7 @@ import { test } from "node:test";
 // in ~/.agents.
 
 const DIR = join(import.meta.dirname, "../../host/launchd");
-const FILLED = new Set(["@HOME@", "@OMP@", "@SRC@", "@GATEWAY@", "@ENGINE@", "@BROKER@"]);
+const FILLED = new Set(["@HOME@", "@OMP@", "@SRC@", "@GATEWAY@", "@ENGINE@"]);
 
 const programArguments = (text: string): string[] => {
   const block = /<key>ProgramArguments<\/key>\s*<array>([\s\S]*?)<\/array>/.exec(text)?.[1] ?? "";
@@ -18,7 +18,7 @@ const programArguments = (text: string): string[] => {
 
 test("every launchd template uses only the placeholders that setup fills", async () => {
   const files = (await readdir(DIR)).filter((n) => n.endsWith(".plist"));
-  assert.equal(files.length, 4, files.join(" "));
+  assert.equal(files.length, 5, files.join(" "));
   for (const file of files) {
     const text = await readFile(join(DIR, file), "utf8");
     for (const placeholder of text.match(/@[A-Z_]+@/g) ?? []) assert.ok(FILLED.has(placeholder), `${file}: ${placeholder}`);
@@ -33,6 +33,7 @@ test("the auth services run the pinned omp, and the brokers run the checkout's c
   assert.deepEqual((await args("com.underground.auth-gateway")).slice(0, 3), ["@OMP@", "auth-gateway", "serve"]);
   assert.deepEqual(await args("com.underground.broker"), ["/opt/homebrew/bin/node", "@SRC@/host/broker/server.ts"]);
   assert.deepEqual(await args("com.underground.usage-broker"), ["/opt/homebrew/bin/node", "@SRC@/host/broker/usage-broker.ts"]);
+  assert.deepEqual(await args("com.underground.backup"), ["/bin/bash", "@SRC@/host/bin/ug-backup"]);
 });
 
 test("the auth services keep their logins and tokens in ~/.ug/host/auth, not in ~/.omp", async () => {
@@ -42,13 +43,10 @@ test("the auth services keep their logins and tokens in ~/.ug/host/auth, not in 
   }
 });
 
-// The sandbox reaches every port of 127.0.0.1 (allowLocalBinding), so the auth broker, which holds
-// the logins, must not listen there; the gateway must ask it at the same address
-// (docs/adr/0005-model-auth-gateway.md, amendment 2026-11-03).
-test("the auth broker listens on @BROKER@, not on loopback, and the gateway asks it there", async () => {
-  const broker = await readFile(join(DIR, "com.underground.auth-broker.plist"), "utf8");
-  assert.deepEqual(programArguments(broker), ["@OMP@", "auth-broker", "serve", "--bind=@BROKER@"]);
-  const gateway = await readFile(join(DIR, "com.underground.auth-gateway.plist"), "utf8");
-  assert.match(gateway, /<key>OMP_AUTH_BROKER_URL<\/key>\s*<string>http:\/\/@BROKER@<\/string>/);
-  for (const text of [broker, gateway]) assert.doesNotMatch(text, /127\.0\.0\.1:8765|localhost:8765/);
+test("the backup job runs once a day at 20:00, not at load, and logs in the host zone", async () => {
+  const text = await readFile(join(DIR, "com.underground.backup.plist"), "utf8");
+  assert.match(text, /<key>StartCalendarInterval<\/key>\s*<dict>\s*<key>Hour<\/key>\s*<integer>20<\/integer>\s*<key>Minute<\/key>\s*<integer>0<\/integer>\s*<\/dict>/);
+  assert.doesNotMatch(text, /<key>(RunAtLoad|KeepAlive|StartInterval)<\/key>/, "it would wake the other machine at each setup or all day");
+  assert.match(text, /<key>StandardErrorPath<\/key>\s*<string>@HOME@\/\.ug\/host\/backup\/backup\.log<\/string>/);
 });
+

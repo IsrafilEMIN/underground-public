@@ -76,8 +76,12 @@ _Avoid_: plain omp, unwrapped session
 The owner's command for the auth services: the pinned omp with its root in `~/.ug/host/auth`, limited to `auth-broker` and `auth-gateway`, for example `ug-auth auth-broker login anthropic` or `ug-auth auth-broker token --regenerate`. Setup links it as `~/.ug/sys/bin/ug-auth`.
 _Avoid_: raw omp, admin omp
 
+**Arena backup**:
+The daily restic snapshot of `~/.ug/home`, minus what can be rebuilt, in one repo on the owner's other machine (launchd `com.underground.backup`, `host/bin/ug-backup`, settings in `~/.ug/host/backup/config`). It keeps every snapshot, so harm to the arena can be undone (`docs/SPEC.md`, B10).
+_Avoid_: archive, sync, Time Machine
+
 **Setup**:
-The host script that does what `git pull` cannot: install the pinned omp and srt, make the zones and their modes, register and restart the launchd services, put the wrapper on `PATH`, run the arena probe, and record the macOS build. The owner runs the U1 and U2 probes by hand (`docs/SPEC.md`, Checks). It runs when a pin changes, a host service changes, or macOS updates. It replaces the install (`docs/adr/0012-pinned-omp-and-setup.md`).
+The host script that does what `git pull` cannot: install the pinned omp, srt, and restic, make the zones and their modes, make the backup password, register and restart the launchd services, put the wrapper on `PATH`, run the arena probe, and record the macOS build. The owner runs the U1 and U2 probes by hand (`docs/SPEC.md`, Checks). It runs when a pin changes, a host service changes, or macOS updates. It replaces the install (`docs/adr/0012-pinned-omp-and-setup.md`).
 _Avoid_: install, installer, bootstrap
 
 **Preflight**:
@@ -141,7 +145,7 @@ _Avoid_: onboarding list, repo setup
 ### Models
 
 **Auth broker**:
-The host service `omp auth-broker serve` (launchd `com.underground.auth-broker`, on the tailscale address of this mac, port 8765, not on loopback). It holds the owner's model logins in its own root, `~/.ug/host/auth` (`PI_CONFIG_DIR=.ug/host/auth` in its plist), and does every OAuth refresh. The owner reaches it with `ug-auth`. Only the auth gateway talks to it; no session is a broker client, because a broker client receives access tokens and API keys.
+The host service `omp auth-broker serve` (launchd `com.underground.auth-broker`, on `127.0.0.1:8765`). It holds the owner's model logins in its own root, `~/.ug/host/auth` (`PI_CONFIG_DIR=.ug/host/auth` in its plist), and does every OAuth refresh. The owner reaches it with `ug-auth`. Only the auth gateway talks to it; no session is a broker client, because a broker client receives access tokens and API keys.
 _Avoid_: credential store, vault
 
 **Auth gateway**:

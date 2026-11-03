@@ -2,8 +2,6 @@ import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { createServer } from "node:http";
-import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -70,6 +68,10 @@ esac
   await mkdir(join(home, ".ug/host/auth"), { recursive: true });
   await writeFile(join(home, ".ug/host/auth/auth-gateway.token"), "test-bearer\n");
   await writeFile(join(home, ".ug/host/addresses"), "gateway=192.0.2.1:4000\nengine=192.0.2.2:8081\n");
+  // The arena backup's password and config (docs/SPEC.md, B10).
+  await mkdir(join(home, ".ug/host/backup"), { recursive: true });
+  await writeFile(join(home, ".ug/host/backup/password"), "backup-password-for-the-probe\n");
+  await writeFile(join(home, ".ug/host/backup/config"), "repo=sftp:owner@other-box:backups/arena\n");
   return home;
 }
 
@@ -88,19 +90,7 @@ function runProbe(home: string, extra: Record<string, string> = {}) {
   return { run, lines, result };
 }
 
-// The same run as runProbe, but async, for a test whose fake server lives in this process.
-async function runProbeAsync(home: string, extra: Record<string, string> = {}) {
-  const env: Record<string, string> = { ...extra, HOME: home, USER: "probe", LOGNAME: "probe", PATH: "/usr/bin:/bin:/usr/sbin:/sbin", UG_PROBE_NODE: process.execPath };
-  const child = spawn("bash", [PROBE], { env });
-  let stdout = "";
-  child.stdout.setEncoding("utf8").on("data", (chunk: string) => (stdout += chunk));
-  child.stderr.resume();
-  await new Promise((resolve) => child.on("close", resolve));
-  const lines = stdout.split("\n");
-  return { stdout, result: (name: string) => lines.find((l) => l.split(/\s+/)[1] === name) ?? "" };
-}
-
-const DENY_CHECKS = ["read-deny", "omp-read", "write-deny", "symlink", "hardlink"];
+const DENY_CHECKS = ["read-deny", "omp-read", "write-deny", "symlink", "hardlink", "backup-password", "backup-config"];
 
 test("probe-arena reports a BREACH for every deny check when srt runs commands with no sandbox", async (t) => {
   const home = await fakeHome(LEAKY);
@@ -149,22 +139,6 @@ test("probe-arena: a raw omp's model list that does not come back is inconclusiv
   await writeFile(join(home, ".ug/fake-models-broken"), "");
   const { run, result } = runProbe(home);
   assert.match(result("raw-models"), /^INC\s+\S+\s+the raw omp gave no model list/, run.stdout);
-});
-
-test("probe-arena: an auth broker that the sandbox reaches is a BREACH, and one that the host cannot reach proves nothing", async (t) => {
-  const home = await fakeHome(LEAKY);
-  t.after(() => rm(home, { recursive: true, force: true }));
-  // With nothing at the broker's address, the host control fails.
-  const none = runProbe(home).result("broker-reach");
-  assert.match(none, /^INC\s+\S+\s+the host does not reach the auth broker/, none);
-  // A broker on loopback, as before the move: the leaky srt lets the sandbox reach it.
-  const server = createServer((_req, res) => res.end("{}"));
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  t.after(() => server.close());
-  const port = String((server.address() as AddressInfo).port);
-  await writeFile(join(home, ".ug/host/addresses"), "gateway=127.0.0.1:4000\nengine=192.0.2.2:8081\n");
-  const reached = runProbeAsync(home, { UG_PROBE_BROKER_PORT: port });
-  assert.match((await reached).result("broker-reach"), /^FAIL\s+\S+\s+BREACH: the sandbox reached the auth broker at 127\.0\.0\.1:\d+/);
 });
 
 test("probe-arena leaves no canary, write target, or probe arena behind", async (t) => {

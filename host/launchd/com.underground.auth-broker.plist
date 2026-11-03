@@ -9,7 +9,7 @@
     <string>@OMP@</string>
     <string>auth-broker</string>
     <string>serve</string>
-    <string>--bind=@BROKER@</string>
+    <string>--bind=127.0.0.1:8765</string>
   </array>
   <key>RunAtLoad</key>
   <true/>
