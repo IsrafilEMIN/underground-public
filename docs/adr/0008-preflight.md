@@ -2,6 +2,8 @@
 
 Date: 2026-10-31. Owner decision.
 
+Superseded in part on 2026-11-02 by `0012-pinned-omp-and-setup.md`: setup replaces the install, and the install record and its hash checks go. The macOS build check stays. `drop_secret_env` goes, because the wrapper starts a clean environment (`0011-one-agent-arena.md`).
+
 The install checks (tests and probes) and the preflight answer two different questions.
 
 - The install asks: do the controls work as designed? It tests behavior: the gate, the sandbox rules, the U1 and U2 canaries. It runs when the code or the setup of this mac changes. It can be slow, use the network, plant canaries, and use real tokens. At the end it writes the install record, `~/.agents/install-manifest`: each file it wrote with its mode and SHA-256, each folder it set a mode on, and the macOS build (`write_install_record`, `install.sh`).

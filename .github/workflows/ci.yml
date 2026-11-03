@@ -28,30 +28,13 @@ jobs:
       - name: Shell syntax and lint
         run: |
           set -euo pipefail
-          shopt -s nullglob
-          scripts=(install.sh host/bin/omp host/bin/ug-install host/sandbox/render-settings tests/escape/*.sh)
+          scripts=(host/bin/omp-arena host/bin/ug-setup host/bin/ug-auth scripts/probe-arena.sh scripts/probe-u1-u2.sh scripts/import-history.sh)
           for f in "${scripts[@]}"; do
             bash -n "$f"
           done
-          sh -n host/bin/broker
-          sh -n host/bin/omp-inner
-          shellcheck host/bin/broker host/bin/omp-inner "${scripts[@]}"
-
-      - name: Settings template JSON
-        run: |
-          set -euo pipefail
-          sed -e 's|@HOME@|/Users/ci|g' \
-              -e 's|@REPO@|/Users/ci/repo|g' \
-              -e 's|@WORKTREE@|/Users/ci/.omp/wt/repo-00000000|g' \
-              -e 's|@ROLE@|/Users/ci/.ug/roles/author|g' \
-              -e 's|@SESSIONS@|/Users/ci/.ug/roles/author/omp/agent/sessions/ug-repo-00000000|g' \
-              -e 's|@TMPDIR@|/private/tmp|g' \
-              host/sandbox/srt-settings.template.json > rendered.json
-          if grep -q '@[A-Z]*@' rendered.json; then
-            echo "unreplaced placeholder" >&2
-            exit 1
-          fi
-          python3 -m json.tool rendered.json > /dev/null
+          sh -n host/arena/init
+          shellcheck "${scripts[@]}"
+          shellcheck -s sh host/arena/init
 
       - name: Launchd plist XML
         run: xmllint --noout host/launchd/*.plist

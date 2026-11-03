@@ -2,6 +2,8 @@
 
 Date: 2026-10-30. Owner decision.
 
+Holds under the redesign (2026-11-02), with `allowLocalBinding: true`. The localhost question is deferred: a test with it off decides (`../SPEC.md`, Deferred). The auth gateway stays on the tailscale address, and the usage broker moves there too (`0005-model-auth-gateway.md`).
+
 With `allowLocalBinding: true`, srt lets the sandbox connect to every localhost port (srt 0.0.81, `src/sandbox/macos-sandbox-utils.ts:1280` to `:1284`), so every local service is reachable (U7).
 
 Decision: `allowLocalBinding: false`. The sandbox reaches the network only through srt's proxy and its allowlist. The omp auth gateway listens on the tailscale address of this mac. The inference engine runs on `v100-server`, another box on the tailnet. The allowlist names each address with the port of its service (`@GATEWAY@` and `@ENGINE@`, `host/roles/author/network-allowlist:1` to `:2`), never the bare address, so no other port on either box is reachable (srt 0.0.81, `dist/sandbox/domain-pattern.js:18` to `:23`). The gateway binds with `omp auth-gateway serve --bind=<tailscale address>:<port>` (omp docs, `auth-broker-gateway.md:153`, read 2026-10-30) and always needs a token, so it never runs with `--no-auth`.

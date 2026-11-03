@@ -1,0 +1,8 @@
+{
+  "name": "underground-srt",
+  "private": true,
+  "description": "The pinned srt and its locked dependencies. Setup installs it with npm ci into ~/.ug/sys/srt/<version>.",
+  "dependencies": {
+    "@anthropic-ai/sandbox-runtime": "0.0.81"
+  }
+}

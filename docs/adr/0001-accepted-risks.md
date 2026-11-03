@@ -2,6 +2,8 @@
 
 Date: 2026-10-30. Owner decision.
 
+Holds under the redesign (2026-11-02, `../PRODUCT-BRIEF.md`). Every session uses one allowlist, `host/roles/network-allowlist` in the owner's checkout. Roles no longer differ in reach (`0011-one-agent-arena.md`). A per-repo allowlist is deferred.
+
 We accept one irreversible risk: U14, the agent can send data that it can read to a destination on the srt allowlist. Every role uses one allowlist (amendment below), and we keep a destination only when a step of some role needs it.
 
 - The broker flow needs no allowlist entry: the client talks to the broker over a Unix socket and imports a bundle (`send` and `importSync`, `host/broker/client.ts:103` to `:136`); the host fetches from GitHub (`handleSync`, `host/broker/server.ts:231`).

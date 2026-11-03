@@ -2,6 +2,8 @@
 
 Date: 2026-10-30. Updated 2026-10-31 by owner decision.
 
+Holds under the redesign (2026-11-02), with three changes from `0011-one-agent-arena.md`: the auth broker keeps its logins in `~/.ug/host/auth`, not in `~/.omp`; no session is a broker client; and the usage broker moves to the tailscale address. The role isolation named below is gone.
+
 The sandbox could read the model logins in omp's store (U15). A leaked login is irreversible: a revoke stops later use, but it does not undo calls, spending, or data access before it.
 
 Decision: `omp auth-broker serve` and `omp auth-gateway serve` run on the host. The auth broker holds the provider logins and does every OAuth refresh. Its bearer stays host-only. Every role shares the gateway bearer from `~/.omp/auth-gateway.token`, rendered into its owner-part `models.yml` by `admin.ts gateway-setup`. The gateway runs without `--clients`; no per-role model grants or account configuration remain.

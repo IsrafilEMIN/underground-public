@@ -1,0 +1,46 @@
+# The first omp settings of a new arena, until the owner's config repo exists. The wrapper copies
+# this file into the arena only when the arena has no config.yml yet; after that, omp owns it.
+# modelRoles and retry are copied from the old role policy, host/roles/policy.yml, removed 2026-11-03.
+modelRoles:
+  default: anthropic/claude-opus-5-5:medium
+  slow: openai-codex/gpt-6.1-sol:xhigh
+  advisor: openai-codex/gpt-6.1-sol:high
+  plan: "@slow"
+  task: opencode-go/deepseek-v4.1-flash:max
+  smol: opencode-go/deepseek-v4.1-flash:low
+  commit: "@smol"
+  tiny: opencode-go/deepseek-v4.1-flash:low
+  memory: "@tiny"
+  vision: openai-codex/gpt-6-luna:medium
+  web: openai-codex/gpt-6-luna:high
+retry:
+  fallbackChains:
+    default:
+      - openai-codex/gpt-6.1-sol:high
+      - opencode-go/deepseek-v4.1-flash:max
+      - lm-studio/qwen3.8-flash-next-ud-q4_k_xl
+    slow:
+      - anthropic/claude-opus-5-5:xhigh
+      - opencode-go/deepseek-v4.1-flash:max
+      - lm-studio/qwen3.8-flash-next-ud-q4_k_xl
+    advisor:
+      - anthropic/claude-opus-5-5:high
+      - opencode-go/deepseek-v4.1-flash:max
+      - lm-studio/qwen3.8-flash-next-ud-q4_k_xl
+    task:
+      - openai-codex/gpt-6.1-sol:medium
+      - lm-studio/qwen3.8-flash-next-ud-q4_k_xl
+      - anthropic/claude-opus-5-5:medium
+    smol:
+      - openai-codex/gpt-6-luna:medium
+      - lm-studio/qwen3.8-flash-next-ud-q4_k_xl
+      - anthropic/claude-haiku-5-5:medium
+    tiny:
+      - opencode-go/mimo-v2.6-flash:low
+      - anthropic/claude-haiku-5-5:low
+      - lm-studio/qwen3.8-flash-next-ud-q4_k_xl
+    vision:
+      - anthropic/claude-haiku-5-5:medium
+      - opencode-go/deepseek-v4.1-flash:max
+    web:
+      - openai-codex/gpt-6.1-sol:medium

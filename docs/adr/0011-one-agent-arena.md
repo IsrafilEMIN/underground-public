@@ -1,0 +1,38 @@
+# One agent arena
+
+Date: 2026-11-02. Owner decision. Supersedes `0002-role-homes.md`, `0009-one-omp-root.md`, and `0010-shared-sessions-and-state.md`. Amends `0005-model-auth-gateway.md`, `0006-reviewer-roles-gate.md`, and `0008-preflight.md`. The design is in `../PRODUCT-BRIEF.md`.
+
+## Context
+
+The first design drew the line between the agent and the owner as a list of paths inside the owner's home. omp assumes that it owns its home, so each normal omp action crossed that line, and each crossing needed a patch: the split omp root and the policy pins (`0002-role-homes.md`), `PI_CONFIG_DIR` and the one-by-one `XDG_*` and `CARGO_HOME` moves (`host/bin/omp:386` to `:399`), `skillLinkRoots` (`host/sandbox/srt-settings.template.json:2`), the subagent rules hook and the moved reviewer stores (`0009-one-omp-root.md`), and `drop_secret_env` (`0008-preflight.md`). A deny list fails open when a new omp version loads code from a new path (`0002-role-homes.md`, cost). Role separation added per-role homes, sessions, state, and stores.
+
+## Decision
+
+- **One arena.** The agent has one home, `~/.ug/home`. The wrapper sets `HOME` to it, so omp, its caches, its helpers, and its worktrees live there on omp's default paths and default profile. srt grants writes on the arena only.
+- **omp runs unchanged.** No `PI_CONFIG_DIR`, no `PI_CONFIG_FILES` overlay, no policy pins, no per-path moves.
+- **Clean environment.** The wrapper starts omp with named variables only, not the owner's shell.
+- **Config from the owner's repo.** The owner keeps the agent config (`AGENTS.md`, skills, hooks, MCP config, settings, no secrets) in a private repo in the owner's zone, laid out like omp's `~/.omp/agent`. The owner's local folder is the source of truth. The wrapper copies it into `~/.ug/home/.omp/agent` at each start.
+- **Clones in the arena.** The agent works in its own clone of each repo in the arena, proposed at `~/.ug/home/work/<owner>/<repo>`, never in the owner's checkout. The clone is made and updated only inside the sandbox, with `broker sync`. The host never runs git in the arena.
+- **One trust level.** Author and reviewers share the arena. The reviewers are a quality step, not a safety wall. Their rules come as skills in the config repo.
+- **Strict sockets.** `allowUnixSockets` lists only the broker sockets in `~/.ug/run` and omp's helper sockets.
+- **Zones.** `~/.ug/sys` (owner zone, read only), `~/.ug/run` (sockets), `~/.ug/host` (no access), `~/.ug/home` (the arena), and the owner's zone (no access).
+
+## Why one trust level is enough
+
+Role separation protects the review, and the review protects only the merge. A reviewer reads text that the author wrote, so the diff itself can carry an injection that no home isolation stops [inference]. The harm of a weak review is a bad merge. Onboarding checks 5 and 6 (`../SPEC.md`) keep a merge reversible: a deploy, a publish, or a job with secrets on `main` waits for the owner, and a repo whose code runs on the host gets no auto merge. So a weak review leads only to a revert. The other damage that a revert cannot undo (the use of a brokered credential, data out to an allowlisted domain, spend) happens during the session, where no reviewer is involved.
+
+## Rejected
+
+- One arena with one omp profile per role (`omp --profile <role>`). omp separates a profile's config, auth, sessions, and caches (omp `docs/config-usage.md:76` to `:82`, read 2026-11-02), but it does not enforce it: every profile lives in one `~/.omp` that one user writes [inference]. Keybindings, `~/.claude`, `~/.codex`, `~/.gemini`, the root files of `~/.omp`, and non-omp caches are shared across profiles (`config-usage.md:84`, `:88`). Each needs its own srt rule, so the path list comes back.
+- One home per role. It is safe by structure, but one trust level makes it unneeded.
+- The agent in the owner's checkout. A host `git`, direnv, or editor would run agent-written `.git` hooks, `.git/config`, `.envrc`, or tasks (U4). Avoiding that needs a deny list of every file that a host tool runs, which fails open.
+- A VM or a container. It gives reset, its own localhost, and its own user. But the brokers, the gateway, the egress allowlist, the merge gate, and the config copy stay the same, and it adds an image, repo sync, an egress proxy, Linux only, more memory, and slower starts. srt is light. The arena can move into a VM later; the rest stays.
+- Unix sockets allowed in the whole arena. An agent can make a link in the arena to a socket outside it, and it is not known whether macOS checks the link path or the real path on connect [inference].
+
+## Cost
+
+- srt is a filter on the owner's macOS user, not a wall. Localhost stays open to every port for now (`0004-no-local-binding.md`).
+- A session can damage another repo's clone or unpushed work in the arena (U21). Only agent work is lost.
+- A change that the agent makes to its own config lasts until the next start.
+- The arena clone holds GitHub's `main`, not the owner's unpushed edits.
+- To verify: that omp, bun, and git honor `HOME` on the pinned omp; the paths of omp's helper sockets (`../SPEC.md`, Checks). A tool that ignores `HOME` fails on the srt deny; it does not leak.

@@ -2,6 +2,8 @@
 
 Date: 2026-11-01. Owner decision. Amends `0009-one-omp-root.md`: its sessions and state per role name go; the rest of it holds.
 
+Superseded in full on 2026-11-02 by `0011-one-agent-arena.md`: every role shares the arena by design. The split of `run/daemons` under "Later" is dropped, because all roles share one trust level.
+
 `0009-one-omp-root.md` kept sessions and state per role name. The owner decided to keep them in one place for MVP 0.5, with harder rules later.
 
 ## Decision

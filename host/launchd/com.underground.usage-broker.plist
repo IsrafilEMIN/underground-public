@@ -7,16 +7,16 @@
   <key>ProgramArguments</key>
   <array>
     <string>/opt/homebrew/bin/node</string>
-    <string>@HOME@/.agents/broker/usage-broker.ts</string>
+    <string>@SRC@/host/broker/usage-broker.ts</string>
   </array>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
   <true/>
   <key>StandardOutPath</key>
-  <string>@HOME@/.agents/auth/usage-broker.log</string>
+  <string>@HOME@/.ug/host/auth/usage-broker.log</string>
   <key>StandardErrorPath</key>
-  <string>@HOME@/.agents/auth/usage-broker.log</string>
+  <string>@HOME@/.ug/host/auth/usage-broker.log</string>
   <key>EnvironmentVariables</key>
   <dict>
     <key>PATH</key>

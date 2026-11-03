@@ -11,9 +11,9 @@ import { fakeTokens, tokenRemote } from "./fake-app.ts";
 import { tempDir } from "../temp.ts";
 
 // One session flow end to end: the wrapper's admin call registers each binding, the real
-// broker client (`client.ts`, which `host/bin/broker` execs) talks over the real unix sockets
+// broker client (`client.ts`, which the shim `~/.ug/sys/agent-bin/broker` execs) talks over the real unix sockets
 // to the broker, and a local bare repo plus a stateful fake gh stand in for GitHub. The client
-// runs on this node, because `host/bin/broker` names the Homebrew node, which CI does not have.
+// runs on this node, because that shim names the Homebrew node, which CI does not have.
 
 const REPO = "o/r";
 const BRANCH = "agent/x";

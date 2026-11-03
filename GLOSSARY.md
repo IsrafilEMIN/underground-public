@@ -1,67 +1,121 @@
 # underground
 
-A safe environment for running the omp coding agent unattended on one macOS laptop.
+A safe environment for running the omp coding agent unattended on one macOS laptop. The design is in `docs/PRODUCT-BRIEF.md`. Where a term names a place that a build item in `docs/SPEC.md` moves, the term gives the new place and the build id.
 
 ## Language
 
+### Places
+
 **Sandbox**:
-The single boundary around the whole omp process. Everything the agent starts runs inside it.
+The single boundary around the whole omp process, drawn by srt. Everything the agent starts runs inside it.
 _Avoid_: jail, container, lock
 
 **Host**:
 The owner's macOS user session outside the sandbox. Only the owner runs commands on the host.
 _Avoid_: outside, plain terminal (as a place)
 
-**Wrapper**:
-The `omp` command the owner runs. It starts omp inside the sandbox.
-_Avoid_: launcher, omp-srt
+**Arena**:
+The agent's one home, `~/.ug/home`. The wrapper sets `HOME` to it. The sandbox writes only here, and every role shares it. It holds the omp root, the arena clones, and every cache and temp file of the agent. Everything in it is agent-written, so the owner runs no host tool here and the host never runs git here (`docs/adr/0011-one-agent-arena.md`).
+_Avoid_: workspace, sandbox dir, role home, write area
 
-**Repo folder**:
-The folder that holds the main Git checkout of a repo: the nearest folder, at or above the folder where the owner types `omp`, that has a `.git` folder. omp starts here, in any git repo. The sandbox can read it but cannot write it, except the git paths that a worktree needs in its `.git` folder.
-_Avoid_: main checkout, primary checkout
+**Owner zone**:
+The folder `~/.ug/sys`: the pinned omp binary, the pinned srt, and `bin/omp`, the link to the wrapper. `bin/` is on `PATH`. The sandbox reads it but cannot write it. Only setup writes it.
+_Avoid_: install dir, owner part
 
-**Repo id**:
-The name of the folder of a repo in `~/.omp/wt`: the repo folder name, a `-`, and the first 8 hex characters of the SHA-256 of the real repo folder path.
-_Avoid_: repo hash, slug
+**Sockets folder**:
+The folder `~/.ug/run`: the broker sockets and the rendered srt settings. The sandbox can use only the sockets that its settings list, and cannot write the folder, so it cannot plant a socket or a link here.
+_Avoid_: run dir, socket dir
 
-**Worktree folder**:
-The folder `~/.omp/wt/<repo id>` of one repo. The wrapper passes it to omp in `OMP_WORKTREE_DIR`. Every author session of the repo can write the whole folder. A reviewer session cannot read it.
-_Avoid_: ticket folder, wt root
+**Host zone**:
+The folder `~/.ug/host`: everything the sandbox gets nothing of. The broker app's private key, the auth broker's own root with the model logins, the broker's records, and the owner's hand-edited broker files, such as the addresses file (owner decision, 2026-11-03). Until the broker rebuild, these still sit in `~/.agents`, `~/.config/underground-broker`, and `~/.omp`.
+_Avoid_: vault, keys dir
+
+**Owner's zone**:
+Everything outside `~/.ug`: the owner's checkouts, the config repo, `~/.ssh`, `~/Library`, and the rest of the home. The sandbox gets nothing here.
+_Avoid_: host files, user space
+
+**Owner's checkout**:
+The owner's own Git checkout of a repo, in the owner's zone. The owner types `omp` here; the wrapper reads its `origin` and starts omp in the arena clone of that repo. The sandbox cannot read or write it. underground itself runs from the owner's checkout of underground.
+_Avoid_: repo folder, main checkout, primary checkout
+
+**Arena clone**:
+The agent's own clone of one repo in the arena, proposed at `~/.ug/home/work/<owner>/<repo>`. Git there runs only inside the sandbox; `broker sync` makes and updates it (`docs/SPEC.md`, B4).
+_Avoid_: task clone, copy, mirror
 
 **Agent worktree**:
-A Git worktree that a session makes for itself in the worktree folder, on its own `agent/*` branch: `git worktree add -b agent/<name> "$OMP_WORKTREE_DIR/<name>" origin/main`. Everything in it is agent-written. The other sessions of the same repo can write it too.
-_Avoid_: ticket worktree, task clone, copy, workspace
+A Git worktree that a session makes for itself from an arena clone, on its own `agent/*` branch, under omp's default worktree folder `~/.omp/wt`, which is inside the arena. Everything in it is agent-written. Other sessions can write it too.
+_Avoid_: ticket worktree, workspace
 
-**Session folder**:
-The one omp session folder of a repo in the write area: `~/.ug/omp/agent/sessions/ug-<repo id>`. All sessions of a repo share it, whatever their role name. The wrapper passes it to omp only as the `--session-dir` default. A session can open the session files of every other role (`docs/adr/0010-shared-sessions-and-state.md`).
-_Avoid_: session bucket, sessions dir
+**Omp root**:
+omp's own default root, `~/.omp` inside the arena: config, `agent.db`, sessions, caches, helpers, native files, and worktrees. omp runs on it unchanged, on its default profile.
+_Avoid_: role home, profile, owner part
 
-**Write area**:
-The set of folders that the sandbox can write to. All other paths are read-only or hidden.
-_Avoid_: allowed paths, writable roots
+**Config repo**:
+The owner's private repo of agent configs, in the owner's zone: `AGENTS.md`, skills, hooks, MCP config, and settings, laid out like omp's `~/.omp/agent`. It holds no secret. The owner's local folder is the source of truth; GitHub keeps a backup. The wrapper copies it into the arena at each start, so a change that the agent makes to its config lasts until the next start.
+_Avoid_: dotfiles, role config
 
-**Cache root**:
-The one folder that holds package and build caches for sandbox runs of every role name: `~/.ug/omp/underground/cache`. A role can plant a program there that a later session of any role runs (`docs/adr/0009-one-omp-root.md`). The host never runs a program from it.
-_Avoid_: tool cache, home cache
+### Running omp
+
+**Wrapper**:
+The `omp` command that the owner runs, and the only `omp` on `PATH`. At each start it copies the config repo into the arena, sets `HOME` to the arena, starts a clean environment, and starts the pinned omp inside the sandbox in the arena clone.
+_Avoid_: launcher, omp-srt
+
+**Clean environment**:
+The environment that the wrapper gives omp: only the variables that it names. No variable of the owner's shell reaches the sandbox.
+_Avoid_: env filter, scrubbed env
+
+**Pin**:
+A version and a SHA-256 in `VERSIONS`. The omp pin names the release file `omp-darwin-arm64` from GitHub; setup downloads it, checks the hash, and keeps its own copy in the owner zone (`docs/adr/0012-pinned-omp-and-setup.md`).
+_Avoid_: lock, current version
+
+**Raw omp**:
+The pinned omp binary started by its full path, without the wrapper. It runs without the sandbox, but its home `~/.omp` holds no login and no token, so it cannot call a model. The probe tries one each time setup runs.
+_Avoid_: plain omp, unwrapped session
+
+**ug-auth**:
+The owner's command for the auth services: the pinned omp with its root in `~/.ug/host/auth`, limited to `auth-broker` and `auth-gateway`, for example `ug-auth auth-broker login anthropic` or `ug-auth auth-broker token --regenerate`. Setup links it as `~/.ug/sys/bin/ug-auth`.
+_Avoid_: raw omp, admin omp
+
+**Setup**:
+The host script that does what `git pull` cannot: install the pinned omp and srt, make the zones and their modes, register and restart the launchd services, put the wrapper on `PATH`, run the U1 and U2 probes, and record the macOS build. It runs when a pin changes, a host service changes, or macOS updates. It replaces the install (`docs/adr/0012-pinned-omp-and-setup.md`).
+_Avoid_: install, installer, bootstrap
+
+**Preflight**:
+The one check that the wrapper runs at each start, before the sandbox starts: the macOS build is the one that setup recorded. On a mismatch it refuses until setup runs again.
+_Avoid_: health check, doctor, self-test
+
+**Crossing**:
+A way into or out of the arena: code out, model calls, `/usage`, web out, config in, repos in, unix sockets, localhost, and merge effects. Each crossing has one control (`docs/PRODUCT-BRIEF.md`, principle 4).
+_Avoid_: hole, exception, bypass
+
+**Network allowlist**:
+The network destinations of every session, one per line in `host/roles/network-allowlist` in the owner's checkout of underground. The wrapper puts its lines in the srt `allowedDomains` at each start, and refuses an address without a port. A tailscale entry names the address and the port of one service, never the bare address. The template names the auth gateway as `@GATEWAY@`, which the wrapper fills from the addresses file. Its entries: the auth gateway, `github.com`, the web search domains, and `registry.npmjs.org`.
+_Avoid_: domain list, egress list
+
+### GitHub and the merge
 
 **Broker**:
 The host service that does GitHub operations for the sandbox. It holds the only GitHub credential that agents use.
 _Avoid_: gh-broker, agent-gh, proxy
 
 **Broker binding**:
-One repo and one role name that one broker socket serves. The wrapper registers one binding for each repo folder and role name. Its socket is `~/.agents/broker/run/<name>-<hash>/<role name>.sock`, where `<hash>` comes from the repo folder path. The binding holds the role name and the binding role that the roles table maps it to. All sessions of that repo and role name share it. It allows the verbs of its binding role on that repo only. A session can connect only to the socket of the binding of its repo and role name. On each request and at a broker restart, the broker refuses a binding whose role name left the roles table or now maps to another binding role.
+One repo and one role name that one broker socket serves. Its socket moves to the sockets folder (`docs/SPEC.md`, B5). The binding holds the role name and the binding role that the role table maps it to. It allows the verbs of its binding role on that repo only. On each request and at a broker restart, the broker refuses a binding whose role name left the role table or now maps to another binding role.
 _Avoid_: ticket token, shared socket, scope
 
 **Binding role**:
-The role of a broker binding: `author`, or one reviewer role: `code-review`, `security-review`, or `risk-review`. The roles table maps each role name to one binding role. An author binding can use `sync`, `push`, `pr-create`, `pr-status`, `ci-log`, and `merge`. A reviewer binding can use `sync`, `pr-status`, and `review`.
+The role of a broker binding: `author`, or one reviewer role: `code-review`, `security-review`, or `risk-review`. An author binding can use `sync`, `push`, `pr-create`, `pr-status`, `ci-log`, and `merge`. A reviewer binding can use `sync`, `pr-status`, and `review`.
 _Avoid_: socket type, mode
 
+**Role table**:
+The owner-only file that maps each role name to its binding role, for example `security-review security-review`. A role name is `a-z`, `0-9`, and `-`, up to 32 characters. The wrapper and the broker refuse a name that is not in it. `omp` with no `--role` uses the name `author`. It moves from `~/.config/underground-broker/roles` under `~/.ug`; its exact place is open (`docs/SPEC.md`, B9).
+_Avoid_: role list, profile list
+
 **Reviewer session**:
-An omp session that the owner starts with `omp --role <name>`, where the roles table maps the name to a reviewer role. It uses the omp root, the rules of its binding role, the one network allowlist, and the broker binding of that role name. It starts new in its store folder `~/.ug/git/<role name>`, never in a checkout, and reads the PR only with `git -C` on its reviewer store. Its sandbox has no grant on the repo folder or the worktree folder. It never runs PR code.
+An omp session that the owner starts with `omp --role <name>`, where the role table maps the name to a reviewer role. It shares the arena and the trust level of every other session. Its rules come as a skill from the config repo. It reads the PR in the arena clone, through `broker sync --pr`, and writes its verdict with `broker review`. It is a quality step, not a safety wall (`docs/adr/0011-one-agent-arena.md`).
 _Avoid_: review agent, bug bot, security bot
 
 **Review verdict**:
-A record that a reviewer session writes with `broker review` for one PR and one full head sha: `pass`, `manual`, or `block`, with a reason for `manual` and `block`, and the role name and binding role of the session. `code-review` and `security-review` give `pass` or `block`; `risk-review` gives `pass` (auto) or `manual`. The broker appends each verdict as one line to the file of its PR on the host, `~/.agents/broker/reviews/<owner>/<repo>/<pr>.jsonl`, and keeps the file after the merge. A verdict from before role names has role name `null`: its `block` and `manual` count, and its `pass` counts for no role.
+A record that a reviewer session writes with `broker review` for one PR and one full head sha: `pass`, `manual`, or `block`, with a reason for `manual` and `block`, and the role name and binding role of the session. `code-review` and `security-review` give `pass` or `block`; `risk-review` gives `pass` (auto) or `manual`. The broker appends each verdict as one line to the file of its PR on the host and keeps the file after the merge. A verdict from before role names has role name `null`: its `block` and `manual` count, and its `pass` counts for no role.
 _Avoid_: reviewer result, finding, approval
 
 **Attempt**:
@@ -73,28 +127,68 @@ A state of a PR that makes `broker merge` refuse with a reason that says the own
 _Avoid_: lock, freeze
 
 **Protected path**:
-A path that the auto merge never accepts: `.github/**`, every `CODEOWNERS` file, and each glob in the host list `~/.config/underground-broker/protected-paths/<owner>/<repo>`. A rename counts its old path and its new path.
+A path that the auto merge never accepts: `.github/**`, every `CODEOWNERS` file, and each glob in the owner's protected-paths list of the repo. A rename counts its old path and its new path.
 _Avoid_: manual path, sensitive path
 
 **Auto merge**:
-The only merge that `broker merge` does: green checks, a head that is the push record of its branch, no hold, no `block` on the head, and a latest verdict of `pass` on the head from each of `code-review`, `security-review`, and `risk-review`. The owner's approval plays no part. Every other PR is merged by the owner on GitHub.
+The only merge that `broker merge` does: green checks, a head that is the push record of its branch, no hold, no `block` on the head, and a latest verdict of `pass` on the head from each of `code-review`, `security-review`, and `risk-review`. The owner's approval plays no part. Every other PR is merged by the owner on GitHub. A repo whose code runs on the host, such as underground, gets no auto merge (onboarding check 6, `docs/SPEC.md`).
 _Avoid_: auto tier, bot merge, owner-approved merge
 
 **Push record**:
-The commit that the broker last pushed to one branch of one repo. A later push replaces it. The broker keeps it on the host in `~/.agents/broker/pushes/<owner>/<repo>/<branch>`, with the `/` in the branch name written as `%2F`.
+The commit that the broker last pushed to one branch of one repo. A later push replaces it. The broker keeps it on the host, with the `/` in the branch name written as `%2F`.
 _Avoid_: push log, provenance record
 
 **Broker app**:
-The GitHub App that the broker acts as. The owner's personal account owns it, and it is installed only on the selected repos, with Contents and Pull requests read and write, Metadata, Checks, and Commit statuses read, and no Workflows or Administration permission. Its private key is `~/.config/underground-broker/github-app.pem` on the host. GitHub shows the broker's actions as `<app slug>[bot]` (`docs/adr/0007-broker-github-app.md`).
+The GitHub App that the broker acts as. The owner's personal account owns it, and it is installed only on the selected repos, with Contents and Pull requests read and write, Metadata, Checks, and Commit statuses read, and no Workflows or Administration permission. Its private key moves to `~/.ug/host/github-app.pem` (`docs/SPEC.md`, B7). GitHub shows the broker's actions as `<app slug>[bot]` (`docs/adr/0007-broker-github-app.md`).
 _Avoid_: bot account, bot token, broker token, machine user, service account
 
 **Installation token**:
 A token of the broker app for one repo, which the broker gets with the app's private key. It lasts one hour, and only the broker holds it, in memory.
 _Avoid_: app token, broker token, PAT
 
+**Onboarding checks**:
+The six checks in `docs/SPEC.md` that the owner makes on GitHub for each repo before agents merge alone in it. A repo is onboarded when the owner has made them and installed the broker app on it: the app's installation is the list.
+_Avoid_: onboarding list, repo setup
+
+### Models
+
+**Auth broker**:
+The host service `omp auth-broker serve` (launchd `com.underground.auth-broker`, on `127.0.0.1:8765`). It holds the owner's model logins in its own root, `~/.ug/host/auth` (`PI_CONFIG_DIR=.ug/host/auth` in its plist), and does every OAuth refresh. The owner reaches it with `ug-auth`. Only the auth gateway talks to it; no session is a broker client, because a broker client receives access tokens and API keys.
+_Avoid_: credential store, vault
+
+**Auth gateway**:
+The host service `omp auth-gateway serve` (launchd `com.underground.auth-gateway`) on the tailscale address of this mac, the `gateway=` line of the addresses file. It makes model calls for the sandbox with the logins of the auth broker. Every call needs the gateway bearer.
+_Avoid_: model proxy, LLM proxy
+
+**Usage broker**:
+The host service `host/broker/usage-broker.ts` (launchd `com.underground.usage-broker`). It speaks omp's broker protocol with no credentials and passes `/v1/usage` to the auth gateway, so omp's native `/usage` works. It moves from `127.0.0.1:18765` to the tailscale address (`docs/SPEC.md`, B6).
+_Avoid_: usage proxy, fake broker
+
+**Gateway bearer**:
+The shared token that lets a session use the auth gateway. It authorizes every session for all models and accounts served by the gateway, usage, and credential health. It does not expose provider secrets or credential management. It is readable in the sandbox (an accepted cost, `docs/adr/0005-model-auth-gateway.md`). It is not in the config repo, which holds no secret [inference: how the wrapper gives it to a session is open]. The separate auth-broker bearer stays on the host.
+_Avoid_: client token, API key, gateway key
+
+**Gateway provider**:
+A provider in the arena's `~/.omp/agent/models.yml` with `transport: pi-native`, `baseUrl` the auth gateway, and `apiKey` the gateway bearer. Each model setting of a session names a model of a gateway provider.
+_Avoid_: proxy provider
+
+**Inference engine**:
+The model server on `v100-server`, another box on the tailnet, at the `engine=` line of the addresses file. It needs an API key, which the auth broker holds under omp's built-in `lm-studio` provider. Sessions reach it only through the auth gateway (`docs/adr/0005-model-auth-gateway.md`, amendment 2026-11-01).
+_Avoid_: local model, llama
+
+**Addresses file**:
+The owner-only file with two lines: `gateway=<ip>:<port>`, the auth gateway on the tailscale address of this mac, and `engine=<ip>:<port>`, the inference engine. Setup writes it only when it is missing, from the first line of `tailscale ip -4` with port `4000`; the owner edits it later. It moves from `~/.config/underground-broker/addresses` under `~/.ug`; its exact place is open (`docs/SPEC.md`, B9).
+_Avoid_: address config, hosts file
+
+### Decisions
+
 **Agent-written**:
-Describes any file, branch, or setting that the sandbox could change. Treat it as untrusted until the owner reviews it on GitHub.
+Describes any file, branch, or setting that the sandbox could change: everything in the arena. Treat it as untrusted until the owner reviews it on GitHub.
 _Avoid_: local work, dirty
+
+**One trust level**:
+Every role shares the arena and can change what another role loads. The reviewers improve quality; they are not a safety wall. The onboarding checks keep a merge reversible instead (`docs/adr/0011-one-agent-arena.md`).
+_Avoid_: role isolation, shared trust
 
 **Accepted risk**:
 A threat that we do not control, with the reason written in an ADR in `docs/adr/`.
@@ -112,62 +206,14 @@ _Avoid_: review, approval
 The future underground MVP after 0.5. A threat marked MVPF has no control in 0.5.
 _Avoid_: later, backlog, v1
 
-**Omp root**:
-The one omp root of every role name: `~/.ug/omp` (`PI_CONFIG_DIR=.ug/omp`). It holds the owner part `agent`, omp's own files (`agent/config.yml`, `agent.db`, `history.db`, caches), the session folders `agent/sessions/ug-<repo id>`, and underground's folders in `underground`: the cache root `cache`, the temp folder `tmp` (`TMPDIR`), and the state folders `state/<hash>`, one per repo for every role. Every role writes it, except the owner part. Agents write it, so the owner runs no host tool there. It replaced the per-role homes (`docs/adr/0009-one-omp-root.md`, `docs/adr/0010-shared-sessions-and-state.md`).
-_Avoid_: role home, profile, sandbox dir
+## Retired terms
 
-**Owner part**:
-The files of the omp root that only the owner writes, in `~/.ug/omp/agent`: the role policy `policy.yml`, `prefs.yml`, `models.yml`, the hooks `hooks/pre/concise-reply.ts` and `hooks/pre/role-rules.ts`, and the loader paths that `render-settings` denies (skills, extensions, rule and prompt files). The wrapper and the installer write them from `~/.agents/roles` at each session start and install. The role reads them but cannot write them. Rules and the network allowlist are not in it: rules stay per binding role in `~/.agents/roles/<binding role>`, and `render-settings` reads the allowlist at `~/.agents/roles/network-allowlist`.
-_Avoid_: config dir, read-only part
+These terms name parts of the first design. The ADRs from before 2026-11-02 use them.
 
-**Role rules**:
-The rules of one binding role, `~/.agents/roles/<binding role>/AGENTS.md`, owner-owned. The wrapper passes the file to omp with `--append-system-prompt` and names it in `UG_ROLE_RULES`; the hook `role-rules.ts` appends the same file to the system prompt of each task subagent, because omp does not pass `--append-system-prompt` to subagents. The wrapper refuses a reviewer role without rules and a caller's own `--append-system-prompt`.
-_Avoid_: role AGENTS.md, omp/agent/AGENTS.md
-
-**Role policy**:
-The owner's omp settings of every role, `~/.ug/omp/agent/policy.yml` in the owner part. The wrapper writes it from `~/.agents/roles/policy.yml` at each session start and sets `PI_CONFIG_FILES` to it, so omp loads it as a read-only overlay above the shared writable `config.yml`. It pins each setting that loads rules, skills, extensions, hooks, MCP servers, tools, prompts, memory, or notes from a path, keeps state across sessions, or turns off a source of the owner part (`docs/adr/0002-role-homes.md`). A setting it does not pin carries from one role's sessions into every other role's (`docs/adr/0009-one-omp-root.md`). The wrapper refuses a policy that misses a pin, that does not set `memory.backend: off` and `autolearn.enabled: false`, or that selects a model outside the gateway, and it refuses `--config` and `--profile`.
-_Avoid_: role config, config.yml
-
-**Role table**:
-The owner-only file `~/.config/underground-broker/roles`. Each line holds a role name and its binding role, for example `security-review security-review`. A role name is `a-z`, `0-9`, and `-`, up to 32 characters. The wrapper and the broker refuse a name that is not in it. `omp` with no `--role` uses the name `author`.
-_Avoid_: role list, profile list
-
-**Reviewer store**:
-The bare git repo of one reviewer role name for one repo folder, `~/.ug/git/<role name>/<hash>.git`, outside the omp root. The wrapper makes it and puts its path in `UG_REVIEW_STORE`. Only that role name can write it, and not its `config` or `hooks`. `broker sync <repo> --pr <n>` imports the PR head into it as `origin/pr/<n>` and checks it against `headRefOid`; `broker sync <repo>` imports the default branch into it as `origin/<default branch>`.
-_Avoid_: review clone, reviewer checkout
-
-**Auth broker**:
-The host service `omp auth-broker serve` (launchd `com.underground.auth-broker`, on `127.0.0.1:8765`). It holds the owner's model logins and does every OAuth refresh. No role has a login.
-_Avoid_: credential store, vault
-
-**Auth gateway**:
-The host service `omp auth-gateway serve` (launchd `com.underground.auth-gateway`) on the tailscale address of this mac, the `gateway=` line of the addresses file. It makes model calls for the sandbox with the logins of the auth broker. Every call needs the gateway bearer.
-_Avoid_: model proxy, LLM proxy
-
-**Gateway bearer**:
-The shared token in `~/.omp/auth-gateway.token`. `gateway-setup` creates it if missing and puts it in every role's `models.yml`. It authorizes every role for all models and accounts served by the gateway, usage, and credential health. It does not expose provider secrets or credential management. The separate auth-broker bearer stays on the host.
-_Avoid_: client token, API key, gateway key
-
-**Gateway provider**:
-A provider in `~/.ug/omp/agent/models.yml`, the one `models.yml` of every role, with `transport: pi-native`, `baseUrl` the auth gateway, and `apiKey` the gateway bearer. The installer (`admin.ts gateway-setup`) writes it from `~/.agents/roles/models.yml`. Each model setting of the role names a model of a gateway provider; the wrapper refuses any other. Model settings include the advisor and prewalk models of task agents (`task.agentAdvisor`, `task.agentPrewalk`, and agent frontmatter `advisor` and `prewalk`). Those selections do not limit gateway authorization.
-_Avoid_: proxy provider
-
-**Inference engine**:
-The keyless model server on `v100-server`, another box on the tailnet, at the `engine=` line of the addresses file (today `100.64.0.99:8081`). It is the `strata` provider in `models.yml`, and it needs no login.
-_Avoid_: local model, llama
-
-**Addresses file**:
-The owner-only file `~/.config/underground-broker/addresses` (mode 600) with two lines: `gateway=<ip>:<port>`, the auth gateway on the tailscale address of this mac, and `engine=<ip>:<port>`, the inference engine. The installer writes it only when it is missing, from the first line of `tailscale ip -4` with port `4000`; the owner edits it later. The installer renders the gateway plist and `models.yml` from it, and `render-settings` fills the network allowlist from it at each session start.
-_Avoid_: address config, hosts file
-
-**Network allowlist**:
-The network destinations of every role, one per line in the owner-owned `~/.agents/roles/network-allowlist`. `render-settings` reads that file at each session start, puts its lines in the srt `allowedDomains`, and refuses an address without a port. A tailscale entry names the address and the port of one service, never the bare address. The template names the auth gateway as `@GATEWAY@`; `render-settings` fills `@GATEWAY@` and `@ENGINE@` from the addresses file. A literal address still works. Its entries: the auth gateway, `github.com`, the web search domains, and `registry.npmjs.org`. No role gets a model provider domain or the inference engine.
-_Avoid_: domain list, egress list
-
-**Install record**:
-The file `~/.agents/install-manifest` that the installer writes last: each file it wrote with its mode and SHA-256, each folder it set a mode on, and the macOS build. The preflight compares this mac with it.
-_Avoid_: manifest, lockfile, snapshot
-
-**Preflight**:
-The checks that the wrapper runs at each launch, before the sandbox starts: is this mac still in the state that the install proved? They read names, modes, and hashes, never a secret value, and change nothing. A broken control refuses the launch; a launchd job that is not running warns. The install checks behavior; the preflight checks state (`docs/adr/0008-preflight.md`).
-_Avoid_: health check, doctor, self-test
+- **Repo folder**: now the owner's checkout. The agent no longer works in it.
+- **Repo id**, **worktree folder**, **session folder**, **cache root**: omp's default paths in the arena replace them.
+- **Write area**: now the arena.
+- **Owner part**, **role policy**: omp runs unchanged on its default root, with no pins (`docs/adr/0002-role-homes.md`, superseded).
+- **Role rules**: now a skill in the config repo.
+- **Reviewer store**: reviewers read the PR in the arena clone.
+- **Install record**: setup replaces the install, and `git status` shows a changed file (`docs/adr/0012-pinned-omp-and-setup.md`).

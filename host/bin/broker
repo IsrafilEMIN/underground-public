@@ -1,2 +1,0 @@
-#!/bin/sh
-exec /opt/homebrew/bin/node "$HOME/.agents/broker/client.ts" "$@"

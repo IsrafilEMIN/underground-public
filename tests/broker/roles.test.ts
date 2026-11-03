@@ -1,19 +1,14 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { PINNED_SETTINGS, rolePolicyRefusal } from "../../host/broker/admin.ts";
-import { isMap, parseYaml } from "../../host/broker/gateway.ts";
-import type { Yaml } from "../../host/broker/gateway.ts";
 import { send } from "../../host/broker/client.ts";
 import { ROLE_VERBS, bindingRefusal, isRegisterReply, parseRolesFile, validateAdminRequest } from "../../host/broker/protocol.ts";
 import { adminSocketPath, defaultConfig, startServer, stopServer } from "../../host/broker/server.ts";
 import { tempDir } from "../temp.ts";
 
 const ROLES = "# <role name> <role>\nauthor author\nsecurity-review security-review\nsec2 security-review\n";
-const ADMIN = join(import.meta.dirname, "../../host/broker/admin.ts");
 
 test("the roles file maps each role name to author or one reviewer role", () => {
   const table = parseRolesFile(ROLES);
@@ -46,49 +41,6 @@ test("an admin register request carries a role name, not a role", () => {
     ok: true,
     value: { verb: "register", repo_id: "r-1", role_name: "sec2", repo: "o/r" },
   });
-});
-
-test("the policy of a role pins every pinned setting, with memory.backend off and autolearn.enabled false", async () => {
-  const parse = (text: string): Yaml => {
-    const parsed = parseYaml(text);
-    assert.ok(parsed.ok, parsed.ok ? "" : parsed.reason);
-    return parsed.value;
-  };
-  const text = await readFile(join(import.meta.dirname, "../../host/roles/policy.yml"), "utf8");
-  const template = parse(text);
-  assert.equal(rolePolicyRefusal(template), undefined);
-  assert.ok(isMap(template));
-  const listed = Object.keys(template).filter((key) => key !== "modelRoles" && key !== "retry");
-  for (const key of listed) assert.ok(PINNED_SETTINGS.some((path) => path === key || path.startsWith(`${key}.`)), `${key} is in the policy but not pinned`);
-  for (const path of PINNED_SETTINGS) {
-    const policy = parse(text);
-    const keys = path.split(".");
-    let parent: Yaml = policy;
-    for (const key of keys.slice(0, -1)) {
-      assert.ok(isMap(parent));
-      parent = parent[key];
-    }
-    assert.ok(isMap(parent));
-    delete parent[keys[keys.length - 1]];
-    assert.equal(rolePolicyRefusal(policy), `it must pin ${path}`);
-  }
-  assert.match(rolePolicyRefusal({}) ?? "", /^it must pin memory\.backend, memories\.enabled, /);
-  assert.equal(rolePolicyRefusal(parse(text.replace("  backend: off", "  backend: local"))), 'it must set memory.backend: off, not "local"');
-  assert.equal(rolePolicyRefusal(parse(text.replace("autolearn:\n  enabled: false", "autolearn:\n  enabled: true"))), 'it must set autolearn.enabled: false, not "true"');
-  assert.equal(parseYaml("memory: {backend: off}\n").ok, false);
-});
-
-test("admin role prints the role of a name in the table and refuses any other name", async () => {
-  const home = await tempDir(join(tmpdir(), "ug-roles-"));
-  await mkdir(join(home, ".config/underground-broker"), { recursive: true });
-  await writeFile(join(home, ".config/underground-broker/roles"), ROLES);
-  const run = (name: string) => spawnSync(process.execPath, [ADMIN, "role", name], { env: { HOME: home }, encoding: "utf8" });
-  const known = run("sec2");
-  assert.equal(known.status, 0, known.stderr);
-  assert.equal(known.stdout, "security-review\n");
-  const unknown = run("security-reveiw");
-  assert.equal(unknown.status, 2);
-  assert.match(unknown.stderr, /role name security-reveiw is not in the roles file/);
 });
 
 test("the broker refuses to register a name not in the table, and binds a known name to its role", async () => {

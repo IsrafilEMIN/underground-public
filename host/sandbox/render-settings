@@ -1,5 +1,0 @@
-#!/usr/bin/env bash
-set -euo pipefail
-
-cd /
-BUN_BE_BUN=1 exec "$HOME/Library/Application Support/Tern/omp/versions/@OMP_PIN@" "$HOME/.agents/broker/admin.ts" start-session "$@"

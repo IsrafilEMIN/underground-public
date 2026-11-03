@@ -1,0 +1,265 @@
+#!/usr/bin/env bash
+# Setup, the one install tool of underground (docs/SPEC.md, B1 and B2;
+# docs/adr/0012-pinned-omp-and-setup.md). It runs from the owner's checkout of underground:
+#   - the test suite first; a failed, skipped, or todo test stops setup before it writes anything
+#   - the pinned omp and the pinned srt in ~/.ug/sys
+#   - the arena files: the session start step, the seed config, the broker client
+#   - ~/.ug/sys/bin/omp, a link to the arena wrapper in this checkout
+#   - the four launchd services: the GitHub broker and the usage broker run from this checkout,
+#     the auth broker and the auth gateway run the pinned omp
+#   - the proof: it runs scripts/probe-arena.sh and records the macOS build only when the probe
+#     passes; the wrapper refuses to start on any other build
+# The auth broker and the auth gateway keep their logins and tokens in ~/.ug/host/auth; setup
+# moves them there once from ~/.omp. Until the broker rebuild, the GitHub broker keeps its files in
+# ~/.agents/broker and ~/.config/underground-broker.
+set -euo pipefail
+
+if [[ $# -ne 0 ]]; then
+  printf 'usage: ug-setup\n' >&2
+  exit 64
+fi
+
+src=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)
+ug_real=$(cd "$HOME/.ug" 2>/dev/null && pwd -P) || ug_real="$HOME/.ug"
+# Setup points the launchd services, which run with no sandbox and hold the GitHub key, at the
+# code in $src. Agents write everything under ~/.ug, so a checkout there would hand them the host.
+case $src/ in
+  "$HOME/.ug/"* | "$ug_real/"*)
+    printf 'ug-setup: %s is inside ~/.ug, where agents write; run setup from your own checkout\n' "$src" >&2
+    exit 64
+    ;;
+esac
+sys="$HOME/.ug/sys"
+node_bin=/opt/homebrew/bin/node
+npm_bin=/opt/homebrew/bin/npm
+srt_package=@anthropic-ai/sandbox-runtime
+labels="com.underground.broker com.underground.auth-broker com.underground.auth-gateway com.underground.usage-broker"
+agents_dir="$HOME/Library/LaunchAgents"
+broker_config="$HOME/.config/underground-broker"
+addresses_file="$broker_config/addresses"
+host_zone="$HOME/.ug/host"
+auth_root="$host_zone/auth"
+gateway_token_file="$auth_root/auth-gateway.token"
+engine_default=100.64.0.99:8081
+tailscale_app=/Applications/Tailscale.app/Contents/MacOS/Tailscale
+
+die() {
+  printf 'ug-setup: %s\n' "$*" >&2
+  exit 1
+}
+
+pin() {
+  local value
+  value=$(sed -n "s/^$1=//p" "$src/VERSIONS")
+  [[ $value =~ $2 ]] || die "bad pin for $1 in VERSIONS"
+  printf '%s\n' "$value"
+}
+
+sha256() {
+  local out
+  out=$(shasum -a 256 "$1") || return 1
+  printf '%s\n' "${out%% *}"
+}
+
+omp_pin=$(pin omp '^[0-9A-Za-z.+-]+$')
+omp_sha=$(pin omp_sha256 '^[0-9a-f]{64}$')
+omp_release=$(pin omp_release '^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/releases/download$')
+srt_pin=$(pin srt '^[0-9A-Za-z.+-]+$')
+
+[[ $(uname -s) == Darwin && $(uname -m) == arm64 ]] || die "the omp pin names omp-darwin-arm64; this mac is $(uname -s) $(uname -m)"
+[[ -x $node_bin ]] || die "missing $node_bin"
+[[ -x $npm_bin ]] || die "missing $npm_bin"
+grep -q "\"$srt_package\": \"$srt_pin\"" "$src/host/srt/package.json" ||
+  die "host/srt/package.json does not pin $srt_package $srt_pin, the srt pin in VERSIONS"
+
+cleanup=()
+trap '[[ ${#cleanup[@]} -eq 0 ]] || rm -rf "${cleanup[@]}"' EXIT
+
+# The whole suite, before setup writes anything. Most host tests run only on this mac (CI skips
+# them), so a skipped test fails setup as a failed test does.
+run_tests() {
+  local tap status=0
+  tap=$(mktemp "${TMPDIR:-/tmp}/ug-tests.XXXXXX")
+  cleanup+=("$tap")
+  (cd "$src" && "$node_bin" --test --test-reporter=spec --test-reporter-destination=stdout \
+    --test-reporter=tap --test-reporter-destination="$tap" tests/broker/*.test.ts tests/host/*.test.ts) || status=$?
+  if [[ $status -ne 0 ]] || ! grep -qx '# fail 0' "$tap" || ! grep -qx '# skipped 0' "$tap" || ! grep -qx '# todo 0' "$tap"; then
+    grep -E '^# (tests|pass|fail|skipped|todo) ' "$tap" >&2 || true
+    die "the test suite did not pass in full, so nothing is set up"
+  fi
+}
+run_tests
+
+[[ -d $HOME/.ug ]] || install -d -m 700 "$HOME/.ug"
+install -d -m 700 "$sys" "$sys/omp" "$sys/srt" "$sys/bin" "$sys/agent-bin" "$sys/libexec" "$sys/arena" "$sys/broker" "$HOME/.ug/run"
+
+install_omp() {
+  local dir="$sys/omp/$omp_pin" dest tmp have url
+  dest="$dir/omp"
+  if [[ -f $dest && ! -L $dest ]] && [[ $(sha256 "$dest") == "$omp_sha" ]]; then
+    printf 'omp %s: in place\n' "$omp_pin"
+    return 0
+  fi
+  url="$omp_release/v$omp_pin/omp-darwin-arm64"
+  tmp=$(mktemp "$sys/omp/.download.XXXXXX")
+  cleanup+=("$tmp")
+  curl -fsSL --proto '=https' --retry 3 -o "$tmp" "$url" || die "download of $url failed"
+  have=$(sha256 "$tmp")
+  [[ $have == "$omp_sha" ]] || die "omp $omp_pin from $url has SHA-256 $have, want $omp_sha; nothing changed"
+  chmod 555 "$tmp"
+  install -d -m 700 "$dir"
+  mv -f "$tmp" "$dest"
+  printf 'omp %s: installed in %s\n' "$omp_pin" "$dest"
+}
+
+install_srt() {
+  local dir="$sys/srt/$srt_pin" lock_sha tmp cli have
+  lock_sha=$(sha256 "$src/host/srt/package-lock.json")
+  cli="$dir/node_modules/$srt_package/dist/cli.js"
+  if [[ -f $dir/lock.sha256 && -f $cli ]] && [[ $(<"$dir/lock.sha256") == "$lock_sha" ]]; then
+    printf 'srt %s: in place\n' "$srt_pin"
+    return 0
+  fi
+  tmp=$(mktemp -d "$sys/srt/.install.XXXXXX")
+  cleanup+=("$tmp")
+  cp "$src/host/srt/package.json" "$src/host/srt/package-lock.json" "$tmp/"
+  (cd / && "$npm_bin" ci --prefix "$tmp" --ignore-scripts --no-audit --no-fund >/dev/null) ||
+    die "npm ci of host/srt failed; nothing changed"
+  have=$("$node_bin" "$tmp/node_modules/$srt_package/dist/cli.js" --version 2>/dev/null) || have=""
+  [[ $have == "$srt_pin" ]] || die "srt in the lockfile has version ${have:-unknown}, want $srt_pin; nothing changed"
+  printf '%s\n' "$lock_sha" >"$tmp/lock.sha256"
+  rm -rf "$dir"
+  mv "$tmp" "$dir"
+  printf 'srt %s: installed in %s\n' "$srt_pin" "$dir"
+}
+
+# Write a file in place of the old one, never through it: a new file next to it, then a rename.
+put() {
+  local from=$1 to=$2 mode=$3 tmp
+  tmp=$(mktemp "$(dirname "$to")/.put.XXXXXX")
+  cleanup+=("$tmp")
+  cat "$from" >"$tmp"
+  chmod "$mode" "$tmp"
+  mv -f "$tmp" "$to"
+}
+
+link() {
+  local target=$1 at=$2
+  rm -f "$at"
+  ln -s "$target" "$at"
+}
+
+install_arena_files() {
+  local shim
+  put "$src/host/arena/init" "$sys/libexec/ug-arena-init" 555
+  put "$src/host/arena/config.yml" "$sys/arena/config.yml" 444
+  put "$src/host/broker/client.ts" "$sys/broker/client.ts" 444
+  put "$src/host/broker/protocol.ts" "$sys/broker/protocol.ts" 444
+  shim=$(mktemp "$sys/agent-bin/.shim.XXXXXX")
+  cleanup+=("$shim")
+  printf '#!/bin/sh\nexec '"'"'%s'"'"' '"'"'%s'"'"' "$@"\n' "$node_bin" "$sys/broker/client.ts" >"$shim"
+  put "$shim" "$sys/agent-bin/broker" 555
+  link "$sys/omp/$omp_pin/omp" "$sys/agent-bin/omp"
+  link "$src/host/bin/omp-arena" "$sys/bin/omp"
+  link "$src/host/bin/ug-auth" "$sys/bin/ug-auth"
+  printf 'arena files: installed in %s\n' "$sys"
+}
+
+prove() {
+  local build
+  build=$(sw_vers -buildVersion) || die "sw_vers failed"
+  rm -f "$sys/macos-build"
+  printf 'proof: running scripts/probe-arena.sh on macOS build %s\n' "$build"
+  "$src/scripts/probe-arena.sh" || die "the probe failed, so no macOS build is recorded and the wrapper refuses to start; fix the failure and run ug-setup again"
+  printf '%s\n' "$build" >"$sys/macos-build"
+  printf 'proof: macOS build %s recorded in %s\n' "$build" "$sys/macos-build"
+}
+
+# The tailscale address of this mac, for the auth gateway. Written once; the owner edits it later.
+write_addresses() {
+  local tailscale ip tmp
+  [[ -e $addresses_file || -L $addresses_file ]] && return 0
+  if command -v tailscale >/dev/null 2>&1; then
+    tailscale=tailscale
+  elif [[ -x $tailscale_app ]]; then
+    tailscale=$tailscale_app
+  else
+    die "tailscale is not installed; install it, or write $addresses_file with the lines gateway=<tailscale address of this mac>:4000 and engine=$engine_default"
+  fi
+  ip=$("$tailscale" ip -4 2>/dev/null) || ip=""
+  ip=${ip%%$'\n'*}
+  [[ $ip =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] ||
+    die "tailscale ip -4 printed no IPv4 address; start tailscale, or write $addresses_file with gateway=<ip>:4000 and engine=$engine_default"
+  tmp=$(mktemp "$addresses_file.XXXXXX")
+  cleanup+=("$tmp")
+  printf 'gateway=%s:4000\nengine=%s\n' "$ip" "$engine_default" >"$tmp"
+  chmod 600 "$tmp"
+  mv -f "$tmp" "$addresses_file"
+}
+
+restart_service() {
+  local label=$1 err
+  launchctl bootout "gui/$UID/$label" >/dev/null 2>&1 || true
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    launchctl print "gui/$UID/$label" >/dev/null 2>&1 || break
+    sleep 0.5
+  done
+  for _ in 1 2 3 4 5; do
+    err=$(launchctl bootstrap "gui/$UID" "$agents_dir/$label.plist" 2>&1) && return 0
+    sleep 1
+  done
+  die "launchctl bootstrap of $label failed: $err"
+}
+
+# The auth broker and the auth gateway keep their root in ~/.ug/host/auth (PI_CONFIG_DIR in their
+# plists), so a raw omp, which looks in ~/.omp, finds no login and no token. Once, with both stopped,
+# this moves the logins and the two tokens from ~/.omp; the old files go to a backup in the host zone.
+move_logins() {
+  local old="$HOME/.omp" backup="$auth_root/from-dot-omp" file moved=0
+  install -d -m 700 "$host_zone" "$auth_root" "$auth_root/agent"
+  [[ -e $old/agent/agent.db && ! -e $auth_root/agent/agent.db ]] || return 0
+  launchctl bootout "gui/$UID/com.underground.auth-gateway" >/dev/null 2>&1 || true
+  launchctl bootout "gui/$UID/com.underground.auth-broker" >/dev/null 2>&1 || true
+  sleep 1
+  install -d -m 700 "$backup" "$backup/agent"
+  for file in agent/agent.db agent/agent.db-wal agent/agent.db-shm auth-broker.token auth-gateway.token; do
+    [[ -f $old/$file && ! -L $old/$file ]] || continue
+    cp -p "$old/$file" "$auth_root/$file"
+    chmod 600 "$auth_root/$file"
+    mv -n "$old/$file" "$backup/$file"
+    moved=$((moved + 1))
+  done
+  printf 'logins: moved %s files from %s to %s; the old copies are in %s\n' "$moved" "$old" "$auth_root" "$backup"
+}
+
+install_services() {
+  local gateway engine label rendered left
+  move_logins
+  install -d -m 700 "$broker_config" "$HOME/.agents/broker/run" "$HOME/.agents/broker/tmp"
+  install -d "$HOME/.agents/broker" "$HOME/.agents/broker/repos" "$agents_dir"
+  [[ -e $broker_config/roles ]] || put "$src/host/roles/roles" "$broker_config/roles" 600
+  write_addresses
+  gateway=$(sed -n 's/^gateway=//p' "$addresses_file")
+  engine=$(sed -n 's/^engine=//p' "$addresses_file")
+  [[ -n $gateway && -n $engine ]] || die "$addresses_file needs a gateway= and an engine= line"
+  if [[ ! -s $gateway_token_file ]]; then
+    (umask 077 && openssl rand -hex 32 >"$gateway_token_file") || die "cannot write $gateway_token_file"
+  fi
+  for label in $labels; do
+    rendered=$(mktemp "$agents_dir/.$label.XXXXXX")
+    cleanup+=("$rendered")
+    sed -e "s|@OMP@|$sys/omp/$omp_pin/omp|g" -e "s|@SRC@|$src|g" -e "s|@HOME@|$HOME|g" \
+      -e "s|@GATEWAY@|$gateway|g" -e "s|@ENGINE@|$engine|g" "$src/host/launchd/$label.plist" >"$rendered"
+    left=$(grep -o '@[A-Z_]*@' "$rendered" | head -1) || true
+    [[ -z $left ]] || die "host/launchd/$label.plist has an unknown placeholder $left"
+    put "$rendered" "$agents_dir/$label.plist" 644
+    restart_service "$label"
+  done
+  printf 'services: %s restarted\n' "$labels"
+}
+
+install_omp
+install_srt
+install_arena_files
+install_services
+prove
