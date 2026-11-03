@@ -26,7 +26,7 @@
     <key>PI_CONFIG_DIR</key>
     <string>.ug/host/auth</string>
     <key>OMP_AUTH_BROKER_URL</key>
-    <string>http://127.0.0.1:8765</string>
+    <string>http://@BROKER@</string>
     <key>LM_STUDIO_BASE_URL</key>
     <string>http://@ENGINE@/v1</string>
   </dict>

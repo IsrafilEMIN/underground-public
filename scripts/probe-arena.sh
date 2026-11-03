@@ -232,9 +232,26 @@ else
     else inc egress "the fetch of example.com failed, but not with the proxy's refusal (rc $rc): $(first "$out")"; fi
   fi
 
-  box /usr/bin/curl -sS -m 5 http://127.0.0.1:8765/v1/healthz
-  if [[ $rc -eq 0 ]]; then info localhost "OPEN: the sandbox reaches the auth broker port 8765 (accepted for now, U7)"
-  else info localhost "the sandbox did not reach 127.0.0.1:8765 (rc $rc)"; fi
+  # The auth broker holds every login. It listens on the gateway's tailscale address with its own
+  # port, not on loopback: srt's allowLocalBinding opens only 127.0.0.1 and ::1 to the sandbox, and
+  # the proxy allows only the gateway's port (docs/adr/0005-model-auth-gateway.md, amendment
+  # 2026-11-03). The control is the same request from the host, which must reach it. Then the
+  # sandbox tries it through srt's proxy and with no proxy; both must fail.
+  broker_at="${gateway%:*}:${UG_PROBE_BROKER_PORT:-8765}"
+  set +e
+  host_code=$(/usr/bin/curl -sS -m 5 -o /dev/null -w '%{http_code}' "http://$broker_at/v1/healthz" 2>&1)
+  set -e
+  if [[ $host_code != 200 ]]; then
+    inc broker-reach "the host does not reach the auth broker at $broker_at, so the check proves nothing: $(first "$host_code")"
+  else
+    box /usr/bin/curl -sS -m 5 -o /dev/null -w '%{http_code}' "http://$broker_at/v1/healthz"
+    via_proxy=$rc
+    proxy_out=$out
+    box /usr/bin/curl --noproxy '*' -sS -m 5 -o /dev/null -w '%{http_code}' "http://$broker_at/v1/healthz"
+    if [[ $via_proxy -eq 0 && $proxy_out == 200 ]]; then breach broker-reach "the sandbox reached the auth broker at $broker_at through srt's proxy"
+    elif [[ $rc -eq 0 && $out == 200 ]]; then breach broker-reach "the sandbox reached the auth broker at $broker_at with no proxy"
+    else pass broker-reach "the host reaches the auth broker at $broker_at, and the sandbox does not, through the proxy (rc $via_proxy, $(first "$proxy_out")) or without it (rc $rc)"; fi
+  fi
 fi
 
 # --- where did omp peek outside the arena? ----------------------------------------------------

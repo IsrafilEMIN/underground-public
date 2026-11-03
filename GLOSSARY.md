@@ -145,7 +145,7 @@ _Avoid_: onboarding list, repo setup
 ### Models
 
 **Auth broker**:
-The host service `omp auth-broker serve` (launchd `com.underground.auth-broker`, on `127.0.0.1:8765`). It holds the owner's model logins in its own root, `~/.ug/host/auth` (`PI_CONFIG_DIR=.ug/host/auth` in its plist), and does every OAuth refresh. The owner reaches it with `ug-auth`. Only the auth gateway talks to it; no session is a broker client, because a broker client receives access tokens and API keys.
+The host service `omp auth-broker serve` (launchd `com.underground.auth-broker`, on the tailscale address of this mac, port 8765, not on loopback). It holds the owner's model logins in its own root, `~/.ug/host/auth` (`PI_CONFIG_DIR=.ug/host/auth` in its plist), and does every OAuth refresh. The owner reaches it with `ug-auth`. Only the auth gateway talks to it; no session is a broker client, because a broker client receives access tokens and API keys.
 _Avoid_: credential store, vault
 
 **Auth gateway**:
