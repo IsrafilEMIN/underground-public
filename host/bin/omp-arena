@@ -39,10 +39,13 @@ broker_token_file="$HOME/.ug/host/auth/auth-broker.token"
 config_repo_file="$HOME/.ug/host/config-repo"
 # The names in omp's ~/.omp/agent that the config repo owns (omp docs, config-usage.md, hooks.md,
 # omp 18.13.2). Each start replaces each of them in the arena with the repo's copy, and removes one
-# that the repo does not have. omp's own data (sessions, agent.db, caches) and secrets
-# (secrets.yml, .env) are not on the list.
+# that the repo does not have. The other spellings that omp also reads are on the list too, so a
+# planted models.yaml or .mcp.json cannot outlast a start (keybindings.md:91, lsp-config.md:32,
+# config-usage.md:202). omp's own data (sessions, agent.db, caches) and secrets (secrets.yml,
+# .env) are not on the list.
 config_names=(AGENTS.md RULES.md APPEND_SYSTEM.md PERSONALITY.md SYSTEM_TEMPLATE.md WATCHDOG.md TITLE_SYSTEM.md
-  config.yml models.yml keybindings.yml lsp.json mcp.json
+  config.yml settings.json models.yml models.yaml keybindings.yml keybindings.yaml keybindings.json
+  mcp.json .mcp.json lsp.json .lsp.json lsp.yaml .lsp.yaml lsp.yml .lsp.yml
   agents commands extensions hooks rules skills themes tools)
 
 die() {
@@ -155,6 +158,7 @@ else
     leak=$(grep -r -l -a -E -f "$src/host/secret-patterns" "$item" 2>/dev/null | head -1) || true
     [[ -n $leak || ! -s $secret_values ]] || leak=$(grep -r -l -a -F -f "$secret_values" "$item" 2>/dev/null | head -1) || true
     [[ -z $leak ]] || die "the config repo file $leak holds a token or a key; the agent can read every file of the config repo, so take it out"
+    [[ $name != models.yaml ]] || die "the config repo has models.yaml; name it models.yml, the one file whose gateway markers the wrapper fills"
     if [[ $name == models.yml ]]; then
       [[ -f $item ]] || die "the config repo's models.yml is not a file"
       models_src=$item

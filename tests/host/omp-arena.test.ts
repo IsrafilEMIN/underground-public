@@ -415,3 +415,25 @@ test("omp-arena reads a config repo path that starts with ~/, and warns when the
   assert.match(r.stderr, /has no models\.yml/);
   assert.equal(existsSync(agentFile(arena, "models.yml")), false, "the old models.yml stayed");
 });
+
+test("omp-arena: another spelling of a config file that an agent planted does not outlast a start", async (t) => {
+  const { home, checkout, arena } = await fakeHome();
+  t.after(() => rm(home, { recursive: true, force: true }));
+  assert.equal(run(home, checkout).status, 0);
+  const planted = ["models.yaml", "keybindings.json", "keybindings.yaml", ".mcp.json", ".lsp.json", "lsp.yaml", ".lsp.yaml", "lsp.yml", ".lsp.yml", "settings.json"];
+  for (const name of planted) await writeFile(agentFile(arena, name), "planted\n");
+  const r = run(home, checkout);
+  assert.equal(r.status, 0, r.stderr);
+  for (const name of planted) assert.equal(existsSync(agentFile(arena, name)), false, `${name} stayed`);
+});
+
+test("omp-arena refuses a config repo with models.yaml, whose gateway markers it would not fill", async (t) => {
+  const { home, checkout, arena, repo } = await fakeHome();
+  t.after(() => rm(home, { recursive: true, force: true }));
+  await writeFile(join(repo, "models.yaml"), 'apiKey: "@GATEWAY_TOKEN@"\n');
+  const r = run(home, checkout);
+  assert.notEqual(r.status, 0);
+  assert.match(r.stderr, /name it models\.yml/);
+  assert.doesNotMatch(r.stdout, /^CWD=/m, "omp started");
+  assert.equal(existsSync(agentFile(arena, "models.yaml")), false);
+});
