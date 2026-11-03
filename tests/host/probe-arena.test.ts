@@ -25,6 +25,9 @@ process.exit(r.status === null ? 1 : r.status);
 `;
 const BROKEN = `process.stderr.write("srt: cannot start\\n"); process.exit(1);
 `;
+// A leaky srt that also writes down the folder that it was started in, once per run.
+const RECORDING = `require("fs").appendFileSync(process.env.HOME + "/srt-cwds", process.cwd() + "\\n");
+` + LEAKY;
 
 async function fakeHome(srt: string): Promise<string> {
   const home = await tempDir(join(tmpdir(), "probe-arena-"));
@@ -166,4 +169,15 @@ test("probe-arena reports a BREACH when the sandbox reaches the ssh agent, direc
   const { run, result } = runProbe(home, { SSH_AUTH_SOCK: sock });
   assert.match(result("ssh-agent"), /^FAIL\s+\S+\s+BREACH:/, run.stdout + run.stderr);
   assert.match(result("socket-link"), /^FAIL\s+\S+\s+BREACH:/, run.stdout + run.stderr);
+});
+
+test("probe-arena starts srt in ~/.ug/run, whatever folder it is run from", async (t) => {
+  const home = await fakeHome(RECORDING);
+  t.after(() => rm(home, { recursive: true, force: true }));
+  // Run from the home folder, the case where the arena lies under srt's start folder.
+  const env: Record<string, string> = { HOME: home, USER: "probe", LOGNAME: "probe", PATH: "/usr/bin:/bin:/usr/sbin:/sbin", UG_PROBE_NODE: process.execPath };
+  spawnSync("bash", [PROBE], { env, cwd: home, encoding: "utf8", timeout: 120_000 });
+  const cwds = (await readFile(join(home, "srt-cwds"), "utf8")).trim().split("\n");
+  assert.ok(cwds.length > 3, cwds.join("\n"));
+  for (const cwd of cwds) assert.equal(cwd, join(home, ".ug/run"), `srt started in ${cwd}`);
 });
