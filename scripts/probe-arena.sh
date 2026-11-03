@@ -23,6 +23,8 @@
 # PROBE_MODEL picks the model of the prompt check (default anthropic/claude-opus-5-5, the default
 # role of host/arena/config.yml). The probe renders models.yml the way the arena wrapper does:
 # host/roles/models.yml with the gateway address and the gateway bearer.
+# shellcheck disable=SC2016  # single quotes hold sh -c and node -e code that must not expand here
+# shellcheck disable=SC2329  # cleanup runs from the EXIT trap
 set -euo pipefail
 
 src=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
@@ -94,7 +96,7 @@ printf 'arena-control\n' >"$arena/control"
 
 # Run a command in the sandbox with the arena as HOME. The outer env -i keeps the owner's shell
 # out; srt keeps the real HOME for itself and adds its proxy variables; the inner sh sets HOME and
-# TMPDIR for the child and passes the proxy to omp as PI_PROXY, as omp-inner does today.
+# TMPDIR for the child and passes the proxy to omp as PI_PROXY, as host/arena/init does.
 # It runs in box_cwd (default: the arena root) and sets out (stdout and stderr) and rc.
 box_cwd=$arena
 box() {
@@ -153,7 +155,6 @@ sleep 1
 # The same prompt with no repo around it, in the arena root, as omp starts outside any repo.
 log_norepo_start=$(date '+%Y-%m-%d %H:%M:%S')
 box "$omp_bin" -p --no-session --model "$model" "What is seventeen times twenty-three? Reply with the digits only."
-norepo_rc=$rc
 
 omp_files=$(cd "$arena" && find .omp -mindepth 1 ! -path .omp/agent ! -path .omp/agent/models.yml | head -5 | tr '\n' ' ') || true
 if [[ -n $omp_files ]]; then pass home "omp wrote its files in the arena: $omp_files"; else fail home "omp wrote nothing in the arena's .omp"; fi
@@ -267,7 +268,7 @@ fi
 # --- known gaps and facts -------------------------------------------------------------------------
 
 if [[ -e $HOME/.omp/agent/agent.db ]]; then
-  gap raw-omp "~/.omp/agent/agent.db exists, so a raw omp by full path may find the logins (B6 not built)"
+  gap raw-omp "$HOME/.omp/agent/agent.db exists, so a raw omp by full path may find the logins (B6 not built)"
 fi
 if out=$(BUN_BE_BUN=1 "$omp_bin" "$srt_cli" --version 2>&1) && [[ $out == "$srt_pin" ]]; then
   info srt-on-bun "srt starts on the bun inside omp; a sandboxed run on it is not tested yet"

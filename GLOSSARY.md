@@ -26,8 +26,8 @@ _Avoid_: install dir, owner part
 The folder `~/.ug/run`: the broker sockets and the rendered srt settings. The sandbox can use only the sockets that its settings list, and cannot write the folder, so it cannot plant a socket or a link here.
 _Avoid_: run dir, socket dir
 
-**Secrets zone**:
-The folder `~/.ug/secrets`: the broker app's private key and the auth broker's own root with the model logins. The sandbox gets nothing here.
+**Host zone**:
+The folder `~/.ug/host`: everything the sandbox gets nothing of. The broker app's private key, the auth broker's own root with the model logins, the broker's records, and the owner's hand-edited broker files, such as the addresses file (owner decision, 2026-11-03). Until the broker rebuild, these still sit in `~/.agents`, `~/.config/underground-broker`, and `~/.omp`.
 _Avoid_: vault, keys dir
 
 **Owner's zone**:
@@ -135,7 +135,7 @@ The commit that the broker last pushed to one branch of one repo. A later push r
 _Avoid_: push log, provenance record
 
 **Broker app**:
-The GitHub App that the broker acts as. The owner's personal account owns it, and it is installed only on the selected repos, with Contents and Pull requests read and write, Metadata, Checks, and Commit statuses read, and no Workflows or Administration permission. Its private key moves to `~/.ug/secrets/github-app.pem` (`docs/SPEC.md`, B7). GitHub shows the broker's actions as `<app slug>[bot]` (`docs/adr/0007-broker-github-app.md`).
+The GitHub App that the broker acts as. The owner's personal account owns it, and it is installed only on the selected repos, with Contents and Pull requests read and write, Metadata, Checks, and Commit statuses read, and no Workflows or Administration permission. Its private key moves to `~/.ug/host/github-app.pem` (`docs/SPEC.md`, B7). GitHub shows the broker's actions as `<app slug>[bot]` (`docs/adr/0007-broker-github-app.md`).
 _Avoid_: bot account, bot token, broker token, machine user, service account
 
 **Installation token**:
@@ -143,13 +143,13 @@ A token of the broker app for one repo, which the broker gets with the app's pri
 _Avoid_: app token, broker token, PAT
 
 **Onboarding checks**:
-The six checks in `docs/SPEC.md` that the owner makes on GitHub for each repo before agents merge alone in it.
+The six checks in `docs/SPEC.md` that the owner makes on GitHub for each repo before agents merge alone in it. A repo is onboarded when the owner has made them and installed the broker app on it: the app's installation is the list.
 _Avoid_: onboarding list, repo setup
 
 ### Models
 
 **Auth broker**:
-The host service `omp auth-broker serve` (launchd `com.underground.auth-broker`, on `127.0.0.1:8765`). It holds the owner's model logins in its own root in the secrets zone and does every OAuth refresh. Only the auth gateway talks to it; no session is a broker client, because a broker client receives access tokens and API keys.
+The host service `omp auth-broker serve` (launchd `com.underground.auth-broker`, on `127.0.0.1:8765`). It holds the owner's model logins in its own root in the host zone and does every OAuth refresh. Only the auth gateway talks to it; no session is a broker client, because a broker client receives access tokens and API keys.
 _Avoid_: credential store, vault
 
 **Auth gateway**:

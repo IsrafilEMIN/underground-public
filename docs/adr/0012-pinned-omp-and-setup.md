@@ -13,7 +13,7 @@ Date: 2026-11-02. Owner decision. Supersedes the install and the install record 
 - **The omp file.** omp ships as one compiled, signed file, `omp-darwin-arm64`, on GitHub releases and build.stencil.so; both publish the same files (omp `docs/macos-signing-notarization.md`, read 2026-11-02). It carries omp's code, the bun runtime, and the native parts. We never build omp, so no source is needed.
 - **The pin.** `VERSIONS` holds the version and the SHA-256 of that file. Setup downloads it from the GitHub release, checks the hash, and keeps its own copy in `~/.ug/sys/omp/<version>/omp`. The auth broker, the auth gateway, and the wrapper run only that file.
 - **One `omp`.** The only `omp` on `PATH` is `~/.ug/sys/bin/omp`, a link to the wrapper. Tern's omp and `~/.local/bin/omp` come off `PATH`, and the alias goes. Tern stays for the owner's iPhone; its remote link starts no omp session (owner, 2026-11-02).
-- **A raw omp cannot work.** `~/.omp` holds no login: the auth broker keeps its logins in `~/.ug/secrets/auth`.
+- **A raw omp cannot work.** `~/.omp` holds no login: the auth broker keeps its logins in `~/.ug/host/auth`.
 - **underground runs from the owner's checkout.** `git pull` updates its code. The owner merges every underground PR (onboarding check 6, `../SPEC.md`).
 - **Setup** does only what `git pull` cannot: install the pinned omp and srt, make the zones and their modes, register and restart the launchd services, put the wrapper on `PATH`, prove srt with the U1 and U2 probes, and record the macOS build. It runs when a pin changes, a host service changes, or macOS updates.
 - **Preflight** keeps one check: the macOS build is the recorded one.

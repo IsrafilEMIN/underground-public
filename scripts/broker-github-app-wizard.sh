@@ -284,9 +284,9 @@ else
 fi
 
 stage "Install the broker and check it"
-say "ug-install installs main. The GitHub App change must be merged on main first."
-confirm "Is the GitHub App change merged on main?" || { SKIPPED+=("Merge the GitHub App change, then run: ug-install; broker sync $REPO"); finish; exit 1; }
-"$HOME/.agents/bin/ug-install"
+say "Setup installs the broker from this checkout, $SCRIPT_CHECKOUT, and restarts it."
+confirm "Run setup now?" || { SKIPPED+=("Run: $SCRIPT_CHECKOUT/host/bin/ug-setup, then in an omp session: broker sync $REPO"); finish; exit 1; }
+"$SCRIPT_CHECKOUT/host/bin/ug-setup"
 BINDING=$(author_binding /opt/homebrew/bin/node "$HOME/.agents/broker/bindings.json" "$REPO" "$HOME/.agents/broker/run" 2>/dev/null || true)
 BROKER_SOCKET=${BINDING#*$'\n'}
 if [[ -z $BROKER_SOCKET || ! -S $BROKER_SOCKET ]]; then
@@ -295,7 +295,7 @@ if [[ -z $BROKER_SOCKET || ! -S $BROKER_SOCKET ]]; then
   exit 1
 fi
 REPO=${BINDING%%$'\n'*}
-(cd "$CHECKOUT" && UG_BROKER_SOCKET="$BROKER_SOCKET" "$HOME/.agents/bin/broker" sync "$REPO")
+(cd "$CHECKOUT" && UG_BROKER_SOCKET="$BROKER_SOCKET" "$HOME/.ug/sys/agent-bin/broker" sync "$REPO")
 say "A pass: the sync above prints 'origin/main is now <commit>', so the broker got an app token for $REPO."
 SKIPPED+=("Onboarding check 4: open https://github.com/settings/apps/$APP_SLUG/permissions and https://github.com/settings/installations, and confirm the app's permissions and repos")
 

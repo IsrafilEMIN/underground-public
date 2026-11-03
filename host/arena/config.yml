@@ -1,6 +1,6 @@
 # The first omp settings of a new arena, until the owner's config repo exists. The wrapper copies
 # this file into the arena only when the arena has no config.yml yet; after that, omp owns it.
-# modelRoles and retry are copied from host/roles/policy.yml.
+# modelRoles and retry are copied from the old role policy, host/roles/policy.yml, removed 2026-11-03.
 modelRoles:
   default: anthropic/claude-opus-5-5:medium
   slow: openai-codex/gpt-6.1-sol:xhigh

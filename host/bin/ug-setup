@@ -1,12 +1,16 @@
 #!/usr/bin/env bash
-# Setup (docs/SPEC.md, B1 and B2; docs/adr/0012-pinned-omp-and-setup.md). It runs from the
-# owner's checkout of underground and writes only ~/.ug/sys and ~/.ug/run:
-#   - the pinned omp and the pinned srt
+# Setup, the one install tool of underground (docs/SPEC.md, B1 and B2;
+# docs/adr/0012-pinned-omp-and-setup.md). It runs from the owner's checkout of underground:
+#   - the test suite first; a failed, skipped, or todo test stops setup before it writes anything
+#   - the pinned omp and the pinned srt in ~/.ug/sys
 #   - the arena files: the session start step, the seed config, the broker client
 #   - ~/.ug/sys/bin/omp, a link to the arena wrapper in this checkout
+#   - the four launchd services: the GitHub broker and the usage broker run from this checkout,
+#     the auth broker and the auth gateway run the pinned omp
 #   - the proof: it runs scripts/probe-arena.sh and records the macOS build only when the probe
 #     passes; the wrapper refuses to start on any other build
-# It does not touch the install in ~/.agents or a running session.
+# Until the broker rebuild, the broker keeps its files in ~/.agents/broker and
+# ~/.config/underground-broker, and the auth broker keeps its logins in ~/.omp.
 set -euo pipefail
 
 if [[ $# -ne 0 ]]; then
@@ -19,6 +23,13 @@ sys="$HOME/.ug/sys"
 node_bin=/opt/homebrew/bin/node
 npm_bin=/opt/homebrew/bin/npm
 srt_package=@anthropic-ai/sandbox-runtime
+labels="com.underground.broker com.underground.auth-broker com.underground.auth-gateway com.underground.usage-broker"
+agents_dir="$HOME/Library/LaunchAgents"
+broker_config="$HOME/.config/underground-broker"
+addresses_file="$broker_config/addresses"
+gateway_token_file="$HOME/.omp/auth-gateway.token"
+engine_default=100.64.0.99:8081
+tailscale_app=/Applications/Tailscale.app/Contents/MacOS/Tailscale
 
 die() {
   printf 'ug-setup: %s\n' "$*" >&2
@@ -51,6 +62,21 @@ grep -q "\"$srt_package\": \"$srt_pin\"" "$src/host/srt/package.json" ||
 
 cleanup=()
 trap '[[ ${#cleanup[@]} -eq 0 ]] || rm -rf "${cleanup[@]}"' EXIT
+
+# The whole suite, before setup writes anything. Most host tests run only on this mac (CI skips
+# them), so a skipped test fails setup as a failed test does.
+run_tests() {
+  local tap status=0
+  tap=$(mktemp "${TMPDIR:-/tmp}/ug-tests.XXXXXX")
+  cleanup+=("$tap")
+  (cd "$src" && "$node_bin" --test --test-reporter=spec --test-reporter-destination=stdout \
+    --test-reporter=tap --test-reporter-destination="$tap" tests/broker/*.test.ts tests/host/*.test.ts) || status=$?
+  if [[ $status -ne 0 ]] || ! grep -qx '# fail 0' "$tap" || ! grep -qx '# skipped 0' "$tap" || ! grep -qx '# todo 0' "$tap"; then
+    grep -E '^# (tests|pass|fail|skipped|todo) ' "$tap" >&2 || true
+    die "the test suite did not pass in full, so nothing is set up"
+  fi
+}
+run_tests
 
 [[ -d $HOME/.ug ]] || install -d -m 700 "$HOME/.ug"
 install -d -m 700 "$sys" "$sys/omp" "$sys/srt" "$sys/bin" "$sys/agent-bin" "$sys/libexec" "$sys/arena" "$sys/broker" "$HOME/.ug/run"
@@ -136,7 +162,69 @@ prove() {
   printf 'proof: macOS build %s recorded in %s\n' "$build" "$sys/macos-build"
 }
 
+# The tailscale address of this mac, for the auth gateway. Written once; the owner edits it later.
+write_addresses() {
+  local tailscale ip tmp
+  [[ -e $addresses_file || -L $addresses_file ]] && return 0
+  if command -v tailscale >/dev/null 2>&1; then
+    tailscale=tailscale
+  elif [[ -x $tailscale_app ]]; then
+    tailscale=$tailscale_app
+  else
+    die "tailscale is not installed; install it, or write $addresses_file with the lines gateway=<tailscale address of this mac>:4000 and engine=$engine_default"
+  fi
+  ip=$("$tailscale" ip -4 2>/dev/null) || ip=""
+  ip=${ip%%$'\n'*}
+  [[ $ip =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] ||
+    die "tailscale ip -4 printed no IPv4 address; start tailscale, or write $addresses_file with gateway=<ip>:4000 and engine=$engine_default"
+  tmp=$(mktemp "$addresses_file.XXXXXX")
+  cleanup+=("$tmp")
+  printf 'gateway=%s:4000\nengine=%s\n' "$ip" "$engine_default" >"$tmp"
+  chmod 600 "$tmp"
+  mv -f "$tmp" "$addresses_file"
+}
+
+restart_service() {
+  local label=$1 err
+  launchctl bootout "gui/$UID/$label" >/dev/null 2>&1 || true
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    launchctl print "gui/$UID/$label" >/dev/null 2>&1 || break
+    sleep 0.5
+  done
+  for _ in 1 2 3 4 5; do
+    err=$(launchctl bootstrap "gui/$UID" "$agents_dir/$label.plist" 2>&1) && return 0
+    sleep 1
+  done
+  die "launchctl bootstrap of $label failed: $err"
+}
+
+install_services() {
+  local gateway engine label rendered left
+  install -d -m 700 "$broker_config" "$HOME/.agents/auth" "$HOME/.agents/broker/run" "$HOME/.agents/broker/tmp" "$HOME/.omp"
+  install -d "$HOME/.agents/broker" "$HOME/.agents/broker/repos" "$agents_dir"
+  [[ -e $broker_config/roles ]] || put "$src/host/roles/roles" "$broker_config/roles" 600
+  write_addresses
+  gateway=$(sed -n 's/^gateway=//p' "$addresses_file")
+  engine=$(sed -n 's/^engine=//p' "$addresses_file")
+  [[ -n $gateway && -n $engine ]] || die "$addresses_file needs a gateway= and an engine= line"
+  if [[ ! -s $gateway_token_file ]]; then
+    (umask 077 && openssl rand -hex 32 >"$gateway_token_file") || die "cannot write $gateway_token_file"
+  fi
+  for label in $labels; do
+    rendered=$(mktemp "$agents_dir/.$label.XXXXXX")
+    cleanup+=("$rendered")
+    sed -e "s|@OMP@|$sys/omp/$omp_pin/omp|g" -e "s|@SRC@|$src|g" -e "s|@HOME@|$HOME|g" \
+      -e "s|@GATEWAY@|$gateway|g" -e "s|@ENGINE@|$engine|g" "$src/host/launchd/$label.plist" >"$rendered"
+    left=$(grep -o '@[A-Z_]*@' "$rendered" | head -1) || true
+    [[ -z $left ]] || die "host/launchd/$label.plist has an unknown placeholder $left"
+    put "$rendered" "$agents_dir/$label.plist" 644
+    restart_service "$label"
+  done
+  printf 'services: %s restarted\n' "$labels"
+}
+
 install_omp
 install_srt
 install_arena_files
+install_services
 prove

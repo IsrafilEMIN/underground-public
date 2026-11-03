@@ -6,7 +6,7 @@
   <string>com.underground.auth-broker</string>
   <key>ProgramArguments</key>
   <array>
-    <string>@HOME@/Library/Application Support/Tern/omp/versions/@OMP_PIN@</string>
+    <string>@OMP@</string>
     <string>auth-broker</string>
     <string>serve</string>
     <string>--bind=127.0.0.1:8765</string>

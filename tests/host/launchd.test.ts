@@ -1,0 +1,36 @@
+import assert from "node:assert/strict";
+import { readdir, readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { test } from "node:test";
+
+// The launchd templates that host/bin/ug-setup renders. Setup fills exactly these placeholders, so
+// any other one would reach launchd unfilled. The services must run the pinned omp from ~/.ug/sys
+// (@OMP@) and the broker code of the owner's checkout (@SRC@), never Tern's omp or an old copy
+// in ~/.agents.
+
+const DIR = join(import.meta.dirname, "../../host/launchd");
+const FILLED = new Set(["@HOME@", "@OMP@", "@SRC@", "@GATEWAY@", "@ENGINE@"]);
+
+const programArguments = (text: string): string[] => {
+  const block = /<key>ProgramArguments<\/key>\s*<array>([\s\S]*?)<\/array>/.exec(text)?.[1] ?? "";
+  return [...block.matchAll(/<string>([^<]*)<\/string>/g)].map((m) => m[1]);
+};
+
+test("every launchd template uses only the placeholders that setup fills", async () => {
+  const files = (await readdir(DIR)).filter((n) => n.endsWith(".plist"));
+  assert.equal(files.length, 4, files.join(" "));
+  for (const file of files) {
+    const text = await readFile(join(DIR, file), "utf8");
+    for (const placeholder of text.match(/@[A-Z_]+@/g) ?? []) assert.ok(FILLED.has(placeholder), `${file}: ${placeholder}`);
+    assert.doesNotMatch(text, /Tern/, `${file} names Tern's omp`);
+    assert.doesNotMatch(text, /\.agents\/broker\/[a-z-]+\.ts/, `${file} runs code from ~/.agents`);
+  }
+});
+
+test("the auth services run the pinned omp, and the brokers run the checkout's code", async () => {
+  const args = async (label: string) => programArguments(await readFile(join(DIR, `${label}.plist`), "utf8"));
+  assert.deepEqual((await args("com.underground.auth-broker")).slice(0, 3), ["@OMP@", "auth-broker", "serve"]);
+  assert.deepEqual((await args("com.underground.auth-gateway")).slice(0, 3), ["@OMP@", "auth-gateway", "serve"]);
+  assert.deepEqual(await args("com.underground.broker"), ["/opt/homebrew/bin/node", "@SRC@/host/broker/server.ts"]);
+  assert.deepEqual(await args("com.underground.usage-broker"), ["/opt/homebrew/bin/node", "@SRC@/host/broker/usage-broker.ts"]);
+});

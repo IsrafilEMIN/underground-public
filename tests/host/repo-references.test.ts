@@ -14,7 +14,7 @@ test("release files contain no fixed repository identity", () => {
   assert.equal(run.status, 0, run.stderr);
 });
 
-test("release guard rejects fixed identities and accepts checkout placeholders and the installer source", async (t) => {
+test("release guard rejects fixed identities and accepts checkout placeholders", async (t) => {
   const root = await tempDir(join(tmpdir(), "repo-references-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   await mkdir(join(root, "scripts"));
@@ -37,9 +37,6 @@ test("release guard rejects fixed identities and accepts checkout placeholders a
     assert.equal(run.status, 1, text);
     assert.match(run.stderr, /AGENTS\.md:1: fixed repository identity/);
   }
-  await writeFile(join(root, "INSTALL_SOURCE"), "git@github.com:New-Owner/new-repo.git\n");
-  const add = spawnSync("git", ["-C", root, "add", "INSTALL_SOURCE"], { encoding: "utf8" });
-  assert.equal(add.status, 0, add.stderr);
   await writeFile(join(root, "AGENTS.md"), "broker sync <owner/repo>\nhttps://github.com/settings/apps/new\n");
   const run = spawnSync(process.execPath, [check], { encoding: "utf8" });
   assert.equal(run.status, 0, run.stderr);

@@ -35,9 +35,9 @@ Read `origin` with `git remote get-url origin`. Extract `<owner/repo>` from its 
 
 A session often ends before the owner merges its PR. So at the start of each session, after steps 1 and 2, clean up each merged branch that still has a local worktree or branch. A local `agent/<name>` branch is merged when `git log origin/main --merges --format=%s` shows `Merge pull request #<n> from <owner>/agent/<name>`, with `<owner>` from the repo identity above. This cleanup also applies to merged branches of other sessions. Find the worktree path of the branch with `git worktree list`, because another session can use another `$OMP_WORKTREE_DIR`. Run `git worktree remove <path>`. Then, in your worktree, run `git branch -d agent/<name>`. If the branch has no worktree, run only `git branch -d`.
 
-If the broker refuses, stop and report the exact error. Never run `install.sh` or `ug-install`.
+If the broker refuses, stop and report the exact error. Never run `host/bin/ug-setup`: it changes the host, and only the owner runs it.
 
-A reviewer session (`omp --role <name>`, where the roles table maps the name to `code-review`, `security-review`, or `risk-review`) does not follow this file. The owner starts it in the repo folder, and the wrapper starts it new in its store folder `~/.ug/git/<name>`, never in a checkout, and refuses `--resume`, `--continue`, `--session`, and the other resume flags. It follows only the owner's rules of its role, `~/.agents/roles/<role>/AGENTS.md`, which the wrapper passes with `--append-system-prompt`. It gets the PR with `broker sync <owner/repo> --pr <n>` and reads it only with `git -C "$UG_REVIEW_STORE"` (`log`, `diff`, `show`). It never runs PR code: no build, test, install, or tool that loads PR code or config. It writes its verdict with `broker review`.
+There are no reviewer sessions: `omp --role` is gone (`docs/SPEC.md`, B8). Until the merge gate gets its review, no session writes a verdict, so `broker merge` refuses every PR and the owner merges each one on GitHub.
 
 ## Evidence
 
@@ -45,4 +45,4 @@ Mark each claim in a doc, a commit message, a PR body, or a review reason with a
 
 Give host commands one per line, without `#` comments.
 
-The owner never runs host tools (git, editors, direnv) in `~/.omp/wt`, in the omp root `~/.ug/omp` outside its owner part `agent` (`underground/cache`, `underground/tmp`, `underground/state`, and the sessions folder `agent/sessions`), or in the reviewer stores `~/.ug/git`. Agents write these folders. Agent work reaches the owner only through GitHub.
+The owner never runs host tools (git, editors, direnv) in the arena `~/.ug/home`: agents write all of it, and the arena wrapper refuses to start there. Agent work reaches the owner only through GitHub.

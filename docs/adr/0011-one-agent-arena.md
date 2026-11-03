@@ -15,7 +15,7 @@ The first design drew the line between the agent and the owner as a list of path
 - **Clones in the arena.** The agent works in its own clone of each repo in the arena, proposed at `~/.ug/home/work/<owner>/<repo>`, never in the owner's checkout. The clone is made and updated only inside the sandbox, with `broker sync`. The host never runs git in the arena.
 - **One trust level.** Author and reviewers share the arena. The reviewers are a quality step, not a safety wall. Their rules come as skills in the config repo.
 - **Strict sockets.** `allowUnixSockets` lists only the broker sockets in `~/.ug/run` and omp's helper sockets.
-- **Zones.** `~/.ug/sys` (owner zone, read only), `~/.ug/run` (sockets), `~/.ug/secrets` (no access), `~/.ug/home` (the arena), and the owner's zone (no access).
+- **Zones.** `~/.ug/sys` (owner zone, read only), `~/.ug/run` (sockets), `~/.ug/host` (no access), `~/.ug/home` (the arena), and the owner's zone (no access).
 
 ## Why one trust level is enough
 

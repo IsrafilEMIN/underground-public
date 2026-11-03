@@ -2,7 +2,7 @@
 # The U1 and U2 canary probes of docs/SPEC.md, section Checks.
 #
 #   scripts/probe-u1-u2.sh plant     on the host: plant the canaries
-#   scripts/probe-u1-u2.sh read      on the host, then in a role session: read each canary
+#   scripts/probe-u1-u2.sh read      on the host, then in an arena session: read each canary
 #   scripts/probe-u1-u2.sh remove    on the host: remove the canaries
 #
 # Each read prints one line: <probe>  <open|blocked|inconclusive|ok>  <evidence>.
@@ -31,7 +31,8 @@ remove() {
   printf 'removed: keychain item, preference, clipboard\n'
 }
 
-in_sandbox() { [[ -n ${PI_CONFIG_DIR:-} ]]; }
+# The arena wrapper sets the arena ~/.ug/home as HOME inside the sandbox (host/arena/init).
+in_sandbox() { [[ ${HOME:-} == */.ug/home ]]; }
 
 # kind is canary (read means the output has the canary), exit (read means exit 0), or answer
 # (read means exit 0 with output).

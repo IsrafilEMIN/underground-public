@@ -6,6 +6,7 @@
 # This first version keeps today's brokers where they are: the GitHub broker and its sockets in
 # ~/.agents/broker, the usage broker on 127.0.0.1:18765, the auth gateway on the tailscale
 # address. Moving them is B5, B6, and B7.
+# shellcheck disable=SC2016  # single quotes hold node -e code that must not expand here
 set -euo pipefail
 
 # Start again with a clean environment, so no variable of the caller (NODE_OPTIONS, GIT_*, a token)
