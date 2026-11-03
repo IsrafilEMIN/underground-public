@@ -218,13 +218,17 @@ make_host_zone() {
 }
 
 install_services() {
-  local gateway engine label rendered left
+  local gateway engine broker label rendered left
   make_host_zone
   install -d "$agents_dir"
   write_addresses
   gateway=$(sed -n 's/^gateway=//p' "$addresses_file")
   engine=$(sed -n 's/^engine=//p' "$addresses_file")
   [[ -n $gateway && -n $engine ]] || die "$addresses_file needs a gateway= and an engine= line"
+  # The auth broker listens on the gateway's tailscale address, not on loopback: srt's
+  # allowLocalBinding opens only 127.0.0.1 and ::1 to the sandbox, and its proxy allows only the
+  # gateway's port of that address (docs/adr/0005-model-auth-gateway.md, amendment 2026-11-03).
+  broker="${gateway%:*}:8765"
   if [[ ! -s $gateway_token_file ]]; then
     (umask 077 && openssl rand -hex 32 >"$gateway_token_file") || die "cannot write $gateway_token_file"
   fi
@@ -232,7 +236,7 @@ install_services() {
     rendered=$(mktemp "$agents_dir/.$label.XXXXXX")
     cleanup+=("$rendered")
     sed -e "s|@OMP@|$sys/omp/$omp_pin/omp|g" -e "s|@SRC@|$src|g" -e "s|@HOME@|$HOME|g" \
-      -e "s|@GATEWAY@|$gateway|g" -e "s|@ENGINE@|$engine|g" "$src/host/launchd/$label.plist" >"$rendered"
+      -e "s|@GATEWAY@|$gateway|g" -e "s|@ENGINE@|$engine|g" -e "s|@BROKER@|$broker|g" "$src/host/launchd/$label.plist" >"$rendered"
     left=$(grep -o '@[A-Z_]*@' "$rendered" | head -1) || true
     [[ -z $left ]] || die "host/launchd/$label.plist has an unknown placeholder $left"
     put "$rendered" "$agents_dir/$label.plist" 644

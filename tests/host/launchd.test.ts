@@ -9,7 +9,7 @@ import { test } from "node:test";
 // in ~/.agents.
 
 const DIR = join(import.meta.dirname, "../../host/launchd");
-const FILLED = new Set(["@HOME@", "@OMP@", "@SRC@", "@GATEWAY@", "@ENGINE@"]);
+const FILLED = new Set(["@HOME@", "@OMP@", "@SRC@", "@GATEWAY@", "@ENGINE@", "@BROKER@"]);
 
 const programArguments = (text: string): string[] => {
   const block = /<key>ProgramArguments<\/key>\s*<array>([\s\S]*?)<\/array>/.exec(text)?.[1] ?? "";
@@ -40,4 +40,15 @@ test("the auth services keep their logins and tokens in ~/.ug/host/auth, not in 
     const text = await readFile(join(DIR, `${label}.plist`), "utf8");
     assert.match(text, /<key>PI_CONFIG_DIR<\/key>\s*<string>\.ug\/host\/auth<\/string>/, label);
   }
+});
+
+// The sandbox reaches every port of 127.0.0.1 (allowLocalBinding), so the auth broker, which holds
+// the logins, must not listen there; the gateway must ask it at the same address
+// (docs/adr/0005-model-auth-gateway.md, amendment 2026-11-03).
+test("the auth broker listens on @BROKER@, not on loopback, and the gateway asks it there", async () => {
+  const broker = await readFile(join(DIR, "com.underground.auth-broker.plist"), "utf8");
+  assert.deepEqual(programArguments(broker), ["@OMP@", "auth-broker", "serve", "--bind=@BROKER@"]);
+  const gateway = await readFile(join(DIR, "com.underground.auth-gateway.plist"), "utf8");
+  assert.match(gateway, /<key>OMP_AUTH_BROKER_URL<\/key>\s*<string>http:\/\/@BROKER@<\/string>/);
+  for (const text of [broker, gateway]) assert.doesNotMatch(text, /127\.0\.0\.1:8765|localhost:8765/);
 });

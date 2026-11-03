@@ -8,7 +8,7 @@ The sandbox could read the model logins in omp's store (U15). A leaked login is 
 
 ## Decision
 
-- **The auth broker** (`omp auth-broker serve`, launchd `com.underground.auth-broker`, `127.0.0.1:8765`) holds the provider logins and does every OAuth refresh. It runs with `PI_CONFIG_DIR=.ug/host/auth`, so its store, `~/.ug/host/auth/agent/agent.db`, and its bearer, `~/.ug/host/auth/auth-broker.token`, sit in the host zone, which the sandbox cannot read (`host/launchd/com.underground.auth-broker.plist`; `../SPEC.md`, B6). Only the auth gateway talks to it. No session is a broker client, because a broker client receives access tokens and API keys (omp `docs/auth-broker-gateway.md:3`, read 2026-11-02).
+- **The auth broker** (`omp auth-broker serve`, launchd `com.underground.auth-broker`, on the tailscale address of this mac, port 8765; amendment 2026-11-03) holds the provider logins and does every OAuth refresh. It runs with `PI_CONFIG_DIR=.ug/host/auth`, so its store, `~/.ug/host/auth/agent/agent.db`, and its bearer, `~/.ug/host/auth/auth-broker.token`, sit in the host zone, which the sandbox cannot read (`host/launchd/com.underground.auth-broker.plist`; `../SPEC.md`, B6). Only the auth gateway talks to it. No session is a broker client, because a broker client receives access tokens and API keys (omp `docs/auth-broker-gateway.md:3`, read 2026-11-02).
 - **The auth gateway** (`omp auth-gateway serve`, launchd `com.underground.auth-gateway`) listens on the tailscale address of this mac, from the `gateway=` line of `~/.ug/host/addresses`, and asks the auth broker for each credential (`OMP_AUTH_BROKER_URL` in its plist). It runs without `--clients`, so it has no per-session model grants or account limits. It does not expose provider secrets, broker snapshots, or credential write routes.
 - **Sessions** reach models only through the gateway. Its bearer, `~/.ug/host/auth/auth-gateway.token`, is the one secret that a session holds: at each start the wrapper fills `@GATEWAY@` and `@GATEWAY_TOKEN@` in the config repo's `models.yml`, and the start step copies the file into the arena's `~/.omp/agent` (`host/bin/omp-arena`, `host/arena/init`; `../SPEC.md`, B3). That `models.yml` defines the gateway providers with `transport: pi-native`. The wrapper does not check which providers it names: a provider outside the gateway has no login in the sandbox, and srt's allowlist (`host/roles/network-allowlist`) blocks its host.
 - **The owner** adds or renews a login, or rotates a bearer, with `ug-auth` (`host/bin/ug-auth`): the pinned omp with the auth root, limited to `auth-broker` and `auth-gateway`. Examples: `ug-auth auth-broker login <provider>`, `ug-auth auth-broker logout <provider>`, `ug-auth auth-gateway token --regenerate`.
@@ -24,7 +24,7 @@ The owner authorizes every session to use all models and accounts that the gatew
 
 - Two host services, and the gateway's tailscale address with its port on the srt allowlist (`0004-no-local-binding.md`).
 - The gateway bearer is readable in every session (U30), so a leak to an allowlisted destination (U14) can carry it out. A holder with tailnet access can use every model and account that the gateway serves, and read usage. The owner accepts this shared access instead of per-session limits.
-- `allowLocalBinding: true` lets the sandbox connect to the auth broker's port, `127.0.0.1:8765` (`../SPEC.md`, B5; the probe's `localhost` line). The broker answers only with its bearer, which the sandbox cannot read. Accepted for now (U7).
+- The auth broker listens on the tailscale address, so each device on the tailnet can reach its port; it answers only with its bearer (amendment 2026-11-03).
 - A logout (`ug-auth auth-broker logout`) turns off every row of that provider, and keeps the secret in the row (omp `sqlite-credential-store.ts:486`, `:501`, omp 18.13.2). To make a key useless, the owner also revokes it with the provider.
 
 ## Amendment 2026-10-31: native /usage through a usage-only broker
@@ -46,3 +46,15 @@ Evidence: a run of the pinned omp 18.13.2 `auth-broker serve` and `auth-gateway 
 Rejected: the key in `models.yml`. Every session could read it. Rejected: srt credential masking. It needs `allowPlaintextInject` for the `http://` engine and a second secret path beside the broker. Rejected: a new host proxy. The gateway already does the job.
 
 Cost: the gateway bearer now also unlocks the engine. The engine is called `lm-studio/<model>`, not `strata/<model>`. The owner stores the key once on the host: `ug-auth auth-broker login lm-studio`. Model discovery calls `/api/v0/models`, `/api/v1/models`, and `/v1/models` on the engine with the key.
+
+## Amendment 2026-11-03: the auth broker leaves loopback
+
+The probe showed the sandbox reaching the auth broker on `127.0.0.1:8765` (`INFO localhost OPEN`, owner run, 2026-11-03): `allowLocalBinding: true` opens loopback to the sandbox (`0004-no-local-binding.md`). Only the broker's bearer stood between an agent and every login.
+
+Facts: omp's auth broker listens only on a `host:port`, with no unix socket option (omp `packages/ai/src/utils/parse-bind.ts`, `auth-broker/server.ts:810` to `:830`, omp 18.13.2). srt's `allowLocalBinding` lets the sandbox connect only to `127.0.0.1` and `::1` (`(remote ip "localhost:*")`, srt 0.0.81 `dist/sandbox/macos-sandbox-utils.js:942` to `:954`); any other address must go through srt's proxy, whose allowlist names only the gateway's `ip:port` (`host/roles/network-allowlist`).
+
+Decision (owner, 2026-11-03): the auth broker listens on the gateway's tailscale address with port 8765. Setup fills `@BROKER@` in the broker and gateway plists from the `gateway=` ip (`host/bin/ug-setup`), so the addresses file does not change. The gateway asks the broker there. The sandbox reaches it neither directly nor through the proxy; the probe's `broker-reach` line checks both, with a request from the host as its control (`scripts/probe-arena.sh`, `tests/host/probe-arena.test.ts`).
+
+Rejected: a unix socket (omp has none for the broker). A second loopback address such as `127.0.0.2` (it needs a root alias on `lo0` at each boot, and whether srt's `localhost` filter matches it is not known). Waiting for a per-port localhost setting in srt (`../SPEC.md`, Deferred).
+
+Cost: each device on the tailnet (the owner's phone, `v100-server`) can now reach the broker's port, as it can the gateway's; both answer only with their bearer. The owner can close that with a tailscale ACL that lets no device reach port 8765 of this mac [inference: this mac's own requests to its own address are expected not to pass the ACL; not tested]. The broker now depends on tailscale being up, as the gateway already does; launchd restarts it until the address exists (`KeepAlive`).
