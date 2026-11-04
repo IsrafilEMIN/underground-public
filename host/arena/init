@@ -66,9 +66,6 @@ mkdir -p "$OMP_WORKTREE_DIR"
 
 # A clone is whole when its HEAD names a commit. One that is not (a start that stopped halfway)
 # is made again. A new clone is built in a temp folder and moved into place only when it is whole.
-# The clone is the base, not a place of work: its HEAD is a symbolic ref to origin/<default>, so
-# each sync moves the base and omp starts each session in a worktree branched from it
-# (worktree.onStart in the config repo; adr/0011-one-agent-arena.md, amendment "worktrees").
 if [ -d "$clone" ] && ! git -C "$clone" rev-parse --verify -q HEAD >/dev/null 2>&1; then
   printf 'ug-arena-init: %s is not a whole clone; making it again\n' "$clone" >&2
   rm -rf "$clone"
@@ -103,8 +100,6 @@ fi
 cd "$clone"
 rc=0
 "$omp" "$@" || rc=$?
-# Refresh the base for the next session after this one quits. It runs in the background so the
-# quit does not wait; the sleep and the marker are the smoke test of that (owner, 2026-11-03).
 (
   sleep 3
   broker sync "$slug" >/dev/null 2>&1 && date >"$HOME/tmp/ug-base-refreshed"
