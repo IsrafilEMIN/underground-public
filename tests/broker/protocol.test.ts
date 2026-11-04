@@ -94,9 +94,11 @@ test("an agent branch with a component that starts with '.' or ends with '.lock'
   accepts(withField("pr-create", "head", "agent/x/task.locked"));
 });
 
-test("pr-create refuses a head that is not an agent/* branch", () => {
-  for (const head of ["main", "feature/x", "agent", "agent/", 7]) refuses(withField("pr-create", "head", head), /head is not an agent branch/);
+test("pr-create refuses a head that is neither an agent branch nor a wt branch", () => {
+  for (const head of ["main", "feature/x", "agent", "agent/", "wt", "wt/", "wtx/a", 7]) refuses(withField("pr-create", "head", head), /head is not an agent branch/);
   accepts(withField("pr-create", "head", "agent/x/y"));
+  accepts(withField("pr-create", "head", "wt/20261103-201235"));
+  accepts(withField("push", "branch", "wt/20261103-201235"));
 });
 
 test("pr-create refuses a blank title, and a title with a line break or NUL", () => {

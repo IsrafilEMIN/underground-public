@@ -36,3 +36,9 @@ Role separation protects the review, and the review protects only the merge. A r
 - A change that the agent makes to its own config lasts until the next start.
 - The arena clone holds GitHub's `main`, not the owner's unpushed edits.
 - To verify: that omp, bun, and git honor `HOME` on the pinned omp; the paths of omp's helper sockets (`../SPEC.md`, Checks). A tool that ignores `HOME` fails on the srt deny; it does not leak.
+
+## Amendment 2026-11-03: worktrees
+
+omp owns the session worktree. The config repo sets `worktree.onStart: create` and `worktree.onExit: remove`: a fresh interactive session starts in a new worktree on a `wt/<timestamp>` branch made from the arena clone's `HEAD`, and at exit omp removes the worktree and the branch when it has no change and no commit, and asks otherwise (omp 18.13.2, `worktree-cli.ts` and the exit handler, read 2026-11-03; tested in the arena the same day). The clone is the base, not a place of work: `host/arena/init` points its `HEAD` at `refs/remotes/origin/<default>`, so `broker sync` moves the base (`--update-head-ok`, `host/broker/client.ts`) and no local `main` falls behind. After a session quits, `init` runs `broker sync` in the background so the next session starts from the current `main`. The broker accepts `wt/*` next to `agent/*` (`AGENT_BRANCH_RE`, `host/broker/protocol.ts`).
+
+Known holes, accepted: a resumed session whose worktree is gone opens in the clone, and the agent reports that (`AGENTS.md`); a headless `omp -p` works in the clone; `remove` deletes a worktree whose only changes are gitignored files; a worktree with commits is never removed by omp, only by `broker merge`.
