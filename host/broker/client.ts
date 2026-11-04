@@ -128,7 +128,7 @@ function needRepo(value: string | undefined): string {
 }
 
 function needBranch(value: string | undefined): string {
-  if (!isAgentBranch(value)) throw new UsageError("branch must match agent/<name>");
+  if (!isAgentBranch(value)) throw new UsageError("branch must match agent/<name> or wt/<name>");
   return value;
 }
 
@@ -207,7 +207,7 @@ async function importSync(reply: SyncReply): Promise<number> {
     const bundlePath = join(tempDir, "sync.bundle");
     await writeFile(bundlePath, Buffer.from(reply.bundle_b64, "base64"), { mode: 0o600 });
     const ref = `refs/remotes/origin/${reply.branch}`;
-    await execFileAsync("git", ["fetch", "--quiet", "--no-tags", "--no-write-fetch-head", bundlePath, `+refs/heads/${reply.branch}:${ref}`]);
+    await execFileAsync("git", ["fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "--update-head-ok", bundlePath, `+refs/heads/${reply.branch}:${ref}`]);
     const { stdout } = await execFileAsync("git", ["rev-parse", "--verify", `${ref}^{commit}`], { encoding: "utf8" });
     process.stdout.write(`origin/${reply.branch} is now ${stdout.trim()}\n`);
     return 0;

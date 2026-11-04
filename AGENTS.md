@@ -24,16 +24,15 @@ Keep it as simple as possible, as complicated as needed.
 
 Read `origin` with `git remote get-url origin`. Extract `<owner/repo>` from its GitHub SSH or HTTPS URL, without `.git`. Use that value in every command below. Do not copy a repo name from another checkout.
 
-1. Make your own worktree: `git worktree add -b agent/<name> "$OMP_WORKTREE_DIR/<name>" origin/main`. Use a `<name>` that no branch and no folder uses. Do not touch the worktrees or branches of other sessions.
-2. Get `main`: `broker sync <owner/repo>`, then `git rebase origin/main`.
-3. Push: `broker push <owner/repo> agent/<name>`.
-4. Open one PR for the branch: `broker pr-create <owner/repo> agent/<name> <title> <body>`. To update it, push the same branch again.
-5. Check status with `broker pr-status <owner/repo> <n>`. If a CI check failed, `broker ci-log <owner/repo> <n>` shows its failed steps; fix them on a new head and push again. The broker merges only an auto PR: green CI, the head that the broker pushed, no hold, and a `pass` on the head from `code-review`, `security-review`, and `risk-review`. Then merge: `broker merge <owner/repo> <n>`. The owner merges every other PR on GitHub. If `broker merge` refuses with a hold, report the PR and the reason to the owner, and stop.
-6. After `broker merge`, the broker deletes the remote branch, or finds it gone already. Then `broker` removes your worktree and local branch, if the branch still points at the merged commit and the worktree has no uncommitted change. Run `broker merge` from your worktree or from the repo folder; the cwd can be the worktree that it removes. If the merge reply says that the broker kept a branch or a worktree, report that to the owner. A PR that the owner merges on GitHub keeps its remote branch until GitHub deletes it (the repo setting "Automatically delete head branches") or the owner deletes it there; clean up its local worktree and branch as below.
+Each session starts in its own worktree on a `wt/<timestamp>` branch, which omp made from the arena clone's `origin/main` at start and removes at exit when nothing is in it. Read the branch with `git branch --show-current`. If the cwd is the arena clone and not a `wt/*` worktree, stop and tell the owner: `/wt` moves the session into one. Never check out, commit, or edit in the clone, and do not touch the worktrees of other sessions.
 
-`git branch -d` deletes a branch only if `HEAD` contains it. `broker sync` updates `origin/main`, but not the local `main`. So run `git branch -d` only in a worktree that contains `origin/main`, never in the repo folder.
+1. Commit in your worktree.
+2. Push: `broker push <owner/repo> wt/<name>`.
+3. Open one PR for the branch: `broker pr-create <owner/repo> wt/<name> <title> <body>`. To update it, push the same branch again.
+4. Check status with `broker pr-status <owner/repo> <n>`. If a CI check failed, `broker ci-log <owner/repo> <n>` shows its failed steps; fix them on a new head and push again. The broker merges only an auto PR: green CI, the head that the broker pushed, no hold, and a `pass` on the head from `code-review`, `security-review`, and `risk-review`. Then merge: `broker merge <owner/repo> <n>`. The owner merges every other PR on GitHub. If `broker merge` refuses with a hold, report the PR and the reason to the owner, and stop.
+5. After `broker merge`, the broker deletes the remote branch, or finds it gone already. Then `broker` removes your worktree and local branch, if the branch still points at the merged commit and the worktree has no uncommitted change. Run `broker merge` from your worktree; the cwd can be the worktree that it removes. If the merge reply says that the broker kept a branch or a worktree, report that to the owner.
 
-A session often ends before the owner merges its PR. So at the start of each session, after steps 1 and 2, clean up each merged branch that still has a local worktree or branch. A local `agent/<name>` branch is merged when `git log origin/main --merges --format=%s` shows `Merge pull request #<n> from <owner>/agent/<name>`, with `<owner>` from the repo identity above. This cleanup also applies to merged branches of other sessions. Find the worktree path of the branch with `git worktree list`, because another session can use another `$OMP_WORKTREE_DIR`. Run `git worktree remove <path>`. Then, in your worktree, run `git branch -d agent/<name>`. If the branch has no worktree, run only `git branch -d`.
+When the branch needs the current `main`, for a rebase, a conflict, or a PR that GitHub cannot merge: `broker sync <owner/repo>`, then `git rebase origin/main` in your worktree.
 
 If the broker refuses, stop and report the exact error. Never run `host/bin/ug-setup`: it changes the host, and only the owner runs it.
 

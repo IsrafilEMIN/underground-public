@@ -52,7 +52,7 @@ export type Reply = ResultReply | RefusedReply;
 export type Checked<T> = { ok: true; value: T } | { ok: false; reason: string };
 
 const REPO_RE = /^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/;
-const AGENT_BRANCH_RE = /^agent\/[A-Za-z0-9._-]+(\/[A-Za-z0-9._-]+)*$/;
+const AGENT_BRANCH_RE = /^(?:agent|wt)\/[A-Za-z0-9._-]+(\/[A-Za-z0-9._-]+)*$/;
 const SHA_RE = /^[0-9a-f]{40}$/;
 const BASE64_RE = /^[A-Za-z0-9+/]*={0,2}$/;
 const DEFAULT_BRANCH_RE = /^[A-Za-z0-9_][A-Za-z0-9._/-]*$/;
