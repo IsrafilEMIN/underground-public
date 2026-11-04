@@ -90,8 +90,7 @@ if [ ! -d "$clone" ]; then
     printf 'ug-arena-init: broker sync gave no branch: %s\n' "$synced" >&2
     exit 69
   fi
-  git symbolic-ref HEAD "refs/remotes/origin/$branch"
-  git reset -q --hard
+  git checkout -q --detach "origin/$branch"
   cd "$HOME/work"
   mv "$tmp" "$clone"
   trap - EXIT
@@ -100,5 +99,9 @@ fi
 cd "$clone"
 rc=0
 "$omp" "$@" || rc=$?
-broker sync "$slug" >/dev/null 2>&1 &
+(
+  synced=$(broker sync "$slug" 2>/dev/null) || exit
+  branch=$(printf '%s\n' "$synced" | sed -n 's|^origin/\([^ ]*\) is now .*|\1|p')
+  [ -n "$branch" ] && git checkout -q --detach "origin/$branch"
+) >/dev/null 2>&1 &
 exit $rc
