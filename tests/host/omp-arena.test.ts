@@ -32,6 +32,8 @@ async function listenAt(path: string): Promise<void> {
   servers.push(server);
 }
 
+const gone = (home: string) => rm(home, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+
 const LEAKY_SRT = `process.stdout.write("SRTCWD=" + process.cwd() + "\\n");
 const i = process.argv.indexOf("--");
 const r = require("child_process").spawnSync(process.argv[i + 1], process.argv.slice(i + 2), { stdio: "inherit" });
@@ -121,7 +123,7 @@ async function settingsOf(home: string) {
 
 test("omp-arena: no variable of the caller's shell reaches omp, and omp starts in the arena clone", async (t) => {
   const { home, checkout, arena, socket } = await fakeHome();
-  t.after(() => rm(home, { recursive: true, force: true }));
+  t.after(() => gone(home));
   const r = run(home, checkout, ["--model", "x"], { STRATA_API_KEY: "leak-1", GH_TOKEN: "leak-2", SSH_AUTH_SOCK: "/tmp/leak-3", AWS_SECRET_ACCESS_KEY: "leak-4", NODE_OPTIONS: "--require=/tmp/evil.js" });
   assert.equal(r.status, 0, r.stderr);
   for (const leak of ["leak-1", "leak-2", "leak-3", "leak-4", "evil.js"]) assert.ok(!r.stdout.includes(leak), `${leak} reached omp:\n${r.stdout}`);
@@ -137,7 +139,7 @@ test("omp-arena: no variable of the caller's shell reaches omp, and omp starts i
 
 test("omp-arena points every session's omp at the usage broker, which a caller cannot change, so a /login saves nothing", async (t) => {
   const { home, checkout } = await fakeHome();
-  t.after(() => rm(home, { recursive: true, force: true }));
+  t.after(() => gone(home));
   // A caller that points omp at the real auth broker, or at another config, must not get through.
   const r = run(home, checkout, [], {
     OMP_AUTH_BROKER_URL: "http://127.0.0.1:8765",
@@ -155,7 +157,7 @@ test("omp-arena points every session's omp at the usage broker, which a caller c
 
 test("omp-arena: srt may write only the arena, read no part of the real home outside ~/.ug, and reach only two sockets", async (t) => {
   const { home, checkout, arena, socket } = await fakeHome();
-  t.after(() => rm(home, { recursive: true, force: true }));
+  t.after(() => gone(home));
   const r = run(home, checkout);
   assert.equal(r.status, 0, r.stderr);
   const s = await settingsOf(home);
@@ -174,7 +176,7 @@ test("omp-arena: srt may write only the arena, read no part of the real home out
 
 test("omp-arena: a link that an agent planted in the arena does not let the start write outside it", async (t) => {
   const { home, checkout, arena, socket } = await fakeHome();
-  t.after(() => rm(home, { recursive: true, force: true }));
+  t.after(() => gone(home));
   const victim = join(home, "victim.txt");
   await writeFile(victim, "owner data\n");
   await mkdir(join(arena, ".omp/agent"), { recursive: true });
@@ -187,7 +189,7 @@ test("omp-arena: a link that an agent planted in the arena does not let the star
 
 test("omp-arena refuses an arena that is a link, before it writes anything", async (t) => {
   const { home, checkout, socket } = await fakeHome();
-  t.after(() => rm(home, { recursive: true, force: true }));
+  t.after(() => gone(home));
   await mkdir(join(home, "elsewhere"));
   await symlink(join(home, "elsewhere"), join(home, ".ug/home"));
   const r = run(home, checkout);
@@ -198,7 +200,7 @@ test("omp-arena refuses an arena that is a link, before it writes anything", asy
 
 test("omp-arena refuses a start inside ~/.ug, so the host runs no git in the arena", async (t) => {
   const { home, checkout, arena, socket } = await fakeHome();
-  t.after(() => rm(home, { recursive: true, force: true }));
+  t.after(() => gone(home));
   assert.equal(run(home, checkout).status, 0);
   const r = run(home, join(arena, "work/Test-Owner/proj"));
   assert.equal(r.status, 64, r.stderr);
@@ -208,7 +210,7 @@ test("omp-arena refuses a start inside ~/.ug, so the host runs no git in the are
 
 test("omp-arena refuses --role and --profile", async (t) => {
   const { home, checkout, socket } = await fakeHome();
-  t.after(() => rm(home, { recursive: true, force: true }));
+  t.after(() => gone(home));
   for (const args of [["--role", "code-review"], ["--role=author"], ["--profile", "work"], ["--profile=x"]]) {
     const r = run(home, checkout, args);
     assert.equal(r.status, 64, `${args.join(" ")}: ${r.stderr}`);
@@ -218,7 +220,7 @@ test("omp-arena refuses --role and --profile", async (t) => {
 
 test("omp-arena refuses to start on a macOS build that setup did not prove", async (t) => {
   const { home, checkout, socket } = await fakeHome();
-  t.after(() => rm(home, { recursive: true, force: true }));
+  t.after(() => gone(home));
   await writeFile(join(home, "fakebin/build"), "OTHER2B\n");
   const r = run(home, checkout);
   assert.notEqual(r.status, 0);
@@ -231,7 +233,7 @@ test("omp-arena refuses to start on a macOS build that setup did not prove", asy
 
 test("omp-arena: a clone that stopped halfway is made again, not used", async (t) => {
   const { home, checkout, arena, socket } = await fakeHome();
-  t.after(() => rm(home, { recursive: true, force: true }));
+  t.after(() => gone(home));
   const clone = join(arena, "work/Test-Owner/proj");
   await mkdir(clone, { recursive: true });
   assert.equal(spawnSync("git", ["-C", clone, "init", "-q"]).status, 0);
@@ -243,7 +245,7 @@ test("omp-arena: a clone that stopped halfway is made again, not used", async (t
 
 test("omp-arena: a failed sync leaves no half-made clone, and a repo with no GitHub origin starts with no repo", async (t) => {
   const { home, checkout, arena, socket } = await fakeHome();
-  t.after(() => rm(home, { recursive: true, force: true }));
+  t.after(() => gone(home));
   await writeFile(join(home, ".ug/sys/agent-bin/fail-sync"), "");
   const failed = run(home, checkout);
   assert.equal(failed.status, 69, failed.stderr);
@@ -260,7 +262,7 @@ test("omp-arena: a failed sync leaves no half-made clone, and a repo with no Git
 
 test("omp-arena with no broker socket warns, gives omp no socket, and cannot make a new clone", async (t) => {
   const { home, checkout, arena } = await fakeHome({ broker: false });
-  t.after(() => rm(home, { recursive: true, force: true }));
+  t.after(() => gone(home));
   const r = run(home, checkout);
   assert.equal(r.status, 69, r.stderr);
   assert.match(r.stderr, /the broker socket .*broker\.sock is missing/);
@@ -273,7 +275,7 @@ test("omp-arena with no broker socket warns, gives omp no socket, and cannot mak
 
 test("omp-arena does not take a plain file at the socket path for the broker", async (t) => {
   const { home, checkout, socket } = await fakeHome({ broker: false });
-  t.after(() => rm(home, { recursive: true, force: true }));
+  t.after(() => gone(home));
   await writeFile(socket, "not a socket\n");
   const r = run(home, checkout);
   assert.match(r.stderr, /the broker socket .*broker\.sock is missing/);
@@ -286,7 +288,7 @@ const agentFile = (arena: string, name: string) => join(arena, ".omp/agent", nam
 
 test("omp-arena copies the config repo into the arena and fills the gateway markers of its models.yml", async (t) => {
   const { home, checkout, arena, repo } = await fakeHome();
-  t.after(() => rm(home, { recursive: true, force: true }));
+  t.after(() => gone(home));
   await writeFile(join(repo, "secrets.yml"), "not a config name\n");
   const r = run(home, checkout);
   assert.equal(r.status, 0, r.stderr);
@@ -303,7 +305,7 @@ test("omp-arena copies the config repo into the arena and fills the gateway mark
 
 test("omp-arena: the config repo owns its names, so an agent's change lasts until the next start, and omp's own data stays", async (t) => {
   const { home, checkout, arena } = await fakeHome();
-  t.after(() => rm(home, { recursive: true, force: true }));
+  t.after(() => gone(home));
   assert.equal(run(home, checkout).status, 0);
   await writeFile(agentFile(arena, "AGENTS.md"), "# the agent's own rules\n");
   await writeFile(agentFile(arena, "RULES.md"), "planted\n");
@@ -323,7 +325,7 @@ test("omp-arena: the config repo owns its names, so an agent's change lasts unti
 
 test("omp-arena: a link that an agent planted in place of a config folder is replaced, and its target is untouched", async (t) => {
   const { home, checkout, arena } = await fakeHome();
-  t.after(() => rm(home, { recursive: true, force: true }));
+  t.after(() => gone(home));
   const victim = join(home, "victim");
   await mkdir(victim);
   await writeFile(join(victim, "owner.txt"), "owner data\n");
@@ -345,7 +347,7 @@ test("omp-arena refuses a config repo with a link, so no file from outside reach
     ["a link to a folder", (repo: string, secret: string) => symlink(join(secret, ".."), join(repo, "skills/outside"))],
   ] as const) {
     const { home, checkout, arena, repo } = await fakeHome();
-    t.after(() => rm(home, { recursive: true, force: true }));
+    t.after(() => gone(home));
     const secret = join(home, ".ssh/id_ed25519");
     await mkdir(join(home, ".ssh"));
     await writeFile(secret, "PRIVATE-KEY-TEXT\n");
@@ -362,7 +364,7 @@ test("omp-arena refuses a config repo with a link, so no file from outside reach
 
 test("omp-arena refuses a config repo with a special file", async (t) => {
   const { home, checkout, repo } = await fakeHome();
-  t.after(() => rm(home, { recursive: true, force: true }));
+  t.after(() => gone(home));
   assert.equal(spawnSync("mkfifo", [join(repo, "skills/fix-bug/pipe")]).status, 0);
   const r = run(home, checkout);
   assert.notEqual(r.status, 0);
@@ -378,7 +380,7 @@ test("omp-arena refuses a config repo file with a token shape or the auth broker
     ["the auth broker's bearer", "AGENTS.md", "token: broker-bearer-1234567890\n", "broker-bearer-1234567890\n"],
   ] as const) {
     const { home, checkout, arena, repo } = await fakeHome();
-    t.after(() => rm(home, { recursive: true, force: true }));
+    t.after(() => gone(home));
     if (token) await writeFile(join(home, ".ug/host/auth/auth-broker.token"), token);
     await writeFile(join(repo, file), text);
     const r = run(home, checkout);
@@ -393,7 +395,7 @@ test("omp-arena refuses a config repo file with a token shape or the auth broker
 
 test("omp-arena refuses an unknown marker in the config repo's models.yml", async (t) => {
   const { home, checkout, repo } = await fakeHome();
-  t.after(() => rm(home, { recursive: true, force: true }));
+  t.after(() => gone(home));
   await writeFile(join(repo, "models.yml"), 'apiKey: "@ENGINE_TOKEN@"\n');
   const r = run(home, checkout);
   assert.notEqual(r.status, 0);
@@ -407,7 +409,7 @@ test("omp-arena with no config repo warns, starts, and leaves the arena's config
     ["a path to nothing", (home: string) => writeFile(join(home, ".ug/host/config-repo"), `${join(home, "gone")}\n`)],
   ] as const) {
     const { home, checkout, arena } = await fakeHome();
-    t.after(() => rm(home, { recursive: true, force: true }));
+    t.after(() => gone(home));
     assert.equal(run(home, checkout).status, 0);
     await writeFile(agentFile(arena, "RULES.md"), "kept\n");
     await setup(home);
@@ -422,7 +424,7 @@ test("omp-arena with no config repo warns, starts, and leaves the arena's config
 
 test("omp-arena reads a config repo path that starts with ~/, and warns when the repo has no models.yml", async (t) => {
   const { home, checkout, arena, repo } = await fakeHome();
-  t.after(() => rm(home, { recursive: true, force: true }));
+  t.after(() => gone(home));
   assert.equal(run(home, checkout).status, 0);
   await writeFile(join(home, ".ug/host/config-repo"), "~/Developer/agent-config\n");
   await writeFile(join(repo, "AGENTS.md"), "# changed\n");
@@ -436,7 +438,7 @@ test("omp-arena reads a config repo path that starts with ~/, and warns when the
 
 test("omp-arena: another spelling of a config file that an agent planted does not outlast a start", async (t) => {
   const { home, checkout, arena } = await fakeHome();
-  t.after(() => rm(home, { recursive: true, force: true }));
+  t.after(() => gone(home));
   assert.equal(run(home, checkout).status, 0);
   const planted = ["models.yaml", "keybindings.json", "keybindings.yaml", ".mcp.json", ".lsp.json", "lsp.yaml", ".lsp.yaml", "lsp.yml", ".lsp.yml", "settings.json"];
   for (const name of planted) await writeFile(agentFile(arena, name), "planted\n");
@@ -447,7 +449,7 @@ test("omp-arena: another spelling of a config file that an agent planted does no
 
 test("omp-arena refuses a config repo with models.yaml, whose gateway markers it would not fill", async (t) => {
   const { home, checkout, arena, repo } = await fakeHome();
-  t.after(() => rm(home, { recursive: true, force: true }));
+  t.after(() => gone(home));
   await writeFile(join(repo, "models.yaml"), 'apiKey: "@GATEWAY_TOKEN@"\n');
   const r = run(home, checkout);
   assert.notEqual(r.status, 0);
@@ -463,7 +465,7 @@ const rawConfig = (home: string) => join(home, ".omp/agent/config.yml");
 
 test("omp-arena writes the config repo's raw-omp/config.yml to ~/.omp/agent, keeps the first old file, and keeps it out of the arena", async (t) => {
   const { home, checkout, arena, repo } = await fakeHome();
-  t.after(() => rm(home, { recursive: true, force: true }));
+  t.after(() => gone(home));
   await mkdir(join(repo, "raw-omp"));
   await writeFile(join(repo, "raw-omp/config.yml"), RAW);
   await mkdir(join(home, ".omp/agent"));
@@ -485,7 +487,7 @@ test("omp-arena writes the config repo's raw-omp/config.yml to ~/.omp/agent, kee
 
 test("omp-arena makes ~/.omp/agent for the raw omp's config when it is missing", async (t) => {
   const { home, checkout, repo } = await fakeHome();
-  t.after(() => rm(home, { recursive: true, force: true }));
+  t.after(() => gone(home));
   await rm(join(home, ".omp"), { recursive: true });
   await mkdir(join(repo, "raw-omp"));
   await writeFile(join(repo, "raw-omp/config.yml"), RAW);
@@ -498,7 +500,7 @@ test("omp-arena makes ~/.omp/agent for the raw omp's config when it is missing",
 
 test("omp-arena warns when the config repo has no raw-omp/config.yml, or one with no disabledProviders, and leaves ~/.omp as it is", async (t) => {
   const { home, checkout, repo } = await fakeHome();
-  t.after(() => rm(home, { recursive: true, force: true }));
+  t.after(() => gone(home));
   const none = run(home, checkout);
   assert.equal(none.status, 0, none.stderr);
   assert.match(none.stderr, /has no raw-omp\/config\.yml, so a raw omp by full path keeps its own settings/);
@@ -514,7 +516,7 @@ test("omp-arena warns when the config repo has no raw-omp/config.yml, or one wit
 test("omp-arena refuses a link at raw-omp/config.yml, at ~/.omp/agent, or at its config.yml, and writes through none", async (t) => {
   for (const label of ["repo file", "agent dir", "target file"]) {
     const { home, checkout, repo } = await fakeHome();
-    t.after(() => rm(home, { recursive: true, force: true }));
+    t.after(() => gone(home));
     await mkdir(join(repo, "raw-omp"));
     const outside = join(home, "outside");
     await mkdir(outside);
@@ -542,7 +544,7 @@ test("omp-arena refuses a link at raw-omp/config.yml, at ~/.omp/agent, or at its
 
 test("omp-arena warns when the arena backup never ran or is over two days old, and is quiet when it is fresh", async (t) => {
   const { home, checkout } = await fakeHome();
-  t.after(() => rm(home, { recursive: true, force: true }));
+  t.after(() => gone(home));
   const last = join(home, ".ug/host/backup/last");
   await mkdir(join(home, ".ug/host/backup"), { recursive: true });
   const now = Math.floor(Date.now() / 1000);
