@@ -100,8 +100,5 @@ fi
 cd "$clone"
 rc=0
 "$omp" "$@" || rc=$?
-(
-  sleep 3
-  broker sync "$slug" >/dev/null 2>&1 && date >"$HOME/tmp/ug-base-refreshed"
-) >/dev/null 2>&1 &
+broker sync "$slug" >/dev/null 2>&1 &
 exit $rc
