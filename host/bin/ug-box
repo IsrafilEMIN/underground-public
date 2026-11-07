@@ -6,6 +6,9 @@ STATE=${UG_BOX_STATE:-$HOME/.local/state/underground/box}
 LOCK_WAIT=${UG_BOX_LOCK_WAIT:-30}
 READY_WAIT=${UG_BOX_READY_WAIT:-20}
 NODE=${UG_BOX_NODE:-/opt/homebrew/bin/node}
+UG=${UG_DIR:-$HOME/.ug}
+EGRESS=$STATE/egress.sock
+PROXY=http://127.0.0.1:3128
 
 die() { echo "ug-box: $*" >&2; exit 1; }
 
@@ -51,6 +54,40 @@ live_sessions() {
 
 running() { container list --quiet | grep -qxF "$1"; }
 
+egress_ours() { [[ -n $1 ]] && ps -p "$1" -o command= 2>/dev/null | grep -qF -- "$EGRESS"; }
+
+egress_up() {
+  local pid waited=0
+  mkdir -p "$STATE/door"
+  lock "$STATE/door"
+  pid=$(cat "$STATE/egress.pid" 2>/dev/null || true)
+  if egress_ours "$pid" && [[ -S $EGRESS ]]; then unlock "$STATE/door"; return; fi
+  if egress_ours "$pid"; then kill "$pid" 2>/dev/null || true; fi
+  rm -f "$EGRESS"
+  local start=("$NODE" "$SRC/host/egress/server.ts")
+  [[ -n ${UG_BOX_EGRESS:-} ]] && start=("$UG_BOX_EGRESS")
+  UG_DIR=$UG nohup "${start[@]}" "$EGRESS" "$SRC" >>"$STATE/egress.log" 2>&1 &
+  echo $! > "$STATE/egress.pid"
+  until [[ -S $EGRESS ]]; do
+    (( waited++ < READY_WAIT * 10 )) || { unlock "$STATE/door"; die "the egress door did not start; see $STATE/egress.log"; }
+    sleep 0.1
+  done
+  unlock "$STATE/door"
+}
+
+box_models() {
+  local repo_file=$UG/host/config-repo cfg gateway models
+  cfg=$(sed -n '1p' "$repo_file" 2>/dev/null) || true
+  [[ -n $cfg ]] || die "no config repo: $repo_file names none"
+  cfg=${cfg/#\~/$HOME}
+  [[ -f $cfg/models.yml ]] || die "the config repo $cfg has no models.yml"
+  gateway=$(sed -n 's/^gateway=//p' "$UG/host/addresses" 2>/dev/null) || true
+  [[ $gateway == *:* ]] || die "the addresses file $UG/host/addresses has no gateway=<address>:<port> line"
+  models=$(sed -e "s/@GATEWAY@/gateway.internal:${gateway##*:}/g" -e "s/@GATEWAY_TOKEN@/ug-placeholder/g" "$cfg/models.yml")
+  if grep -qE '@[A-Z_]+@' <<<"$models"; then die "models.yml of the config repo has an unknown placeholder"; fi
+  printf '%s\n' "$models"
+}
+
 boot() {
   local name=$1 repo=$2 tag=$3 home=$name-home gone=0
   while container list --all --quiet | grep -qxF "$name"; do
@@ -62,6 +99,7 @@ boot() {
     --network none --read-only --tmpfs /tmp \
     --mount "type=bind,source=$repo,target=/repo,readonly" \
     --volume "$home:/home/agent" \
+    --volume "$EGRESS:/tmp/ug-egress.sock" \
     "$tag" /usr/local/bin/ug-init >/dev/null
   local waited=0
   until container exec "$name" test -e /tmp/ug-ready 2>/dev/null; do
@@ -81,6 +119,9 @@ session() {
     die "the box image for the current pins is not built (${tag#ugbox:}).
 VERSIONS or the box files changed since the last build. Run: ug-box build"
   mkdir -p "$dir/sessions"
+  local models
+  models=$(box_models)
+  egress_up
 
   lock "$dir"
   if running "$name"; then
@@ -100,7 +141,7 @@ To start on the new image: quit those sessions, then run ug-box again."
   else
     boot "$name" "$repo" "$tag"
   fi
-  if [[ $(container inspect "$name" | "$NODE" "$SRC/host/bin/ug-box-check.ts" "$name" "$repo" "$tag") != BOX_OK ]]; then
+  if [[ $(container inspect "$name" | "$NODE" "$SRC/host/bin/ug-box-check.ts" "$name" "$repo" "$tag" "$EGRESS") != BOX_OK ]]; then
     [[ $(live_sessions "$dir") -gt 0 ]] || container stop "$name" >/dev/null 2>&1 || true
     unlock "$dir"
     die "box $name failed its check (listed above), so no session started"
@@ -108,10 +149,14 @@ To start on the new image: quit those sessions, then run ug-box again."
   echo "$tag" > "$dir/image"
   : > "$dir/sessions/$$"
   unlock "$dir"
+  container exec --interactive --uid 1000 --gid 1000 "$name" \
+    sh -c 'mkdir -p /home/agent/.omp/agent && cat > /home/agent/.omp/agent/models.yml' <<<"$models"
 
   trap 'finish "$dir" "$name"; exit 130' INT TERM HUP
   local status=0
-  container exec --interactive --tty --uid 1000 --gid 1000 --env HOME=/home/agent "$name" \
+  container exec --interactive --tty --uid 1000 --gid 1000 --env HOME=/home/agent \
+    --env "PI_PROXY=$PROXY" --env "HTTPS_PROXY=$PROXY" --env "HTTP_PROXY=$PROXY" \
+    --env OMP_AUTH_BROKER_URL=http://usage.internal:18765 --env OMP_AUTH_BROKER_TOKEN=usage-only "$name" \
     nsenter --target 1 --user --mount --preserve-credentials -- /usr/local/bin/ug-session "$@" || status=$?
   trap - INT TERM HUP
   finish "$dir" "$name"
