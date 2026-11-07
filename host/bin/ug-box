@@ -1,14 +1,4 @@
 #!/usr/bin/env bash
-# ug-box: start an omp session in the box of the repo of the current folder.
-#
-#   ug-box build      build the box image from box/ at the pins in VERSIONS
-#   ug-box [ARGS...]  start a session; ARGS go to omp
-#
-# One box per repo: an Apple container VM with no network and a read-only root. It mounts
-# only the repo's top folder, read-only, and its own home disk. The first session boots
-# it, later ones join it, and the last one to quit stops it. Sessions are counted here on
-# the mac, never by asking the box. A box on an older image keeps running until its last
-# session quits; meanwhile new sessions are refused.
 set -euo pipefail
 
 SRC=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)
@@ -20,8 +10,6 @@ die() { echo "ug-box: $*" >&2; exit 1; }
 
 pin() { sed -n "s/^$1=//p" "$SRC/VERSIONS"; }
 
-# The image tag is a hash of everything that goes into the image, so a changed pin or
-# box file makes a new tag, and a box on an old tag is known to be old.
 image_tag() {
   local h
   h=$( { grep -E '^(box_omp|box_omp_sha256|ovnfs|ovnfs_sha256)=' "$SRC/VERSIONS"; cat "$SRC"/box/*; } | shasum -a 256 | cut -c1-16)
@@ -35,7 +23,6 @@ build() {
     -f "$SRC/box/Containerfile" "$SRC/box"
 }
 
-# A lock dir per box. mkdir is atomic; a lock whose holder is gone is taken over.
 lock() {
   local dir=$1/lock waited=0
   until mkdir "$dir" 2>/dev/null; do
@@ -52,7 +39,6 @@ lock() {
 }
 unlock() { rm -rf "$1/lock"; }
 
-# Live sessions of a box: the pid files of ug-box processes that still run.
 live_sessions() {
   local f n=0
   for f in "$1"/sessions/*; do
@@ -65,7 +51,11 @@ live_sessions() {
 running() { container list --quiet | grep -qxF "$1"; }
 
 boot() {
-  local name=$1 repo=$2 tag=$3 home=$name-home
+  local name=$1 repo=$2 tag=$3 home=$name-home gone=0
+  while container list --all --quiet | grep -qxF "$name"; do
+    (( gone++ < READY_WAIT * 10 )) || die "the old box $name is still there"
+    sleep 0.1
+  done
   container volume list --quiet | grep -qxF "$home" || container volume create "$home" >/dev/null
   container run --detach --rm --name "$name" \
     --network none --read-only --tmpfs /tmp \
@@ -114,8 +104,6 @@ session() {
   return "$status"
 }
 
-# When the last session quits, the box stops. The lock keeps a start from joining a box
-# that is about to stop.
 finish() {
   local dir=$1 name=$2
   rm -f "$dir/sessions/$$"

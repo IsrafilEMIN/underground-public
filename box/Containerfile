@@ -1,5 +1,3 @@
-# The box image: the Linux omp and ovnfs at the pins in VERSIONS, git, and FUSE.
-# host/bin/ug-box builds it and passes the pins as build arguments.
 FROM debian:bookworm-slim
 ARG OMP_VERSION
 ARG OMP_SHA256

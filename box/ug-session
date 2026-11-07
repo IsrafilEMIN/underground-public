@@ -1,11 +1,14 @@
 #!/bin/sh
-# One omp session, run in the agent's private space. It opens an ovnfs checkout of the
-# repo at GitHub's default branch as the owner's checkout last fetched it, never at the
-# owner's working files, so the agent's work never carries unpushed local edits.
 set -eu
 export HOME=/home/agent
-rev=origin/HEAD
-git -C /repo rev-parse --verify --quiet "$rev" >/dev/null || rev=origin/main
-checkout=$(ovnfs new /repo --rev "$rev")
-cd "$checkout"
-exec omp "$@"
+export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0=/repo
+for rev in origin/HEAD origin/main; do
+  if git -C /repo rev-parse --verify --quiet "$rev^{commit}" >/dev/null; then
+    checkout=$(ovnfs new /repo --rev "$rev")
+    cd "$checkout"
+    exec omp "$@"
+  fi
+done
+git -C /repo rev-parse --verify origin/main >&2 || true
+echo "ug-session: the repo has no origin/HEAD or origin/main; fetch it on the mac first" >&2
+exit 1
