@@ -25,7 +25,7 @@ export interface Inspected {
   status: { networks: unknown[]; state: string };
 }
 
-export function boxProblems(box: Inspected, want: { name: string; repo: string; tag: string }): string[] {
+export function boxProblems(box: Inspected, want: { name: string; repo: string; tag: string; egress: string }): string[] {
   const c = box.configuration;
   const problems: string[] = [];
   const empty = (v: unknown[] | Record<string, unknown>) => (Array.isArray(v) ? v.length === 0 : Object.keys(v).length === 0);
@@ -43,7 +43,12 @@ export function boxProblems(box: Inspected, want: { name: string; repo: string; 
   const tmp = mounts.get("/tmp");
   const home = mounts.get("/home/agent");
   const repo = mounts.get("/repo");
-  if (c.mounts.length !== 3) problems.push(`${c.mounts.length} mounts, not 3: ${c.mounts.map((m) => m.destination).join(", ")}`);
+  const door = mounts.get("/tmp/ug-egress.sock");
+  const known = c.mounts.filter((m) => ["/tmp", "/home/agent", "/repo", "/tmp/ug-egress.sock"].includes(m.destination));
+  if (known.length !== c.mounts.length || mounts.size !== c.mounts.length) {
+    problems.push(`unexpected mounts: ${c.mounts.map((m) => m.destination).join(", ")}`);
+  }
+  if (door && door.source !== want.egress) problems.push(`/tmp/ug-egress.sock is ${door.source}, not the egress door`);
   if (!tmp?.type.tmpfs) problems.push("/tmp is not a tmpfs");
   if (home?.type.volume?.name !== `${want.name}-home`) problems.push("/home/agent is not the box's own volume");
   if (!repo?.type.virtiofs || repo.source !== want.repo || !repo.options.includes("ro")) problems.push(`/repo is not ${want.repo}, read-only`);
@@ -51,9 +56,9 @@ export function boxProblems(box: Inspected, want: { name: string; repo: string; 
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const [name, repo, tag] = process.argv.slice(2);
+  const [name, repo, tag, egress] = process.argv.slice(2);
   const boxes = JSON.parse(readFileSync(0, "utf8")) as Inspected[];
-  const problems = boxes.length === 1 ? boxProblems(boxes[0], { name, repo, tag }) : [`inspect returned ${boxes.length} boxes`];
+  const problems = boxes.length === 1 ? boxProblems(boxes[0], { name, repo, tag, egress }) : [`inspect returned ${boxes.length} boxes`];
   for (const p of problems) console.error(`- ${p}`);
   if (problems.length === 0) console.log("BOX_OK");
   process.exit(problems.length ? 1 : 0);
