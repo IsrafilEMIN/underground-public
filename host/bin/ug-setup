@@ -204,6 +204,20 @@ install_egress() {
   printf 'egress door: installed in %s\n' "$dir"
 }
 
+install_ug_box() {
+  local dir="$sys/box" f
+  rm -rf "$dir"
+  install -d -m 700 "$dir" "$dir/host/bin" "$dir/host/lib" "$dir/host/broker" "$dir/box"
+  for f in host/bin/ug-box host/bin/ug-box-check.ts host/lib/box-image.bash host/secret-patterns \
+    host/broker/client.ts host/broker/protocol.ts VERSIONS "$src"/box/*; do
+    f=${f#"$src/"}
+    put "$src/$f" "$dir/$f" 444
+  done
+  chmod 555 "$dir/host/bin/ug-box"
+  link "$dir/host/bin/ug-box" "$sys/bin/ug-box"
+  printf 'ug-box: installed in %s, on PATH as %s\n' "$dir" "$sys/bin/ug-box"
+}
+
 install_raw_config() {
   # shellcheck disable=SC2034
   local repo ug_tag=ug-setup
@@ -304,6 +318,7 @@ install_srt
 install_restic
 install_arena_files
 install_egress
+install_ug_box
 install_box_image
 setup_backup
 install_services

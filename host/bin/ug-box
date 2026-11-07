@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SRC=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)
+self=${BASH_SOURCE[0]}
+while [[ -L $self ]]; do
+  target=$(readlink "$self")
+  [[ $target == /* ]] || target=$(dirname "$self")/$target
+  self=$target
+done
+SRC=$(cd "$(dirname "$self")/../.." && pwd -P)
 STATE=${UG_BOX_STATE:-$HOME/.local/state/underground/box}
 LOCK_WAIT=${UG_BOX_LOCK_WAIT:-30}
 READY_WAIT=${UG_BOX_READY_WAIT:-20}
