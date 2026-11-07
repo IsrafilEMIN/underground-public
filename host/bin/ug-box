@@ -54,21 +54,25 @@ live_sessions() {
 
 running() { container list --quiet | grep -qxF "$1"; }
 
+egress_ours() { [[ -n $1 ]] && ps -p "$1" -o command= 2>/dev/null | grep -qF -- "$EGRESS"; }
+
 egress_up() {
   local pid waited=0
+  mkdir -p "$STATE/door"
+  lock "$STATE/door"
   pid=$(cat "$STATE/egress.pid" 2>/dev/null || true)
-  [[ -n $pid ]] && kill -0 "$pid" 2>/dev/null && [[ -S $EGRESS ]] && return
-  [[ -n $pid ]] && kill "$pid" 2>/dev/null || true
-  mkdir -p "$STATE"
+  if egress_ours "$pid" && [[ -S $EGRESS ]]; then unlock "$STATE/door"; return; fi
+  if egress_ours "$pid"; then kill "$pid" 2>/dev/null || true; fi
   rm -f "$EGRESS"
   local start=("$NODE" "$SRC/host/egress/server.ts")
   [[ -n ${UG_BOX_EGRESS:-} ]] && start=("$UG_BOX_EGRESS")
   UG_DIR=$UG nohup "${start[@]}" "$EGRESS" "$SRC" >>"$STATE/egress.log" 2>&1 &
   echo $! > "$STATE/egress.pid"
   until [[ -S $EGRESS ]]; do
-    (( waited++ < READY_WAIT * 10 )) || die "the egress door did not start; see $STATE/egress.log"
+    (( waited++ < READY_WAIT * 10 )) || { unlock "$STATE/door"; die "the egress door did not start; see $STATE/egress.log"; }
     sleep 0.1
   done
+  unlock "$STATE/door"
 }
 
 box_models() {
