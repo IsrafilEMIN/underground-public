@@ -223,7 +223,7 @@ const OTHER_OWNER_KEY = ["/etc/master.passwd", "/etc/shadow"].find((path) => {
 });
 
 test(
-  "a private key that another user owns is refused, and no token is minted",
+  "[mac] a private key that another user owns is refused, and no token is minted",
   { skip: OTHER_OWNER_KEY === undefined ? "needs a mode-600 file owned by another user (/etc/master.passwd or /etc/shadow); a test user cannot chown" : false },
   async () => {
     await writeApp({ client_id: "Iv23liABC", installation_id: 42 });

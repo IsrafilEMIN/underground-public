@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Setup, the one install tool of underground (docs/SPEC.md, B1 and B2;
 # docs/adr/0012-pinned-omp-and-setup.md). It runs from the owner's checkout of underground:
-#   - the test suite first; a failed, skipped, or todo test stops setup before it writes anything
+#   - a checkout check: HEAD is origin/main with no local change, so CI proved what is installed
+#   - the tests marked [mac] in their name, which only this mac can run; CI proves the rest
 #   - the pinned omp and the pinned srt in ~/.ug/sys
 #   - the arena files: the session start step, the seed config, the broker client
 #   - ~/.ug/sys/bin/omp, a link to the arena wrapper in this checkout
@@ -49,6 +50,16 @@ die() {
   exit 1
 }
 
+
+check_checkout() {
+  local head main dirty
+  dirty=$(git -C "$src" status --porcelain 2>/dev/null) || die "$src is not a git checkout"
+  [[ -z $dirty ]] || die "the checkout $src has changes that are not committed; setup installs only what CI proved on origin/main"
+  head=$(git -C "$src" rev-parse HEAD)
+  main=$(git -C "$src" rev-parse --verify --quiet origin/main) || die "the checkout has no origin/main; fetch first"
+  [[ $head == "$main" ]] || die "the checkout is at ${head:0:7}, not origin/main ${main:0:7}; setup installs only what CI proved on origin/main. Check out main and pull, or fetch."
+}
+check_checkout
 pin() {
   local value
   value=$(sed -n "s/^$1=//p" "$src/VERSIONS")
@@ -80,20 +91,19 @@ grep -q "\"$srt_package\": \"$srt_pin\"" "$src/host/srt/package.json" ||
 cleanup=()
 trap '[[ ${#cleanup[@]} -eq 0 ]] || rm -rf "${cleanup[@]}"' EXIT
 
-# The whole suite, before setup writes anything. Most host tests run only on this mac (CI skips
-# them), so a skipped test fails setup as a failed test does.
-run_tests() {
+run_mac_only_tests() {
   local tap status=0
   tap=$(mktemp "${TMPDIR:-/tmp}/ug-tests.XXXXXX")
   cleanup+=("$tap")
   (cd "$src" && "$node_bin" --test --test-reporter=spec --test-reporter-destination=stdout \
-    --test-reporter=tap --test-reporter-destination="$tap" tests/broker/*.test.ts tests/host/*.test.ts) || status=$?
-  if [[ $status -ne 0 ]] || ! grep -qx '# fail 0' "$tap" || ! grep -qx '# skipped 0' "$tap" || ! grep -qx '# todo 0' "$tap"; then
-    grep -E '^# (tests|pass|fail|skipped|todo) ' "$tap" >&2 || true
-    die "the test suite did not pass in full, so nothing is set up"
+    --test-reporter=tap --test-reporter-destination="$tap" --test-name-pattern='\[mac\]' \
+    tests/broker/*.test.ts tests/host/*.test.ts) || status=$?
+  if [[ $status -ne 0 ]] || ! grep -qx '# fail 0' "$tap" || ! grep -qx '# skipped 0' "$tap"; then
+    grep -E '^# (tests|pass|fail|skipped) ' "$tap" >&2 || true
+    die "a [mac] test, which only this mac can run, did not pass, so nothing is set up"
   fi
 }
-run_tests
+run_mac_only_tests
 
 [[ -d $HOME/.ug ]] || install -d -m 700 "$HOME/.ug"
 install -d -m 700 "$sys" "$sys/omp" "$sys/srt" "$sys/restic" "$sys/bin" "$sys/agent-bin" "$sys/libexec" "$sys/broker" "$HOME/.ug/run"
