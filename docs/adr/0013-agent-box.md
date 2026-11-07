@@ -1,6 +1,6 @@
 # The agent box: a VM with no network, and doors that the host owns
 
-Date: 2026-11-07. Status: proposed. The owner agreed to the rough layout on 2026-11-07; the doors, the folders, and the start are not decided yet. Once built, it supersedes `0004-no-local-binding.md` and `0011-one-agent-arena.md` (except its one trust level), and amends `0001-accepted-risks.md`, `0005-model-auth-gateway.md`, `0008-preflight.md`, and `0012-pinned-omp-and-setup.md`. Each of them has an amendment of 2026-11-07 that says what changes. Amended by `0014-session-containers.md` (2026-11-07): one long-running VM, a Linux container per session inside it, and the layers of the box.
+Date: 2026-11-07. Status: proposed. The owner agreed to the rough layout on 2026-11-07; the doors, the folders, and the start are not decided yet. Once built, it supersedes `0004-no-local-binding.md` and `0011-one-agent-arena.md` (except its one trust level), and amends `0001-accepted-risks.md`, `0005-model-auth-gateway.md`, `0008-preflight.md`, and `0012-pinned-omp-and-setup.md`. Each of them has an amendment of 2026-11-07 that says what changes. Amended by `0014-session-containers.md` (2026-11-07): one long-running VM. Amended by `0015-box-layout.md` (2026-11-07): no container per session, one home, three mounts, and an installed copy of the host code (N2).
 
 Redesign phase (owner decision, 2026-11-07; `../../AGENTS.md`, "Redesign phase"): this ADR was drafted on top of the srt design, so its decisions are checked again from the problem up. Its "Kept from underground" and "Gone once built" lines are candidates, not decisions: a part comes back only if the new base needs it.
 
@@ -15,8 +15,8 @@ The agent runs on the owner's mac as the owner's user. It shares the user, the n
 
 ## Decision (proposed)
 
-- **The box.** The agent runs in an Apple `container` VM with `--network none`: its own kernel, filesystem, and loopback, and no route off the box. One VM runs for all sessions, and each session runs in its own throwaway Linux container inside it (`0014-session-containers.md`).
-- **Vanilla omp inside.** omp runs in its default layout. Nothing in omp is moved, wrapped, or reset; what each session can write, and what it shares with other sessions, is set by the layers of `0014-session-containers.md`.
+- **The box.** The agent runs in an Apple `container` VM with `--network none`: its own kernel, filesystem, and loopback, and no route off the box. One VM runs for all sessions, with no container per session inside it (`0015-box-layout.md`).
+- **Vanilla omp inside.** omp runs in its default layout, on one home. Nothing in omp is moved or wrapped (`0015-box-layout.md`).
 - **Doors.** The box reaches the host only through unix sockets that the host mounts in. Draft list: the GitHub broker, and an egress socket to an allowlist proxy on the host. Model calls go through the egress door, and the host adds the gateway bearer there, so no secret enters the box.
 - **Safety lives in the doors.** A box can be taken over and stay taken over across starts, so each door must hold against a hostile caller. What the broker door allows (`broker merge`, N1 of the 2026-11-07 re-check) is part of this design, not separate from it.
 - **No spend limit at the model door** (owner decision, 2026-11-07). The owner's model logins are subscription OAuth only, with no paid API key, so a taken-over box cannot run up a bill. [inference] It can still use up the subscriptions' usage limits until they reset, or use the accounts in a way that breaks a provider's terms.
@@ -43,9 +43,9 @@ Owner runs on this mac, 2026-11-07, `container` 1.7.1 (`container --version`: `b
 
 - The doors against a hostile caller: the broker verbs and the allowlist.
 - The relay inside the box: omp, git, and npm reach a proxy by host and port (`HTTPS_PROXY`), not by a socket, so the image needs a TCP-to-socket relay on the box's loopback.
-- What persists, where it lives, and what the backup covers: `0014-session-containers.md`, state layer and Open.
-- The image and how a session starts: `0014-session-containers.md`, Open.
-- Where the host code runs from (N2, `0001-accepted-risks.md`, amendment 2026-11-03).
+- What persists, where it lives, and what the backup covers: `0015-box-layout.md`, Decision ("One home", "Rebuild") and Open.
+- The image and how a session starts: `0015-box-layout.md`, Open.
+- Decided 2026-11-07: the host code runs from a copy that setup installs (N2, `0015-box-layout.md`).
 
 ## Rejected
 
