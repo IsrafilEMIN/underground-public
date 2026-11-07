@@ -1,6 +1,6 @@
 # The agent box: a VM with no network, and doors that the host owns
 
-Date: 2026-11-07. Status: proposed. The owner agreed to the rough layout on 2026-11-07; the doors, the folders, and the start are not decided yet. Once accepted, it supersedes `0011-one-agent-arena.md` and `0004-no-local-binding.md`.
+Date: 2026-11-07. Status: proposed. The owner agreed to the rough layout on 2026-11-07; the doors, the folders, and the start are not decided yet. Once built, it supersedes `0004-no-local-binding.md` and `0011-one-agent-arena.md` (except its one trust level), and amends `0001-accepted-risks.md`, `0005-model-auth-gateway.md`, `0008-preflight.md`, and `0012-pinned-omp-and-setup.md`. Each of them has an amendment of 2026-11-07 that says what changes.
 
 ## Context
 
@@ -25,7 +25,7 @@ The agent runs on the owner's mac as the owner's user. It shares the user, the n
 
 Owner runs on this mac, 2026-11-07, `container` 1.7.1 (`container --version`: `build: release, commit: a15b460`), kernel from the recommended Kata 4.3.1 release:
 
-- `--network internal` is not enough. On `container network create --internal ugbox`, the box had `default via 192.168.128.1 dev eth0`. A TCP connect to `1.1.1.1:80` timed out, but the mac's gateway address `192.168.128.1:8765`, its wifi address `192.168.18.22:8765`, and the auth gateway `100.110.237.15:4000` were all `open`.
+- An `--internal` network is not enough. On `container network create --internal ugbox`, the box had `default via 192.168.128.1 dev eth0`. A TCP connect to `1.1.1.1:80` timed out, but the mac's gateway address `192.168.128.1:8765`, its wifi address `192.168.18.22:8765`, and the auth gateway `100.110.237.15:4000` were all `open`.
 - `--network none` has no route. `ip addr` showed only `lo` (`127.0.0.1/8`, `::1/128`), `ip route` printed nothing, and connects to `1.1.1.1:80` and `192.168.128.1:8765` failed with `OSError`.
 - A socket door works with no network. With `-v /tmp/ug-probe.sock:/door.sock` and `--network none`, the box sent `ping`; the host listener printed `host got b'ping'`, and the box printed `b'door ok ping'`.
 - A reply can be lost when the host closes at once. A host listener that sent and closed at once gave the box `b''`; with a one-second wait before the close, the reply arrived. [inference] The socket forwarding drops data on a fast close. The real broker must be tested through the door.

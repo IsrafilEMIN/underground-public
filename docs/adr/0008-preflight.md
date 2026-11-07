@@ -30,3 +30,7 @@ The wrapper also keeps every variable with a credential word in its name (`TOKEN
 Rejected: a sandbox canary at each launch (one read that srt must deny). It tests behavior, so it belongs to the install; the macOS build check catches the change that would break it, an OS update. Rejected: killing orphaned sandbox processes or idle daemon brokers in the preflight, because it writes. `stop_failed_brokers` stays where it is (`docs/adr/0004-no-local-binding.md`).
 
 Cost: after each macOS update, and after each hand edit of an installed file, the wrapper refuses until the owner runs `ug-install`. A credential in a variable whose name has none of the words reaches the sandbox.
+
+## Amendment 2026-11-07: the agent box (proposed)
+
+`0013-agent-box.md` is proposed, not built. Until it is built, this ADR describes the system. Once built, the macOS build check goes: it exists because srt's proof holds only on the build that setup probed, and the box does not rest on srt. The sorting rule (setup proves behavior, the start checks state) still holds. A new start check takes its place: the box must have no route (`0013-agent-box.md`, Cost), because `--network none` is undocumented in `container` 1.7.1.

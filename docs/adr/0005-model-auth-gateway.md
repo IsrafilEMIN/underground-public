@@ -46,3 +46,7 @@ Evidence: a run of the pinned omp 18.13.2 `auth-broker serve` and `auth-gateway 
 Rejected: the key in `models.yml`. Every session could read it. Rejected: srt credential masking. It needs `allowPlaintextInject` for the `http://` engine and a second secret path beside the broker. Rejected: a new host proxy. The gateway already does the job.
 
 Cost: the gateway bearer now also unlocks the engine. The engine is called `lm-studio/<model>`, not `strata/<model>`. The owner stores the key once on the host: `ug-auth auth-broker login lm-studio`. Model discovery calls `/api/v0/models`, `/api/v1/models`, and `/v1/models` on the engine with the key.
+
+## Amendment 2026-11-07: the agent box (proposed)
+
+`0013-agent-box.md` is proposed, not built. Until it is built, this ADR describes the system. Once built, three parts change. The gateway bearer leaves the session: the box's `models.yml` points at the egress door, and the host adds the bearer to allowed model calls there, so the "one secret that a session holds" (Decision) becomes none. The usage broker on `127.0.0.1:18765` cannot be reached at that address from the box, whose loopback is its own, so `/usage` needs a door too. Whether the gateway still needs the tailscale address, with the box no longer a client on the tailnet, is open. The auth broker and its host-zone root stay as they are.
