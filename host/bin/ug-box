@@ -106,7 +106,7 @@ To start on the new image: quit those sessions, then run ug-box again."
   trap 'finish "$dir" "$name"; exit 130' INT TERM HUP
   local status=0
   container exec --interactive --tty --uid 1000 --gid 1000 --env HOME=/home/agent "$name" \
-    nsenter --target 1 --user --mount -- /usr/local/bin/ug-session "$@" || status=$?
+    nsenter --target 1 --user --mount --preserve-credentials -- /usr/local/bin/ug-session "$@" || status=$?
   trap - INT TERM HUP
   finish "$dir" "$name"
   return "$status"
