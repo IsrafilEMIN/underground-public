@@ -67,7 +67,7 @@ srt's HTTP proxy on the host, behind the egress door. It allows a site by its na
 _Avoid_: firewall, filter, MITM proxy
 
 **Session container** (proposed):
-A throwaway Linux container inside the box, one per omp session, with its own network namespace and relay. It can write only its own worktree, session files, agent database, and `config.yml`, and cannot see the other sessions (`docs/adr/0014-session-containers.md`).
+A throwaway Linux container inside the box, one per omp session, with its own network namespace and relay. It writes its own worktree, session folder, agent database, and `config.yml`, plus the shared history database; it reads the other sessions' transcripts and attachments, and cannot see their worktrees or processes (`docs/adr/0014-session-containers.md`).
 _Avoid_: sandbox, box, VM
 
 **State layer** (proposed):
