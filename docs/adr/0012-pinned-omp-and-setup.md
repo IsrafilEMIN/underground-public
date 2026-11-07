@@ -53,3 +53,7 @@ Setup, added 2026-11-03: setup also writes the raw omp's `config.yml` before its
 ## Amendment 2026-11-07: the agent box (proposed)
 
 `0013-agent-box.md` is proposed, not built. Until it is built, this ADR describes the system. Once built, the pinned `omp-darwin-arm64` still serves the auth broker, the auth gateway, and any raw omp on the host, but the agent runs a Linux omp in the box's pinned image, with its own pin. The srt pin stays: it now pins the egress proxy on the host, which imports a file of srt by path (`0013-agent-box.md`, "Egress by name only"), so an srt update needs the egress probe again. Setup no longer proves srt with the arena probe and no longer records the macOS build. The one `omp` on `PATH` becomes the command that starts the box. The raw omp's keyless providers amendment still holds: a raw omp on the host is outside the box.
+
+## Amendment 2026-11-07: an installed copy of the host code (proposed)
+
+Owner decision, 2026-11-07 (`0015-box-layout.md`). Once the box is built, "underground runs from the owner's checkout" (Decision) goes: setup copies a merged `main` commit of underground into a folder that only setup writes, and the mac runs from that copy. `0015-box-layout.md` also proposes the same for the config repo, as a vetted copy. An update is `git pull`, then setup. `../SPEC.md`, B1 ("`git pull` updates its code"), describes today's system until then.
