@@ -15,31 +15,16 @@ if [ ! -d "$clone/.git" ]; then
   git -C "$clone" init -q
   git -C "$clone" remote add origin "https://github.com/$UG_REPO.git"
 fi
-if [ "${1:-}" = --checkout ]; then
-  checkout=$HOME/checkouts/${2:-}
-  [ -n "${2:-}" ] && [ -d "$checkout" ] || { echo "ug-session: no checkout ${2:-}; the checkouts are: $(ls "$HOME/checkouts" | tr '\n' ' ')" >&2; exit 64; }
-  shift 2
-  cd "$checkout"
-  base=$(git config --get ug.base)
-else
-  cd "$clone"
-  synced=$(flock .git/ug-sync.lock broker sync "$UG_REPO") || {
-    echo "ug-session: broker sync $UG_REPO failed; is the broker app installed on it?" >&2
-    exit 69
-  }
-  base=$(printf '%s\n' "$synced" | sed -n 's|^origin/\([^ ]*\) is now .*|\1|p')
-  [ -n "$base" ] || { echo "ug-session: broker sync gave no branch: $synced" >&2; exit 69; }
-  checkout=$(ovnfs new "$clone" --rev "origin/$base")
-  cd "$checkout"
-  git config ug.base "$base"
-  git switch -q -c "wt/$(date -u +%Y%m%d-%H%M%S)-$$"
-fi
-status=0
-omp "$@" || status=$?
-cd "$HOME"
-if [ -z "$(git -C "$checkout" status --porcelain)" ] && [ "$(git -C "$checkout" rev-list --count "origin/$base..HEAD")" = 0 ]; then
-  ovnfs rm "$(basename "$checkout")" >/dev/null || echo "ug-session: could not remove the clean checkout $checkout" >&2
-else
-  echo "ug-session: kept $(basename "$checkout"): it has changes or commits; open it again with: ug-box --checkout $(basename "$checkout")" >&2
-fi
-exit "$status"
+cd "$clone"
+exec 9>.git/ug-sync.lock
+flock 9
+synced=$(broker sync "$UG_REPO") || {
+  echo "ug-session: broker sync $UG_REPO failed; is the broker app installed on it?" >&2
+  exit 69
+}
+base=$(printf '%s\n' "$synced" | sed -n 's|^origin/\([^ ]*\) is now .*|\1|p')
+[ -n "$base" ] || { echo "ug-session: broker sync gave no branch: $synced" >&2; exit 69; }
+git checkout -q --detach "origin/$base"
+flock -u 9
+exec 9>&-
+exec omp "$@"
