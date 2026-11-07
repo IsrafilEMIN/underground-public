@@ -81,9 +81,14 @@ session() {
   lock "$dir"
   if running "$name"; then
     if [[ $(cat "$dir/image" 2>/dev/null) != "$tag" ]]; then
-      if [[ $(live_sessions "$dir") -gt 0 ]]; then
+      local open
+      open=$(live_sessions "$dir")
+      if [[ $open -gt 0 ]]; then
         unlock "$dir"
-        die "update waiting: box $name runs an older image; it restarts when its sessions end"
+        die "update waiting for $(basename "$repo").
+The box image was rebuilt (new omp, ovnfs, or box files), but this repo's box still runs the old one,
+because $open omp session(s) are open in it. A running box is never restarted under an open session.
+To start on the new image: quit those sessions, then run ug-box again."
       fi
       container stop "$name" >/dev/null
       boot "$name" "$repo" "$tag"
