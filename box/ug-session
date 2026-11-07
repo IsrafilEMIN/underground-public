@@ -1,14 +1,27 @@
 #!/bin/sh
 set -eu
 export HOME=/home/agent
-export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0=/repo
-for rev in origin/HEAD origin/main; do
-  if git -C /repo rev-parse --verify --quiet "$rev^{commit}" >/dev/null; then
-    checkout=$(ovnfs new /repo --rev "$rev")
-    cd "$checkout"
-    exec omp "$@"
-  fi
-done
-git -C /repo rev-parse --verify origin/main >&2 || true
-echo "ug-session: the repo has no origin/HEAD or origin/main; fetch it on the mac first" >&2
-exit 1
+export TMPDIR=/home/agent/.tmp
+mkdir -p "$TMPDIR"
+if [ -z "${UG_REPO:-}" ]; then
+  mkdir -p "$HOME/scratch"
+  cd "$HOME/scratch"
+  exec omp "$@"
+fi
+clone=$HOME/work/$UG_REPO
+if [ ! -d "$clone/.git" ]; then
+  rm -rf "$clone"
+  mkdir -p "$clone"
+  git -C "$clone" init -q
+  git -C "$clone" remote add origin "https://github.com/$UG_REPO.git"
+fi
+cd "$clone"
+synced=$(flock .git/ug-sync.lock broker sync "$UG_REPO") || {
+  echo "ug-session: broker sync $UG_REPO failed; is the broker app installed on it?" >&2
+  exit 69
+}
+branch=$(printf '%s\n' "$synced" | sed -n 's|^origin/\([^ ]*\) is now .*|\1|p')
+[ -n "$branch" ] || { echo "ug-session: broker sync gave no branch: $synced" >&2; exit 69; }
+checkout=$(ovnfs new "$clone" --rev "origin/$branch")
+cd "$checkout"
+exec omp "$@"

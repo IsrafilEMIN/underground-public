@@ -16,4 +16,5 @@ RUN curl -fsSL -o /usr/local/bin/omp "https://github.com/can1357/oh-my-pi/releas
  && echo "${OMP_SHA256}  /usr/local/bin/omp" | sha256sum -c - \
  && chmod 755 /usr/local/bin/omp
 RUN useradd -u 1000 -M -d /home/agent agent
-COPY ug-init ug-holder ug-session /usr/local/bin/
+COPY host/broker/client.ts host/broker/protocol.ts /usr/local/lib/broker/
+COPY box/broker box/ug-init box/ug-holder box/ug-session /usr/local/bin/

@@ -8,7 +8,10 @@ READY_WAIT=${UG_BOX_READY_WAIT:-20}
 NODE=${UG_BOX_NODE:-/opt/homebrew/bin/node}
 UG=${UG_DIR:-$HOME/.ug}
 EGRESS=$STATE/egress.sock
+BROKER=${UG_BOX_BROKER:-$UG/run/broker.sock}
 PROXY=http://127.0.0.1:3128
+NAME=ug-box
+DIR=$STATE/$NAME
 
 die() { echo "ug-box: $*" >&2; exit 1; }
 
@@ -16,7 +19,7 @@ pin() { sed -n "s/^$1=//p" "$SRC/VERSIONS"; }
 
 image_tag() {
   local h
-  h=$( { grep -E '^(box_omp|box_omp_sha256|ovnfs|ovnfs_sha256)=' "$SRC/VERSIONS"; cat "$SRC"/box/*; } | shasum -a 256 | cut -c1-16)
+  h=$( { grep -E '^(box_omp|box_omp_sha256|ovnfs|ovnfs_sha256)=' "$SRC/VERSIONS"; cat "$SRC"/box/* "$SRC/host/broker/client.ts" "$SRC/host/broker/protocol.ts"; } | shasum -a 256 | cut -c1-16)
   echo "ugbox:$h"
 }
 
@@ -24,7 +27,7 @@ build() {
   container build -t "$(image_tag)" \
     --build-arg "OMP_VERSION=$(pin box_omp)" --build-arg "OMP_SHA256=$(pin box_omp_sha256)" \
     --build-arg "OVNFS_VERSION=$(pin ovnfs)" --build-arg "OVNFS_SHA256=$(pin ovnfs_sha256)" \
-    -f "$SRC/box/Containerfile" "$SRC/box"
+    -f "$SRC/box/Containerfile" "$SRC"
 }
 
 lock() {
@@ -88,89 +91,95 @@ box_models() {
   printf '%s\n' "$models"
 }
 
+repo_slug() {
+  local top url re='^(git@github\.com:|ssh://git@github\.com/|https://github\.com/)([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)$'
+  top=$(git rev-parse --show-toplevel 2>/dev/null) || return 0
+  url=$(git -C "$top" config --get remote.origin.url 2>/dev/null) || true
+  url=${url%/}
+  url=${url%.git}
+  [[ $url =~ $re ]] || die "$top has no GitHub origin, so the box cannot clone it"
+  echo "${BASH_REMATCH[2]}/${BASH_REMATCH[3]}"
+}
+
 boot() {
-  local name=$1 repo=$2 tag=$3 home=$name-home gone=0
-  while container list --all --quiet | grep -qxF "$name"; do
-    (( gone++ < READY_WAIT * 10 )) || die "the old box $name is still there"
+  local tag=$1 gone=0
+  while container list --all --quiet | grep -qxF "$NAME"; do
+    (( gone++ < READY_WAIT * 10 )) || die "the old box $NAME is still there"
     sleep 0.1
   done
-  container volume list --quiet | grep -qxF "$home" || container volume create "$home" >/dev/null
-  container run --detach --rm --name "$name" \
+  container volume list --quiet | grep -qxF "$NAME-home" || container volume create "$NAME-home" >/dev/null
+  container run --detach --rm --name "$NAME" \
     --network none --read-only --tmpfs /tmp \
-    --mount "type=bind,source=$repo,target=/repo,readonly" \
-    --volume "$home:/home/agent" \
+    --volume "$NAME-home:/home/agent" \
     --volume "$EGRESS:/tmp/ug-egress.sock" \
+    --volume "$BROKER:/tmp/ug-broker.sock" \
     "$tag" /usr/local/bin/ug-init >/dev/null
   local waited=0
-  until container exec "$name" test -e /tmp/ug-ready 2>/dev/null; do
-    (( waited++ < READY_WAIT * 10 )) || { container stop "$name" >/dev/null 2>&1 || true; die "box $name did not get ready"; }
+  until container exec "$NAME" test -e /tmp/ug-ready 2>/dev/null; do
+    (( waited++ < READY_WAIT * 10 )) || { container stop "$NAME" >/dev/null 2>&1 || true; die "the box did not get ready"; }
     sleep 0.1
   done
 }
 
 session() {
-  local repo name dir tag
-  repo=$(git rev-parse --show-toplevel 2>/dev/null) || die "not in a git repo"
-  repo=$(cd "$repo" && pwd -P)
-  name="ug-$(basename "$repo" | tr -c 'A-Za-z0-9_.\n-' '-')-$(printf '%s' "$repo" | shasum -a 256 | cut -c1-8)"
-  dir=$STATE/$name
+  local slug tag models
+  slug=$(repo_slug)
   tag=$(image_tag)
   container image list --quiet | grep -qE "(^|/)${tag}\$" ||
     die "the box image for the current pins is not built (${tag#ugbox:}).
 VERSIONS or the box files changed since the last build. Run: ug-box build"
-  mkdir -p "$dir/sessions"
-  local models
+  [[ -S $BROKER ]] || die "the GitHub broker is not running: no socket at $BROKER"
+  mkdir -p "$DIR/sessions"
   models=$(box_models)
   egress_up
 
-  lock "$dir"
-  if running "$name"; then
-    if [[ $(cat "$dir/image" 2>/dev/null) != "$tag" ]]; then
+  lock "$DIR"
+  if running "$NAME"; then
+    if [[ $(cat "$DIR/image" 2>/dev/null) != "$tag" ]]; then
       local open
-      open=$(live_sessions "$dir")
+      open=$(live_sessions "$DIR")
       if [[ $open -gt 0 ]]; then
-        unlock "$dir"
-        die "update waiting for $(basename "$repo").
-A newer box image is built (new omp, ovnfs, or box files), but this repo's box still runs the old one,
+        unlock "$DIR"
+        die "update waiting.
+A newer box image is built (new omp, ovnfs, or box files), but the box still runs the old one,
 because $open omp session(s) are open in it. A running box is never restarted under an open session.
 To start on the new image: quit those sessions, then run ug-box again."
       fi
-      container stop "$name" >/dev/null
-      boot "$name" "$repo" "$tag"
+      container stop "$NAME" >/dev/null
+      boot "$tag"
     fi
   else
-    boot "$name" "$repo" "$tag"
+    boot "$tag"
   fi
-  if [[ $(container inspect "$name" | "$NODE" "$SRC/host/bin/ug-box-check.ts" "$name" "$repo" "$tag" "$EGRESS") != BOX_OK ]]; then
-    [[ $(live_sessions "$dir") -gt 0 ]] || container stop "$name" >/dev/null 2>&1 || true
-    unlock "$dir"
-    die "box $name failed its check (listed above), so no session started"
+  if [[ $(container inspect "$NAME" | "$NODE" "$SRC/host/bin/ug-box-check.ts" "$NAME" "$tag" "$EGRESS" "$BROKER") != BOX_OK ]]; then
+    [[ $(live_sessions "$DIR") -gt 0 ]] || container stop "$NAME" >/dev/null 2>&1 || true
+    unlock "$DIR"
+    die "the box failed its check (listed above), so no session started"
   fi
-  echo "$tag" > "$dir/image"
-  : > "$dir/sessions/$$"
-  unlock "$dir"
-  container exec --interactive --uid 1000 --gid 1000 "$name" \
+  echo "$tag" > "$DIR/image"
+  : > "$DIR/sessions/$$"
+  unlock "$DIR"
+  container exec --interactive --uid 1000 --gid 1000 "$NAME" \
     sh -c 'mkdir -p /home/agent/.omp/agent && cat > /home/agent/.omp/agent/models.yml' <<<"$models"
 
-  trap 'finish "$dir" "$name"; exit 130' INT TERM HUP
+  trap 'finish; exit 130' INT TERM HUP
   local status=0
-  container exec --interactive --tty --uid 1000 --gid 1000 --env HOME=/home/agent \
+  container exec --interactive --tty --uid 1000 --gid 1000 --env HOME=/home/agent --env "UG_REPO=$slug" \
     --env "PI_PROXY=$PROXY" --env "HTTPS_PROXY=$PROXY" --env "HTTP_PROXY=$PROXY" \
-    --env OMP_AUTH_BROKER_URL=http://usage.internal:18765 --env OMP_AUTH_BROKER_TOKEN=usage-only "$name" \
+    --env OMP_AUTH_BROKER_URL=http://usage.internal:18765 --env OMP_AUTH_BROKER_TOKEN=usage-only "$NAME" \
     nsenter --target 1 --user --mount --preserve-credentials -- /usr/local/bin/ug-session "$@" || status=$?
   trap - INT TERM HUP
-  finish "$dir" "$name"
+  finish
   return "$status"
 }
 
 finish() {
-  local dir=$1 name=$2
-  rm -f "$dir/sessions/$$"
-  lock "$dir"
-  if [[ $(live_sessions "$dir") -eq 0 ]] && running "$name"; then
-    container stop "$name" >/dev/null 2>&1 || true
+  rm -f "$DIR/sessions/$$"
+  lock "$DIR"
+  if [[ $(live_sessions "$DIR") -eq 0 ]] && running "$NAME"; then
+    container stop "$NAME" >/dev/null 2>&1 || true
   fi
-  unlock "$dir"
+  unlock "$DIR"
 }
 
 case ${1:-} in

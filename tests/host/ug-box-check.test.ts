@@ -3,8 +3,13 @@ import { test } from "node:test";
 import { boxProblems, type Inspected } from "../../host/bin/ug-box-check.ts";
 import { inspectedBox } from "./fixtures/box-inspect.ts";
 
-const want = { name: "ug-app-12345678", repo: "/Users/owner/app", tag: "ugbox:abc", egress: "/Users/owner/.local/state/underground/box/egress.sock" };
-const box = () => inspectedBox(want.name, want.repo, `docker.io/library/${want.tag}`, want.egress);
+const want = {
+  name: "ug-box",
+  tag: "ugbox:abc",
+  egress: "/Users/owner/.local/state/underground/box/egress.sock",
+  broker: "/Users/owner/.ug/run/broker.sock",
+};
+const box = () => inspectedBox(want.name, `docker.io/library/${want.tag}`, want.egress, want.broker);
 
 function mount(b: Inspected, destination: string) {
   const m = b.configuration.mounts.find((x) => x.destination === destination);
@@ -12,7 +17,7 @@ function mount(b: Inspected, destination: string) {
   return m;
 }
 
-test("the box as the owner's real run reported it passes the check", () => {
+test("the box with its two doors and its own home passes the check", () => {
   assert.deepEqual(boxProblems(box(), want), []);
 });
 
@@ -27,12 +32,11 @@ test("each weakened wall of the box fails the check", () => {
     ["a published port", (b) => b.configuration.publishedPorts.push({}), /published/],
     ["another image", (b) => { b.configuration.image.reference = "docker.io/library/ugbox:old"; }, /image/],
     ["another first process", (b) => { b.configuration.initProcess.executable = "/bin/sh"; }, /first process/],
-    ["an extra mount", (b) => b.configuration.mounts.push({ destination: "/mac", options: [], source: "/Users/owner", type: { virtiofs: {} } }), /unexpected mounts/],
-    ["a second mount on the repo path", (b) => b.configuration.mounts.push({ destination: "/repo", options: [], source: "/Users/owner", type: { virtiofs: {} } }), /unexpected mounts/],
+    ["a folder of the mac", (b) => b.configuration.mounts.push({ destination: "/repo", options: ["ro"], source: "/Users/owner/app", type: { virtiofs: {} } }), /unexpected mounts/],
+    ["a second mount on a door path", (b) => b.configuration.mounts.push({ destination: "/tmp/ug-broker.sock", options: [], source: "/Users/owner", type: { virtiofs: {} } }), /unexpected mounts/],
     ["no egress door", (b) => { b.configuration.mounts = b.configuration.mounts.filter((m) => m.destination !== "/tmp/ug-egress.sock"); }, /egress door/],
     ["another socket as the egress door", (b) => { mount(b, "/tmp/ug-egress.sock").source = "/Users/owner/.ssh/agent.sock"; }, /egress door/],
-    ["a writable repo", (b) => { mount(b, "/repo").options = []; }, /read-only/],
-    ["another folder as the repo", (b) => { mount(b, "/repo").source = "/Users/owner"; }, /read-only/],
+    ["another socket as the broker door", (b) => { mount(b, "/tmp/ug-broker.sock").source = "/Users/owner/.ssh/agent.sock"; }, /broker door/],
     ["another box's home", (b) => { mount(b, "/home/agent").type = { volume: { name: "ug-other-home" } }; }, /own volume/],
     ["a stopped box", (b) => { b.status.state = "stopped"; }, /not running/],
   ];
