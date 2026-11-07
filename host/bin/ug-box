@@ -1,0 +1,132 @@
+#!/usr/bin/env bash
+# ug-box: start an omp session in the box of the repo of the current folder.
+#
+#   ug-box build      build the box image from box/ at the pins in VERSIONS
+#   ug-box [ARGS...]  start a session; ARGS go to omp
+#
+# One box per repo: an Apple container VM with no network and a read-only root. It mounts
+# only the repo's top folder, read-only, and its own home disk. The first session boots
+# it, later ones join it, and the last one to quit stops it. Sessions are counted here on
+# the mac, never by asking the box. A box on an older image keeps running until its last
+# session quits; meanwhile new sessions are refused.
+set -euo pipefail
+
+SRC=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)
+STATE=${UG_BOX_STATE:-$HOME/.local/state/underground/box}
+LOCK_WAIT=${UG_BOX_LOCK_WAIT:-30}
+READY_WAIT=${UG_BOX_READY_WAIT:-20}
+
+die() { echo "ug-box: $*" >&2; exit 1; }
+
+pin() { sed -n "s/^$1=//p" "$SRC/VERSIONS"; }
+
+# The image tag is a hash of everything that goes into the image, so a changed pin or
+# box file makes a new tag, and a box on an old tag is known to be old.
+image_tag() {
+  local h
+  h=$( { grep -E '^(box_omp|box_omp_sha256|ovnfs|ovnfs_sha256)=' "$SRC/VERSIONS"; cat "$SRC"/box/*; } | shasum -a 256 | cut -c1-16)
+  echo "ugbox:$h"
+}
+
+build() {
+  container build -t "$(image_tag)" \
+    --build-arg "OMP_VERSION=$(pin box_omp)" --build-arg "OMP_SHA256=$(pin box_omp_sha256)" \
+    --build-arg "OVNFS_VERSION=$(pin ovnfs)" --build-arg "OVNFS_SHA256=$(pin ovnfs_sha256)" \
+    -f "$SRC/box/Containerfile" "$SRC/box"
+}
+
+# A lock dir per box. mkdir is atomic; a lock whose holder is gone is taken over.
+lock() {
+  local dir=$1/lock waited=0
+  until mkdir "$dir" 2>/dev/null; do
+    local holder
+    holder=$(cat "$dir/pid" 2>/dev/null || true)
+    if [[ -n $holder ]] && ! kill -0 "$holder" 2>/dev/null; then
+      rm -rf "$dir"
+      continue
+    fi
+    (( waited++ < LOCK_WAIT * 10 )) || die "another start holds the lock of $(basename "$1")"
+    sleep 0.1
+  done
+  echo $$ > "$dir/pid"
+}
+unlock() { rm -rf "$1/lock"; }
+
+# Live sessions of a box: the pid files of ug-box processes that still run.
+live_sessions() {
+  local f n=0
+  for f in "$1"/sessions/*; do
+    [[ -e $f ]] || continue
+    if kill -0 "$(basename "$f")" 2>/dev/null; then n=$((n + 1)); else rm -f "$f"; fi
+  done
+  echo "$n"
+}
+
+running() { container list --quiet | grep -qxF "$1"; }
+
+boot() {
+  local name=$1 repo=$2 tag=$3 home=$name-home
+  container volume list --quiet | grep -qxF "$home" || container volume create "$home" >/dev/null
+  container run --detach --rm --name "$name" \
+    --network none --read-only --tmpfs /tmp \
+    --mount "type=bind,source=$repo,target=/repo,readonly" \
+    --volume "$home:/home/agent" \
+    "$tag" /usr/local/bin/ug-init >/dev/null
+  local waited=0
+  until container exec "$name" test -e /tmp/ug-ready 2>/dev/null; do
+    (( waited++ < READY_WAIT * 10 )) || { container stop "$name" >/dev/null 2>&1 || true; die "box $name did not get ready"; }
+    sleep 0.1
+  done
+}
+
+session() {
+  local repo name dir tag
+  repo=$(git rev-parse --show-toplevel 2>/dev/null) || die "not in a git repo"
+  repo=$(cd "$repo" && pwd -P)
+  name="ug-$(basename "$repo" | tr -c 'A-Za-z0-9_.\n-' '-')-$(printf '%s' "$repo" | shasum -a 256 | cut -c1-8)"
+  dir=$STATE/$name
+  tag=$(image_tag)
+  mkdir -p "$dir/sessions"
+
+  lock "$dir"
+  if running "$name"; then
+    if [[ $(cat "$dir/image" 2>/dev/null) != "$tag" ]]; then
+      if [[ $(live_sessions "$dir") -gt 0 ]]; then
+        unlock "$dir"
+        die "update waiting: box $name runs an older image; it restarts when its sessions end"
+      fi
+      container stop "$name" >/dev/null
+      boot "$name" "$repo" "$tag"
+    fi
+  else
+    boot "$name" "$repo" "$tag"
+  fi
+  echo "$tag" > "$dir/image"
+  : > "$dir/sessions/$$"
+  unlock "$dir"
+
+  trap 'finish "$dir" "$name"; exit 130' INT TERM HUP
+  local status=0
+  container exec --interactive --tty --uid 1000 --gid 1000 --env HOME=/home/agent "$name" \
+    nsenter --target 1 --user --mount -- /usr/local/bin/ug-session "$@" || status=$?
+  trap - INT TERM HUP
+  finish "$dir" "$name"
+  return "$status"
+}
+
+# When the last session quits, the box stops. The lock keeps a start from joining a box
+# that is about to stop.
+finish() {
+  local dir=$1 name=$2
+  rm -f "$dir/sessions/$$"
+  lock "$dir"
+  if [[ $(live_sessions "$dir") -eq 0 ]] && running "$name"; then
+    container stop "$name" >/dev/null 2>&1 || true
+  fi
+  unlock "$dir"
+}
+
+case ${1:-} in
+  build) build ;;
+  *) session "$@" ;;
+esac

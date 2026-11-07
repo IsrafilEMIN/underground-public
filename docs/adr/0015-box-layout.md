@@ -47,3 +47,13 @@ Sessions are one trust level and share every door (`0011-one-agent-arena.md`, "W
 - Sessions share one loopback, such as omp's `/stats` port `127.0.0.1:3847` (`0004-no-local-binding.md`, amendment "loopback allowed").
 - An update of the host code or of the config needs a setup run, not just `git pull` or an edit.
 - A rebuild loses unpushed work, which U37 names as data the owner cannot rebuild. After a takeover that work is agent-written and untrusted anyway; otherwise the list before a rebuild lets it be pushed first.
+
+## Amendment 2026-11-07: the first build, a trial
+
+Owner, 2026-11-07: build to find out what discussion cannot. The first build, `host/bin/ug-box` and `box/`, tries a different layout from the Decision above, and its results decide between them:
+
+- **One box per repo**, not one for all. It mounts the repo's top folder read-only, so the fixed-mounts problem of a shared box goes away. The cost: omp's sessions and history are per repo.
+- **ovnfs checkouts** on top of that mount, at the repo's `origin/HEAD` (or `origin/main`) as the owner's checkout last fetched it, never the owner's working files, so a push cannot carry unpushed local edits. ovnfs mounts without any added permission inside the agent's own user and mount namespace; the owner's runs of 2026-11-07 showed it in a `--network none`, `--read-only` box with omp 18.18.0, which first works with ovnfs (omp CHANGELOG, 18.17.0). So the box's omp pin is 18.18.0 (`VERSIONS`, `box_omp`).
+- **Sessions counted on the mac.** The first session boots the box, later ones join it, the last one to quit stops it; a box on an older image refuses new sessions until its last one quits.
+
+Not in the trial: the doors (no model, no broker), the config, and the start check of the running box, which waits for a real `container inspect` reply to read. So the trial box is not for unattended use. A read-only mount shows the box every file in the repo folder, ignored ones such as `.env` included; the owner accepts this (2026-11-07: no repo keeps secrets there).

@@ -1,0 +1,8 @@
+#!/bin/sh
+# The box's first process, run as root. It does the only two root steps, then drops to
+# the agent user for good: it opens the FUSE device to that user, and hands the agent
+# its home on the box's disk. ug-holder then makes the agent's private space.
+set -eu
+chmod 666 /dev/fuse
+chown 1000:1000 /home/agent
+exec setpriv --reuid 1000 --regid 1000 --clear-groups -- unshare --user --map-root-user --mount -- /usr/local/bin/ug-holder
