@@ -21,6 +21,31 @@ Irreversible: after the harm, no action restores the earlier state. A row is irr
 
 MVP 0.5 holds every irreversible underground row except U14 (accepted risk), U16 (no credential needs it yet), and U27 (deferred), plus U19, U20, and U31, which keep undo and work possible. The rest is MVPF.
 
+## The box against each row (2026-11-07)
+
+The checklist that `../AGENTS.md`, "Redesign phase", asks for: each row of MVP 0.5 against the box as built and run on the owner's mac on 2026-11-07 (`adr/0013-agent-box.md`, `adr/0015-box-layout.md`; code in `host/bin/ug-box`, `host/bin/ug-box-check.ts`, `host/egress/`, `box/`). **handled** means the box stops the harm; **accepted** means an earlier decision names it; **open** means a part is not built yet, and the box is not for unattended use until the row is handled or accepted. The control column of the tables below still describes the srt design.
+
+|row|in the box|status|
+|---|---|---|
+|U1|The box mounts nothing of the mac but its own home volume and two sockets (`ug-box-check.ts`, four mounts, checked from the mac before every session). The gateway bearer never enters the box: the egress door adds it on the mac (`host/egress/rules.ts`). A config commit that holds a token shape, the auth broker's bearer, or the gateway bearer stops the start (`ug-box`, `box_config`).|handled|
+|U2|A VM has no camera, microphone, screen, clipboard, or Apple events of the mac.|handled|
+|U3|`--network none`: the box has no route (owner run, `adr/0013-agent-box.md`, Evidence). The egress door allows `host/network-allowlist` sites by name on 443 and the two `.internal` names on their ports; the owner's box reached a model through it on 2026-11-07.|handled|
+|U4|No mac folder is mounted; repos are clones through the broker (`adr/0015-box-layout.md`, amendment "clones through the broker"). Still open: the mac runs `ug-box` and the egress door from the owner's checkout, so an agent branch checked out there runs on the mac with the gateway bearer (`adr/0001-accepted-risks.md`, amendment "the live checkout"). Closes with the installed copy.|open|
+|U6|The config repo's last commit is swapped into `~/.omp/agent` at every start, and a config name the commit lacks is removed (`box/ug-config`). The box's root is read-only.|handled|
+|U7|No network and its own loopback: the mac's localhost, LAN, and sockets are out of reach but for the two doors. Sessions share the box's one loopback (`adr/0015-box-layout.md`, Cost).|handled|
+|U8, U9, U28, U10, U12, U13, U17, U29|GitHub-side rows: unchanged. The onboarding checks (`SPEC.md`) and the broker's merge gate are the same; the broker runs on the mac, outside the box.|handled|
+|U18|The broker accepts `agent/*` and `wt/*` branches only (`AGENT_BRANCH_RE`, `host/broker/protocol.ts:55`). Owner run from inside the box, 2026-11-07, raw requests on the broker socket with the client skipped: push to `main` → `refused: branch is not an agent branch`; pr-create from `main` → `refused: head is not an agent branch`; a risk-review `block` → `refused: risk-review cannot give block`; through the client, a repo without the app → GitHub 422, and `merge` of a PR with no verdicts → `refused: code-review has no verdict on it`. Holds, protected paths, and the push-record rule were not run from the box; they rest on `tests/broker`.|handled|
+|U36|A plain omp on the mac still finds no login, because the auth services keep theirs in `~/.ug/host/auth`. Open on two counts: `omp` on `PATH` is still the srt wrapper until the switch, and the planned fold of `~/.ug` into `~/.omp` would put the logins where a plain omp looks; that fold must keep them apart.|open|
+|U15|The logins never enter the box; only the gateway bearer leaves the mac, and only inside the egress door. Tied to the same fold as U36.|handled, pending the fold|
+|U30|Unchanged: the gateway bearer authorizes every session for every served model (`adr/0005-model-auth-gateway.md`). No spend limit, by owner decision: subscription OAuth only (`adr/0013-agent-box.md`).|accepted|
+|U14|Unchanged: data can leave to an allowed site. Accepted while the repos are public (`adr/0001-accepted-risks.md`).|accepted|
+|U16, U27|Unchanged, MVPF.|as before|
+|U19, U20|Unchanged: a revert PR goes through the broker like any PR. From the box, `sync` and `pr-status` ran on 2026-11-07 (owner runs); a successful push, PR, and merge from the box have not run and rest on `tests/broker`.|handled|
+|U31|The owner's checkouts are never mounted; the box holds its own clones.|handled|
+|U37|Regressed. The daily backup snapshots `~/.ug/home`, but the box's transcripts, `history.db`, and unpushed work sit on the `ug-box-home` volume (`~/Library/Application Support/com.apple.container/volumes/ug-box-home/volume.img`), which nothing backs up. Closes with the box backup (`adr/0015-box-layout.md`, Open).|open|
+|U22|Open. The home volume and the leftover per-repo volume `ug-underground-public-…-home` grow on the mac's disk with no cap; `container volume create` takes a size (`-s`), not yet used.|open|
+|new: a taken-over box persists|A hijacked session can plant code in the shared home that later sessions load, until a rebuild (`adr/0015-box-layout.md`, Cost). The doors held against raw requests (U18). The rebuild is not built.|open|
+
 ## underground: irreversible
 
 |id|node|source|MVP|control|
