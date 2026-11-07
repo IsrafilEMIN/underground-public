@@ -28,16 +28,13 @@ jobs:
       - name: Shell syntax and lint
         run: |
           set -euo pipefail
-          scripts=(host/bin/omp-arena host/bin/ug-setup host/bin/ug-auth host/bin/ug-backup host/bin/ug-box host/lib/raw-omp-config.bash scripts/probe-arena.sh scripts/probe-u1-u2.sh scripts/broker-github-app-wizard.sh)
-          boxsh=(host/arena/init box/ug-init box/ug-holder box/ug-session)
+          scripts=(host/bin/omp-arena host/bin/ug-setup host/bin/ug-auth host/bin/ug-backup host/lib/raw-omp-config.bash scripts/probe-arena.sh scripts/probe-u1-u2.sh scripts/broker-github-app-wizard.sh)
           for f in "${scripts[@]}"; do
             bash -n "$f"
           done
-          for f in "${boxsh[@]}"; do
-            sh -n "$f"
-          done
+          sh -n host/arena/init
           shellcheck "${scripts[@]}"
-          shellcheck -s sh "${boxsh[@]}"
+          shellcheck -s sh host/arena/init
 
       - name: Launchd plist XML
         run: xmllint --noout host/launchd/*.plist
