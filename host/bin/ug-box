@@ -76,6 +76,9 @@ session() {
   name="ug-$(basename "$repo" | tr -c 'A-Za-z0-9_.\n-' '-')-$(printf '%s' "$repo" | shasum -a 256 | cut -c1-8)"
   dir=$STATE/$name
   tag=$(image_tag)
+  container image list --quiet | grep -qE "(^|/)${tag}\$" ||
+    die "the box image for the current pins is not built (${tag#ugbox:}).
+VERSIONS or the box files changed since the last build. Run: ug-box build"
   mkdir -p "$dir/sessions"
 
   lock "$dir"
@@ -86,7 +89,7 @@ session() {
       if [[ $open -gt 0 ]]; then
         unlock "$dir"
         die "update waiting for $(basename "$repo").
-The box image was rebuilt (new omp, ovnfs, or box files), but this repo's box still runs the old one,
+A newer box image is built (new omp, ovnfs, or box files), but this repo's box still runs the old one,
 because $open omp session(s) are open in it. A running box is never restarted under an open session.
 To start on the new image: quit those sessions, then run ug-box again."
       fi

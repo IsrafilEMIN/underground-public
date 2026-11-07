@@ -14,13 +14,15 @@ case "$1 $2" in
   "list --quiet") cat "$FAKE/running" 2>/dev/null ;;
   "volume list") cat "$FAKE/volumes" 2>/dev/null ;;
   "volume create") echo "$3" >> "$FAKE/volumes" ;;
+  "image list") cat "$FAKE/images" 2>/dev/null ;;
+  "build -t") echo "docker.io/library/$3" >> "$FAKE/images" ;;
   "stop "*) grep -vxF "$2" "$FAKE/running" > "$FAKE/r" || true; mv "$FAKE/r" "$FAKE/running" ;;
   "run "*) while [ "$1" != --name ]; do shift; done; echo "$2" >> "$FAKE/running" ;;
   "exec "*) case "$*" in *ug-session*) echo "SESSION";; esac ;;
 esac
 `;
 
-async function setup() {
+async function setup(built = true) {
   const root = await tempDir(join(tmpdir(), "ug-box-"));
   const bin = join(root, "bin");
   const fake = join(root, "fake");
@@ -31,8 +33,12 @@ async function setup() {
   await chmod(join(bin, "container"), 0o755);
   spawnSync("git", ["init", "-q", repo]);
   const env = { HOME: root, PATH: `${bin}:/usr/bin:/bin`, FAKE: fake, UG_BOX_STATE: join(root, "state"), UG_BOX_LOCK_WAIT: "1" };
-  const run = (cwd = repo) => spawnSync("bash", [UG_BOX], { cwd, env, encoding: "utf8" });
+  const run = (cwd = repo, ...args: string[]) => spawnSync("bash", [UG_BOX, ...args], { cwd, env, encoding: "utf8" });
   const log = async () => (await readFile(join(fake, "log"), "utf8").catch(() => "")).trim().split("\n").filter(Boolean);
+  if (built) {
+    assert.equal(run(repo, "build").status, 0);
+    await writeFile(join(fake, "log"), "");
+  }
   return { root, fake, repo, run, log };
 }
 
@@ -109,4 +115,13 @@ test("ug-box refuses outside a git repo, so no box ever mounts a folder that is 
   assert.notEqual(r.status, 0);
   assert.match(r.stderr, /not in a git repo/);
   assert.deepEqual(await s.log(), []);
+});
+
+test("ug-box refuses when the image for the current pins is not built, and boots nothing", async (t) => {
+  const s = await setup(false);
+  t.after(() => rm(s.root, { recursive: true, force: true }));
+  const r = s.run();
+  assert.notEqual(r.status, 0);
+  assert.match(r.stderr, /not built[\s\S]*ug-box build/);
+  assert.ok(!(await s.log()).some((c) => c.startsWith("run ") || c.startsWith("exec ")));
 });
