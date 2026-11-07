@@ -45,10 +45,10 @@ export function boxProblems(box: Inspected, want: { name: string; repo: string; 
   const repo = mounts.get("/repo");
   const door = mounts.get("/tmp/ug-egress.sock");
   const known = c.mounts.filter((m) => ["/tmp", "/home/agent", "/repo", "/tmp/ug-egress.sock"].includes(m.destination));
-  if (known.length !== c.mounts.length || mounts.size !== c.mounts.length) {
+  if (c.mounts.length !== 4 || known.length !== 4 || mounts.size !== 4) {
     problems.push(`unexpected mounts: ${c.mounts.map((m) => m.destination).join(", ")}`);
   }
-  if (door && door.source !== want.egress) problems.push(`/tmp/ug-egress.sock is ${door.source}, not the egress door`);
+  if (!door?.type.virtiofs || door.source !== want.egress) problems.push(`/tmp/ug-egress.sock is not the egress door ${want.egress}`);
   if (!tmp?.type.tmpfs) problems.push("/tmp is not a tmpfs");
   if (home?.type.volume?.name !== `${want.name}-home`) problems.push("/home/agent is not the box's own volume");
   if (!repo?.type.virtiofs || repo.source !== want.repo || !repo.options.includes("ro")) problems.push(`/repo is not ${want.repo}, read-only`);
