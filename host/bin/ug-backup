@@ -13,6 +13,12 @@ backup="$HOME/.ug/host/backup"
 config="$backup/config"
 tries=${UG_BACKUP_WAIT_TRIES:-30}
 pause=${UG_BACKUP_WAIT_SECONDS:-10}
+box_image=""
+if [[ -f $HOME/.ug/sys/box/host/lib/box-image.bash ]]; then
+  # shellcheck source=host/lib/box-image.bash disable=SC1091
+  source "$HOME/.ug/sys/box/host/lib/box-image.bash"
+  box_image=$(box_image_tag "$HOME/.ug/sys/box")
+fi
 
 log() { printf '%s ug-backup: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >&2; }
 die() {
@@ -78,11 +84,27 @@ else
   status=$?
   if [[ $status -eq 0 || $status -eq 3 ]]; then
     [[ $status -eq 0 ]] || log "some files could not be read (restic exit 3); the snapshot holds the rest"
-    date +%s >"$backup/last"
     status=0
   else
     log "the backup to $repo failed with restic exit $status"
   fi
+  if [[ $status -eq 0 ]] && container volume list --quiet 2>/dev/null | grep -qxF ug-box-home; then
+    tar_cmd=(tar -C /home/agent -c --exclude ./.tmp --exclude ./.cache --exclude ./.omp/agent/cache --exclude node_modules .)
+    if container list --quiet 2>/dev/null | grep -qxF ug-box; then
+      reader=(container exec ug-box)
+    elif [[ -n $box_image ]]; then
+      reader=(container run --rm --network none --volume ug-box-home:/home/agent "$box_image")
+    else
+      log "the box home is there but no box image is installed to read it; run host/bin/ug-setup"
+      status=1
+    fi
+    if [[ $status -eq 0 ]]; then
+      "${reader[@]}" "${tar_cmd[@]}" | "$restic_bin" -r "$repo" backup --quiet --tag ug-box --stdin --stdin-filename ug-box-home.tar
+      status=$?
+      [[ $status -eq 0 ]] || log "the backup of the box home to $repo failed with restic exit $status"
+    fi
+  fi
+  [[ $status -ne 0 ]] || date +%s >"$backup/last"
 fi
 
 if [[ $woke -eq 1 ]]; then

@@ -42,9 +42,9 @@ The checklist that `../AGENTS.md`, "Redesign phase", asks for: each row of MVP 0
 |U16, U27|Unchanged, MVPF.|as before|
 |U19, U20|Unchanged: a revert PR goes through the broker like any PR. From the box, `sync` and `pr-status` ran on 2026-11-07 (owner runs); a successful push, PR, and merge from the box have not run and rest on `tests/broker`.|handled|
 |U31|The owner's checkouts are never mounted; the box holds its own clones.|handled|
-|U37|Regressed. The daily backup snapshots `~/.ug/home`, but the box's transcripts, `history.db`, and unpushed work sit on the `ug-box-home` volume (`~/Library/Application Support/com.apple.container/volumes/ug-box-home/volume.img`), which nothing backs up. Closes with the box backup (`adr/0015-box-layout.md`, Open).|open|
+|U37|The daily backup snapshots `~/.ug/home` and, in a second snapshot, a tar stream of the box's home from the `ug-box-home` volume: read in place through `container exec` while the box runs, or through a throwaway container on the installed image when it is stopped, never by a second mount of the volume (`host/bin/ug-backup`, `tests/host/ug-backup.test.ts`). `host/bin/ug-box-restore [snapshot]` deletes the volume and fills a new one from a snapshot, with no box running. Not yet run on the owner's mac; the backup runs from the owner's checkout (U4).|handled, pending the owner's run|
 |U22|Open. The home volume and the leftover per-repo volume `ug-underground-public-…-home` grow on the mac's disk with no cap; `container volume create` takes a size (`-s`), not yet used.|open|
-|new: a taken-over box persists|A hijacked session can plant code in the shared home that later sessions load, until a rebuild (`adr/0015-box-layout.md`, Cost). The doors held against raw requests (U18). The rebuild is not built.|open|
+|new: a taken-over box persists|A hijacked session can plant code in the shared home that later sessions load, until a rebuild (`adr/0015-box-layout.md`, Cost). The doors held against raw requests (U18). The rebuild: `container volume delete ug-box-home` for a clean home, or `host/bin/ug-box-restore <snapshot>` for a home from before the takeover; the image is rebuilt by setup from the pins.|handled by hand|
 
 ## underground: irreversible
 
