@@ -5,6 +5,7 @@ SRC=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)
 STATE=${UG_BOX_STATE:-$HOME/.local/state/underground/box}
 LOCK_WAIT=${UG_BOX_LOCK_WAIT:-30}
 READY_WAIT=${UG_BOX_READY_WAIT:-20}
+NODE=${UG_BOX_NODE:-/opt/homebrew/bin/node}
 
 die() { echo "ug-box: $*" >&2; exit 1; }
 
@@ -98,6 +99,11 @@ To start on the new image: quit those sessions, then run ug-box again."
     fi
   else
     boot "$name" "$repo" "$tag"
+  fi
+  if [[ $(container inspect "$name" | "$NODE" "$SRC/host/bin/ug-box-check.ts" "$name" "$repo" "$tag") != BOX_OK ]]; then
+    [[ $(live_sessions "$dir") -gt 0 ]] || container stop "$name" >/dev/null 2>&1 || true
+    unlock "$dir"
+    die "box $name failed its check (listed above), so no session started"
   fi
   echo "$tag" > "$dir/image"
   : > "$dir/sessions/$$"

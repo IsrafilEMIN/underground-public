@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { tempDir } from "../temp.ts";
+import { inspectedBox } from "./fixtures/box-inspect.ts";
 
 const UG_BOX = join(import.meta.dirname, "../../host/bin/ug-box");
 
@@ -19,6 +20,7 @@ case "$1 $2" in
   "stop "*) grep -vxF "$2" "$FAKE/running" > "$FAKE/r" || true; mv "$FAKE/r" "$FAKE/running" ;;
   "run "*) while [ "$1" != --name ]; do shift; done; echo "$2" >> "$FAKE/running" ;;
   "exec "*) case "$*" in *ug-session*) echo "SESSION";; esac ;;
+  "inspect "*) sed -e "s|__NAME__|$2|g" -e "s|__REF__|$(tail -n 1 "$FAKE/images")|g" "$FAKE/inspect.json" ;;
 esac
 `;
 
@@ -32,7 +34,8 @@ async function setup(built = true) {
   await writeFile(join(bin, "container"), FAKE);
   await chmod(join(bin, "container"), 0o755);
   spawnSync("git", ["init", "-q", repo]);
-  const env = { HOME: root, PATH: `${bin}:/usr/bin:/bin`, FAKE: fake, UG_BOX_STATE: join(root, "state"), UG_BOX_LOCK_WAIT: "1" };
+  const env = { HOME: root, PATH: `${bin}:/usr/bin:/bin`, FAKE: fake, UG_BOX_STATE: join(root, "state"), UG_BOX_LOCK_WAIT: "1", UG_BOX_NODE: process.execPath };
+  await writeFile(join(fake, "inspect.json"), JSON.stringify([inspectedBox("__NAME__", repo, "__REF__")]));
   const run = (cwd = repo, ...args: string[]) => spawnSync("bash", [UG_BOX, ...args], { cwd, env, encoding: "utf8" });
   const log = async () => (await readFile(join(fake, "log"), "utf8").catch(() => "")).trim().split("\n").filter(Boolean);
   if (built) {
@@ -124,4 +127,18 @@ test("ug-box refuses when the image for the current pins is not built, and boots
   assert.notEqual(r.status, 0);
   assert.match(r.stderr, /not built[\s\S]*ug-box build/);
   assert.ok(!(await s.log()).some((c) => c.startsWith("run ") || c.startsWith("exec ")));
+});
+
+test("a box whose real settings fail the check gets no session, and is stopped", async (t) => {
+  const s = await setup();
+  t.after(() => rm(s.root, { recursive: true, force: true }));
+  const weak = inspectedBox("__NAME__", s.repo, "__REF__");
+  weak.configuration.networks.push({ network: "default" });
+  await writeFile(join(s.fake, "inspect.json"), JSON.stringify([weak]));
+  const r = s.run();
+  assert.notEqual(r.status, 0);
+  assert.match(r.stderr, /has a network[\s\S]*failed its check/);
+  const calls = await s.log();
+  assert.ok(!calls.some((c) => c.includes("ug-session")), "a session started in a box that failed its check");
+  assert.equal(calls.at(-1), `stop ${await bootedName(s)}`);
 });
