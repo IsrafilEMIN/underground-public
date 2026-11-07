@@ -20,7 +20,7 @@ So the two jobs go to two layers.
 - **The session runtime is bubblewrap** (owner decision, 2026-11-07), run as `bwrap --unshare-user --uid 1000 --gid 1000 --cap-drop ALL` with its own network and process namespaces. The box runs with `--masked-path NONE --read-only-path NONE`, which bubblewrap needs for a session's own `/proc`; both flags are experimental in `container` 1.7.1, so the start checks for them like `--network none` (Evidence).
 - **Image layer, read-only.** The pinned Linux base and the Linux omp, rebuilt only when a pin changes.
 - **Config layer, read-only.** The owner's agent-config repo, in the places where omp already looks for each item. Nothing is copied into the box or reset at a start.
-- **State layer: data only, on one volume of the VM.** Shared across sessions only where omp reads it as data:
+- **State layer: data only, on one volume of the VM.** Reopened on 2026-11-07, because omp's data folder holds code (Evidence, Open); the table below is the first draft. Shared across sessions only where omp reads it as data:
 
 | state | shared across sessions | why |
 |---|---|---|
