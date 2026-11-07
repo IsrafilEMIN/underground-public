@@ -25,7 +25,7 @@ image_tag() {
 
 build() {
   local ctx status=0
-  ctx=$(mktemp -d)
+  ctx=$(mktemp -d) || die "cannot make a temp folder for the build"
   cp "$SRC"/box/* "$SRC/host/broker/client.ts" "$SRC/host/broker/protocol.ts" "$ctx/"
   container build -t "$(image_tag)" \
     --build-arg "OMP_VERSION=$(pin box_omp)" --build-arg "OMP_SHA256=$(pin box_omp_sha256)" \
@@ -83,17 +83,43 @@ egress_up() {
   unlock "$STATE/door"
 }
 
-box_models() {
-  local repo_file=$UG/host/config-repo cfg gateway models
+box_config() {
+  local repo_file=$UG/host/config-repo cfg gateway stage name item odd leak secrets
   cfg=$(sed -n '1p' "$repo_file" 2>/dev/null) || true
   [[ -n $cfg ]] || die "no config repo: $repo_file names none"
   cfg=${cfg/#\~/$HOME}
-  [[ -f $cfg/models.yml ]] || die "the config repo $cfg has no models.yml"
+  [[ -d $cfg && ! -L $cfg ]] || die "the config repo $cfg is not a folder"
   gateway=$(sed -n 's/^gateway=//p' "$UG/host/addresses" 2>/dev/null) || true
   [[ $gateway == *:* ]] || die "the addresses file $UG/host/addresses has no gateway=<address>:<port> line"
-  models=$(sed -e "s/@GATEWAY@/gateway.internal:${gateway##*:}/g" -e "s/@GATEWAY_TOKEN@/ug-placeholder/g" "$cfg/models.yml")
-  if grep -qE '@[A-Z_]+@' <<<"$models"; then die "models.yml of the config repo has an unknown placeholder"; fi
-  printf '%s\n' "$models"
+  stage=$(mktemp -d) || die "cannot make a temp folder for the config"
+  mkdir "$stage/repo" "$stage/out" || die "cannot use the temp folder $stage"
+  git -C "$cfg" archive --format=tar HEAD | tar -x -C "$stage/repo" || { rm -rf "$stage"; die "cannot read the last commit of the config repo $cfg"; }
+  [[ -z $(git -C "$cfg" status --porcelain 2>/dev/null) ]] ||
+    echo "ug-box: the config repo has changes that are not committed; the box gets its last commit" >&2
+  secrets=$stage/secrets
+  : >"$secrets"
+  local token_file value
+  for token_file in "$UG/host/auth/auth-broker.token" "$UG/host/auth/auth-gateway.token"; do
+    value=$({ tr -d '[:space:]' <"$token_file"; } 2>/dev/null) || value=""
+    [[ ${#value} -lt 12 ]] || printf '%s\n' "$value" >>"$secrets"
+  done
+  while IFS= read -r name; do
+    item=$stage/repo/$name
+    [[ -e $item || -L $item ]] || continue
+    odd=$(find "$item" \( -type l -o ! -type f ! -type d \) -print 2>/dev/null | head -1)
+    [[ -z $odd ]] || { rm -rf "$stage"; die "the config repo has a link or a special file, which the box must not get: ${odd#"$stage/repo/"}"; }
+    leak=$(grep -r -l -a -E -f "$SRC/host/secret-patterns" "$item" 2>/dev/null | head -1) || true
+    [[ -n $leak || ! -s $secrets ]] || leak=$(grep -r -l -a -F -f "$secrets" "$item" 2>/dev/null | head -1) || true
+    [[ -z $leak ]] || { rm -rf "$stage"; die "the config repo file ${leak#"$stage/repo/"} holds a token or a key; the agent reads every config file, so take it out"; }
+    [[ $name != models.yaml ]] || { rm -rf "$stage"; die "the config repo has models.yaml; name it models.yml"; }
+    cp -R "$item" "$stage/out/$name"
+  done <"$SRC/box/config-names"
+  [[ -f $stage/out/models.yml ]] || { rm -rf "$stage"; die "the last commit of the config repo $cfg has no models.yml"; }
+  sed -i.bak -e "s/@GATEWAY@/gateway.internal:${gateway##*:}/g" -e "s/@GATEWAY_TOKEN@/ug-placeholder/g" "$stage/out/models.yml"
+  rm -f "$stage/out/models.yml.bak"
+  if grep -qE '@[A-Z_]+@' "$stage/out/models.yml"; then rm -rf "$stage"; die "models.yml of the config repo has an unknown placeholder"; fi
+  COPYFILE_DISABLE=1 tar -c -f "$stage/config.tar" -C "$stage/out" .
+  echo "$stage"
 }
 
 repo_slug() {
@@ -127,7 +153,7 @@ boot() {
 }
 
 session() {
-  local slug tag models
+  local slug tag
   slug=$(repo_slug)
   tag=$(image_tag)
   container image list --quiet | grep -qE "(^|/)${tag}\$" ||
@@ -135,7 +161,8 @@ session() {
 VERSIONS or the box files changed since the last build. Run: ug-box build"
   [[ -S $BROKER ]] || die "the GitHub broker is not running: no socket at $BROKER"
   mkdir -p "$DIR/sessions"
-  models=$(box_models)
+  STAGE=$(box_config)
+  trap 'rm -rf "$STAGE"' EXIT
   egress_up
 
   lock "$DIR"
@@ -164,8 +191,9 @@ To start on the new image: quit those sessions, then run ug-box again."
   echo "$tag" > "$DIR/image"
   : > "$DIR/sessions/$$"
   unlock "$DIR"
-  container exec --interactive --uid 1000 --gid 1000 "$NAME" \
-    sh -c 'mkdir -p /home/agent/.omp/agent && cat > /home/agent/.omp/agent/models.yml' <<<"$models"
+  container exec --interactive --uid 1000 --gid 1000 --env HOME=/home/agent "$NAME" /usr/local/bin/ug-config <"$STAGE/config.tar" ||
+    { finish; die "the config did not go into the box"; }
+  rm -rf "$STAGE"
 
   trap 'finish; exit 130' INT TERM HUP
   local status=0
