@@ -209,8 +209,6 @@ install_arena_files() {
   printf 'arena files: installed in %s\n' "$sys"
 }
 
-# The egress door runs from a copy that only setup writes, never from the checkout: an agent branch
-# checked out there must not reach the door's code, its srt pin, or its allowlist (docs/adr/0015-box-layout.md).
 install_egress() {
   local dir="$sys/egress" f
   install -d -m 700 "$dir" "$dir/host/egress"
