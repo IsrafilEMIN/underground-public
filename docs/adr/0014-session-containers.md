@@ -15,7 +15,7 @@ So the two jobs go to two layers.
 ## Decision (proposed)
 
 - **The wall: one long-running VM.** Apple `container`, `--network none`, one kernel (`0013-agent-box.md`, Evidence). It runs while sessions run and restarts from the pinned image when the image changes. Every session runs on its kernel, so omp's SQLite files and session locks work as omp expects.
-- **A throwaway Linux container per session, inside the VM.** It shares the VM's kernel and has its own mounts and processes. It can write only its own worktree, its own session files, its own agent database, and its own `config.yml`. It reads the config layer and the shared state that it needs, and it cannot see the other sessions' files or processes. When the session ends, its container goes.
+- **A throwaway Linux container per session, inside the VM.** It shares the VM's kernel and has its own mounts and processes. It can write its own worktree, its own session folder, its own agent database, its own `config.yml`, and the shared history database. It reads the config layer and the other sessions' transcripts and attachments read-only, and it cannot see the other sessions' worktrees or processes. When the session ends, its container goes.
 - **Its own network namespace and relay.** Each session container has its own loopback and its own relay to the egress socket, so sessions cannot reach each other's local ports. With one shared namespace, a session that held `127.0.0.1:3847` would serve omp's `/stats` page to the others (`0004-no-local-binding.md`, amendment "loopback allowed").
 - **Image layer, read-only.** The pinned Linux base and the Linux omp, rebuilt only when a pin changes.
 - **Config layer, read-only.** The owner's agent-config repo, in the places where omp already looks for each item. Nothing is copied into the box or reset at a start.
@@ -60,3 +60,4 @@ So the two jobs go to two layers.
 - Sessions share one kernel, so a kernel escape from one session reaches the others. A VM per session would not share it, but it splits omp's state (Rejected).
 - A container runtime inside the VM to pin and configure.
 - omp features that need macOS do not work in the box: Apple's on-device model and macOS spelling prediction.
+- The history database is the one write path between sessions that the session container does not close: a taken-over session can rewrite other sessions' prompt history, titles, and recaps, and recalling a poisoned prompt sends it again. A history database per session would close it, at the cost of prompt history across sessions (Evidence).
