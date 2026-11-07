@@ -54,12 +54,12 @@ async function setup(built = true) {
   commit(cfg);
   await writeFile(join(ug, "host/config-repo"), "~/cfg\n");
   await writeFile(join(ug, "host/addresses"), "gateway=100.64.0.1:4000\n");
-  await writeFile(join(bin, "fake-egress"), `#!/bin/sh\nexec "${process.execPath}" -e 'require("net").createServer().listen(process.argv[1])' "$1"\n`);
-  await chmod(join(bin, "fake-egress"), 0o755);
   const broker = join(root, "broker.sock");
   const brokerServer = createServer().listen(broker);
   await once(brokerServer, "listening");
-  const egress = join(root, "state/egress.sock");
+  const egress = join(root, "egress.sock");
+  const egressServer = createServer().listen(egress);
+  await once(egressServer, "listening");
   const env = {
     HOME: root,
     PATH: `${bin}:/usr/bin:/bin`,
@@ -68,7 +68,8 @@ async function setup(built = true) {
     UG_BOX_STATE: join(root, "state"),
     UG_BOX_LOCK_WAIT: "1",
     UG_BOX_NODE: process.execPath,
-    UG_BOX_EGRESS: join(bin, "fake-egress"),
+    UG_BOX_EGRESS_SOCKET: egress,
+    UG_BOX_READY_WAIT: "1",
     UG_BOX_BROKER: broker,
   };
   await writeFile(join(fake, "inspect.json"), JSON.stringify([inspectedBox("__NAME__", "__REF__", egress, broker)]));
@@ -79,15 +80,15 @@ async function setup(built = true) {
     await writeFile(join(fake, "log"), "");
   }
   const cleanup = async () => {
-    const pid = Number(await readFile(join(root, "state/egress.pid"), "utf8").catch(() => ""));
-    if (pid) spawnSync("kill", [String(pid)]);
-    if (brokerServer.listening) {
-      brokerServer.close();
-      await once(brokerServer, "close");
+    for (const server of [brokerServer, egressServer]) {
+      if (server.listening) {
+        server.close();
+        await once(server, "close");
+      }
     }
     await rm(root, { recursive: true, force: true });
   };
-  return { root, fake, repo, cfg, egress, broker, brokerServer, run, log, cleanup };
+  return { root, fake, repo, cfg, egress, broker, brokerServer, egressServer, run, log, cleanup };
 }
 
 interface Box {
@@ -178,6 +179,17 @@ test("outside a repo the session starts in the box with no repo, and a repo with
   const bad = s.run();
   assert.notEqual(bad.status, 0);
   assert.match(bad.stderr, /no GitHub origin/);
+  assert.ok(!(await s.log()).some((c) => c.startsWith("run ") || c.startsWith("exec ")));
+});
+
+test("ug-box refuses when the egress door is not running, and boots nothing", async (t) => {
+  const s = await setup();
+  t.after(s.cleanup);
+  s.egressServer.close();
+  await once(s.egressServer, "close");
+  const r = s.run();
+  assert.notEqual(r.status, 0);
+  assert.match(r.stderr, /egress door is not running[\s\S]*launchd/);
   assert.ok(!(await s.log()).some((c) => c.startsWith("run ") || c.startsWith("exec ")));
 });
 

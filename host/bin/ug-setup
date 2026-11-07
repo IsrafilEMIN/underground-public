@@ -35,7 +35,7 @@ sys="$HOME/.ug/sys"
 node_bin=/opt/homebrew/bin/node
 npm_bin=/opt/homebrew/bin/npm
 srt_package=@anthropic-ai/sandbox-runtime
-labels="com.underground.broker com.underground.auth-broker com.underground.auth-gateway com.underground.usage-broker com.underground.backup"
+labels="com.underground.broker com.underground.auth-broker com.underground.auth-gateway com.underground.usage-broker com.underground.backup com.underground.egress"
 agents_dir="$HOME/Library/LaunchAgents"
 addresses_file="$HOME/.ug/host/addresses"
 host_zone="$HOME/.ug/host"
@@ -209,6 +209,17 @@ install_arena_files() {
   printf 'arena files: installed in %s\n' "$sys"
 }
 
+# The egress door runs from a copy that only setup writes, never from the checkout: an agent branch
+# checked out there must not reach the door's code, its srt pin, or its allowlist (docs/adr/0015-box-layout.md).
+install_egress() {
+  local dir="$sys/egress" f
+  install -d -m 700 "$dir" "$dir/host/egress"
+  for f in host/egress/server.ts host/egress/rules.ts VERSIONS host/network-allowlist; do
+    put "$src/$f" "$dir/$f" 444
+  done
+  printf 'egress door: installed in %s\n' "$dir"
+}
+
 # The raw omp's config, before the probe: its raw-models check reads it, and the wrapper, which
 # also writes it, cannot start until the probe passes (host/lib/raw-omp-config.bash).
 install_raw_config() {
@@ -291,7 +302,7 @@ install_services() {
   for label in $labels; do
     rendered=$(mktemp "$agents_dir/.$label.XXXXXX")
     cleanup+=("$rendered")
-    sed -e "s|@OMP@|$sys/omp/$omp_pin/omp|g" -e "s|@SRC@|$src|g" -e "s|@HOME@|$HOME|g" \
+    sed -e "s|@OMP@|$sys/omp/$omp_pin/omp|g" -e "s|@SRC@|$src|g" -e "s|@SYS@|$sys|g" -e "s|@HOME@|$HOME|g" \
       -e "s|@GATEWAY@|$gateway|g" -e "s|@ENGINE@|$engine|g" "$src/host/launchd/$label.plist" >"$rendered"
     left=$(grep -o '@[A-Z_]*@' "$rendered" | head -1) || true
     [[ -z $left ]] || die "host/launchd/$label.plist has an unknown placeholder $left"
@@ -305,6 +316,7 @@ install_omp
 install_srt
 install_restic
 install_arena_files
+install_egress
 setup_backup
 install_services
 install_raw_config

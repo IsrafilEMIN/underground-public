@@ -29,8 +29,7 @@ Sessions are one trust level and share every door (`0011-one-agent-arena.md`, "W
 
 ## Open
 
-- The egress door as a launchd service that restarts itself, run from the installed copy; today `ug-box` starts it from the checkout and nothing restarts it.
-- The installed copy (Decision): not built; `ug-box` and the egress door run from the owner's checkout (`../THREAT-MODEL.md`, U4).
+- Built 2026-11-07: the egress door is the launchd service `com.underground.egress` (`KeepAlive`), run from `~/.ug/sys/egress`, a copy that setup writes of the door's code, `VERSIONS`, and `host/network-allowlist`; `ug-box` refuses when its socket is missing. The installed copy of the rest (`ug-box` itself) is still open: it runs from the owner's checkout (`../THREAT-MODEL.md`, U4).
 - The backup of the box's disk (`../THREAT-MODEL.md`, U37, regressed), the rebuild, and a size cap on the home volume (U22).
 - The fold of `~/.ug` into `~/.omp`, and the removal of the srt design: the wrapper, `host/arena/init`, the zones, the probes and their tests, the docs and glossary terms.
 - The switch: `omp` on `PATH` becomes `ug-box`, and the trial name goes.
