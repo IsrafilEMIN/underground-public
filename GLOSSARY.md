@@ -54,6 +54,26 @@ _Avoid_: role home, profile, owner part
 The owner's private repo of agent configs, `~/Developer/agent-config`, in the owner's zone, named in `~/.ug/host/config-repo`: `AGENTS.md`, skills, hooks, `config.yml`, `models.yml` with the gateway markers, and other settings, laid out like omp's `~/.omp/agent`. It holds what the agent does inside the walls; underground holds the walls, such as the network allowlist. It holds no secret: the wrapper refuses to start on a link, a special file, or a token in it. The owner's local folder is the source of truth; GitHub keeps a private backup. The wrapper copies it into the arena at each start, and it owns its names there, so a change that the agent makes to its config lasts until the next start (`docs/SPEC.md`, B3).
 _Avoid_: dotfiles, role config
 
+**Box** (proposed):
+The agent's own machine: one long-running Apple `container` VM with no network and its own kernel. It replaces the sandbox and the arena once built. It reaches the host only through doors (`docs/adr/0013-agent-box.md`, `docs/adr/0014-session-containers.md`).
+_Avoid_: sandbox, arena, VM per session
+
+**Door** (proposed):
+A unix socket that the host owns and mounts into the box: the egress door and the broker door. Each door must hold against a hostile caller (`docs/adr/0013-agent-box.md`).
+_Avoid_: hole, port, tunnel
+
+**Egress guard** (proposed):
+srt's HTTP proxy on the host, behind the egress door. It allows a site by its name only, maps the `.internal` names of host services, and adds the gateway bearer to model calls, so the box holds no secret (`docs/adr/0013-agent-box.md`).
+_Avoid_: firewall, filter, MITM proxy
+
+**Session container** (proposed):
+A throwaway Linux container inside the box, one per omp session, with its own network namespace and relay. It can write only its own worktree, session files, agent database, and `config.yml`, and cannot see the other sessions (`docs/adr/0014-session-containers.md`).
+_Avoid_: sandbox, box, VM
+
+**State layer** (proposed):
+The one volume of the box that outlives sessions: session transcripts, attachments, the history and stats databases, and pins. It holds only what omp reads as data; anything that can turn back into config or code stays per session or read-only (`docs/adr/0014-session-containers.md`).
+_Avoid_: home, arena, persistence
+
 ### Running omp
 
 **Wrapper**:

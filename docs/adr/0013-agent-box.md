@@ -1,6 +1,6 @@
 # The agent box: a VM with no network, and doors that the host owns
 
-Date: 2026-11-07. Status: proposed. The owner agreed to the rough layout on 2026-11-07; the doors, the folders, and the start are not decided yet. Once built, it supersedes `0004-no-local-binding.md` and `0011-one-agent-arena.md` (except its one trust level), and amends `0001-accepted-risks.md`, `0005-model-auth-gateway.md`, `0008-preflight.md`, and `0012-pinned-omp-and-setup.md`. Each of them has an amendment of 2026-11-07 that says what changes.
+Date: 2026-11-07. Status: proposed. The owner agreed to the rough layout on 2026-11-07; the doors, the folders, and the start are not decided yet. Once built, it supersedes `0004-no-local-binding.md` and `0011-one-agent-arena.md` (except its one trust level), and amends `0001-accepted-risks.md`, `0005-model-auth-gateway.md`, `0008-preflight.md`, and `0012-pinned-omp-and-setup.md`. Each of them has an amendment of 2026-11-07 that says what changes. Amended by `0014-session-containers.md` (2026-11-07): one long-running VM, a Linux container per session inside it, and the layers of the box.
 
 ## Context
 
@@ -13,8 +13,8 @@ The agent runs on the owner's mac as the owner's user. It shares the user, the n
 
 ## Decision (proposed)
 
-- **The box.** The agent runs in an Apple `container` VM with `--network none`: its own kernel, filesystem, and loopback, and no route off the box. Each start is a fresh VM from a pinned image, with the box's home on a host volume that persists (where it lives: Open).
-- **Vanilla omp inside.** omp runs in its default layout in the box's home. Nothing in omp is moved, wrapped, or reset. Whatever the agent changes inside the box stays inside it, and a reset or a backup restore undoes it.
+- **The box.** The agent runs in an Apple `container` VM with `--network none`: its own kernel, filesystem, and loopback, and no route off the box. One VM runs for all sessions, and each session runs in its own throwaway Linux container inside it (`0014-session-containers.md`).
+- **Vanilla omp inside.** omp runs in its default layout. Nothing in omp is moved, wrapped, or reset; what each session can write, and what it shares with other sessions, is set by the layers of `0014-session-containers.md`.
 - **Doors.** The box reaches the host only through unix sockets that the host mounts in. Draft list: the GitHub broker, and an egress socket to an allowlist proxy on the host. Model calls go through the egress door, and the host adds the gateway bearer there, so no secret enters the box.
 - **Safety lives in the doors.** A box can be taken over and stay taken over across starts, so each door must hold against a hostile caller. What the broker door allows (`broker merge`, N1 of the 2026-11-07 re-check) and what the model door can spend are part of this design, not separate from it.
 - **srt.** It stops being the sandbox and stays as the egress proxy.
@@ -40,8 +40,8 @@ Owner runs on this mac, 2026-11-07, `container` 1.7.1 (`container --version`: `b
 
 - The doors against a hostile caller: the broker verbs, model spend, the allowlist.
 - The relay inside the box: omp, git, and npm reach a proxy by host and port (`HTTPS_PROXY`), not by a socket, so the image needs a TCP-to-socket relay on the box's loopback.
-- What persists, where it lives on the host, and what the backup covers.
-- The image: how omp gets in, the Linux omp pin, and how a session starts.
+- What persists, where it lives, and what the backup covers: `0014-session-containers.md`, state layer and Open.
+- The image and how a session starts: `0014-session-containers.md`, Open.
 - Where the host code runs from (N2, `0001-accepted-risks.md`, amendment 2026-11-03).
 
 ## Rejected
@@ -54,6 +54,6 @@ Owner runs on this mac, 2026-11-07, `container` 1.7.1 (`container --version`: `b
 ## Cost
 
 - A Linux image to build and pin, and a Linux omp.
-- A VM per session: more memory and a slower start than srt [inference, not measured].
+- A VM for the box: memory and start time. Measured on 2026-11-07: a box starts in under a second, and the cost of the VM on the mac is not measured (`0014-session-containers.md`, Evidence).
 - `--network none` is undocumented in `container` 1.7.1, so an update can remove it; the start must refuse a box that has a route.
 - Tailscale is wider than loopback: every device on the tailnet can reach a service that listens there, and a loopback service only this mac. If the auth broker moved to the tailscale address, its bearer would be the only thing that keeps every tailnet device from the provider logins.
