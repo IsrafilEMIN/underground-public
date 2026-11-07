@@ -24,4 +24,13 @@ branch=$(printf '%s\n' "$synced" | sed -n 's|^origin/\([^ ]*\) is now .*|\1|p')
 [ -n "$branch" ] || { echo "ug-session: broker sync gave no branch: $synced" >&2; exit 69; }
 checkout=$(ovnfs new "$clone" --rev "origin/$branch")
 cd "$checkout"
-exec omp "$@"
+git switch -q -c "wt/$(date -u +%Y%m%d-%H%M%S)-$$"
+status=0
+omp "$@" || status=$?
+cd "$HOME"
+if [ -z "$(git -C "$checkout" status --porcelain)" ] && [ "$(git -C "$checkout" rev-list --count "origin/$branch..HEAD")" = 0 ]; then
+  ovnfs rm "$(basename "$checkout")" >/dev/null || echo "ug-session: could not remove the clean checkout $checkout" >&2
+else
+  echo "ug-session: kept $checkout: it has changes or commits" >&2
+fi
+exit "$status"
