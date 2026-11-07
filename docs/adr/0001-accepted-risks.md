@@ -27,3 +27,7 @@ Rejected: setup copies the host code at a commit into the owner zone and points 
 ## Amendment 2026-11-07: the agent box (proposed)
 
 `0013-agent-box.md` is proposed, not built. Until it is built, this ADR describes the system. Once built, two things change. U14 stays, but the allowlist moves: srt's HTTP proxy runs on the host behind the box's egress socket and allows a site by its name only, instead of srt wrapping the sandbox. The finer check that would open each HTTPS connection was rejected because it would stop only an anonymous upload to an allowed site, which is U14 itself (`0013-agent-box.md`, "Egress by name only"). The live checkout acceptance is open again: its own revisit condition is "an unattended agent setup", and `0013-agent-box.md` lists where the host code runs from (N2) under Open.
+
+## Amendment 2026-11-07: an installed copy of the host code (proposed)
+
+Owner decision, 2026-11-07. Once the box is built, the mac runs underground from a copy that setup installs from a merged `main` commit into a folder that only setup writes, not from the owner's checkout (`0015-box-layout.md`). The "live checkout" acceptance then ends: a checkout of an agent branch in the owner's folder runs nothing on the mac. An update is `git pull`, then setup.

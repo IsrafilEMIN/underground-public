@@ -55,7 +55,7 @@ The owner's private repo of agent configs, `~/Developer/agent-config`, in the ow
 _Avoid_: dotfiles, role config
 
 **Box** (proposed):
-The agent's own machine: one long-running Apple `container` VM with no network and its own kernel. It replaces the sandbox and the arena once built. It reaches the host only through doors (`docs/adr/0013-agent-box.md`, `docs/adr/0014-session-containers.md`).
+The agent's own machine: one long-running Apple `container` VM with no network and its own kernel. Every session runs in it on one home, with no container per session. It replaces the sandbox and the arena once built. It reaches the host only through doors (`docs/adr/0013-agent-box.md`, `docs/adr/0015-box-layout.md`).
 _Avoid_: sandbox, arena, VM per session
 
 **Door** (proposed):
@@ -66,13 +66,9 @@ _Avoid_: hole, port, tunnel
 srt's HTTP proxy on the host, behind the egress door. It allows a site by its name only, maps the `.internal` names of host services, and adds the gateway bearer to model calls, so the box holds no secret (`docs/adr/0013-agent-box.md`).
 _Avoid_: firewall, filter, MITM proxy
 
-**Session container** (proposed):
-A throwaway Linux container inside the box, one per omp session, with its own network namespace and relay. It writes its own worktree, session folder, agent database, and `config.yml`, plus the shared history database; it reads the other sessions' transcripts and attachments, and cannot see their worktrees or processes (`docs/adr/0014-session-containers.md`).
-_Avoid_: sandbox, box, VM
-
-**State layer** (proposed):
-The one volume of the box that outlives sessions: session transcripts, attachments, the history and stats databases, and pins. It holds only what omp reads as data; anything that can turn back into config or code stays per session or read-only (`docs/adr/0014-session-containers.md`).
-_Avoid_: home, arena, persistence
+**Rebuild** (proposed):
+A fresh home in the box from the pinned image and the config, which carries over only the transcripts and their attachments. Code planted in the home does not survive it (`docs/adr/0015-box-layout.md`).
+_Avoid_: reset, wipe, reinstall
 
 ### Running omp
 
@@ -229,3 +225,4 @@ These terms name parts of the first design. The ADRs from before 2026-11-02 use 
 - **Role rules**: now a skill in the config repo.
 - **Reviewer store**: reviewers read the PR in the arena clone.
 - **Install record**: setup replaces the install, and `git status` shows a changed file (`docs/adr/0012-pinned-omp-and-setup.md`).
+- **Session container**, **state layer**: one home in the box, with no container per session (`docs/adr/0015-box-layout.md`).
