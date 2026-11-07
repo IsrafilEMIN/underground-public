@@ -15,25 +15,10 @@ DIR=$STATE/$NAME
 
 die() { echo "ug-box: $*" >&2; exit 1; }
 
-pin() { sed -n "s/^$1=//p" "$SRC/VERSIONS"; }
+# shellcheck source=host/lib/box-image.bash disable=SC1091
+source "$SRC/host/lib/box-image.bash"
 
-image_tag() {
-  local h
-  h=$( { grep -E '^(box_omp|box_omp_sha256|ovnfs|ovnfs_sha256)=' "$SRC/VERSIONS"; cat "$SRC"/box/* "$SRC/host/broker/client.ts" "$SRC/host/broker/protocol.ts"; } | shasum -a 256 | cut -c1-16)
-  echo "ugbox:$h"
-}
-
-build() {
-  local ctx status=0
-  ctx=$(mktemp -d) || die "cannot make a temp folder for the build"
-  cp "$SRC"/box/* "$SRC/host/broker/client.ts" "$SRC/host/broker/protocol.ts" "$ctx/"
-  container build -t "$(image_tag)" \
-    --build-arg "OMP_VERSION=$(pin box_omp)" --build-arg "OMP_SHA256=$(pin box_omp_sha256)" \
-    --build-arg "OVNFS_VERSION=$(pin ovnfs)" --build-arg "OVNFS_SHA256=$(pin ovnfs_sha256)" \
-    -f "$ctx/Containerfile" "$ctx" || status=$?
-  rm -rf "$ctx"
-  return "$status"
-}
+image_tag() { box_image_tag "$SRC"; }
 
 lock() {
   local dir=$1/lock waited=0
@@ -146,7 +131,7 @@ session() {
   tag=$(image_tag)
   container image list --quiet | grep -qE "(^|/)${tag}\$" ||
     die "the box image for the current pins is not built (${tag#ugbox:}).
-VERSIONS or the box files changed since the last build. Run: ug-box build"
+VERSIONS or the box files changed since the last setup. Run: host/bin/ug-setup"
   [[ -S $BROKER ]] || die "the GitHub broker is not running: no socket at $BROKER"
   mkdir -p "$DIR/sessions"
   STAGE=$(box_config)
@@ -203,7 +188,4 @@ finish() {
   unlock "$DIR"
 }
 
-case ${1:-} in
-  build) build ;;
-  *) session "$@" ;;
-esac
+session "$@"

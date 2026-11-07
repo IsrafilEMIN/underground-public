@@ -292,11 +292,19 @@ install_services() {
   printf 'services: %s restarted\n' "$labels"
 }
 
+install_box_image() {
+  command -v container >/dev/null 2>&1 || die "the container CLI is not installed; the box needs Apple's container (https://github.com/apple/container)"
+  # shellcheck source=host/lib/box-image.bash disable=SC1091
+  source "$src/host/lib/box-image.bash"
+  box_image_build "$src" || die "the box image did not build"
+}
+
 install_omp
 install_srt
 install_restic
 install_arena_files
 install_egress
+install_box_image
 setup_backup
 install_services
 install_raw_config
