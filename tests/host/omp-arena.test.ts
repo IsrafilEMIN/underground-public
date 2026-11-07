@@ -9,10 +9,6 @@ import { join } from "node:path";
 import { afterEach, test } from "node:test";
 import { tempDir } from "../temp.ts";
 
-// The arena wrapper and its start step, run against a fake srt that does not sandbox, so only the
-// wrapper's own logic is under test: what reaches omp, which settings srt gets, and what the wrapper
-// refuses. The checks try to get a secret, a link, or a bad start past the wrapper.
-
 const SRC = join(import.meta.dirname, "../..");
 const WRAPPER = join(SRC, "host/bin/omp-arena");
 const versions = await readFile(join(SRC, "VERSIONS"), "utf8");
@@ -20,7 +16,7 @@ const pinOf = (name: string) => new RegExp(`^${name}=(.+)$`, "m").exec(versions)
 const OMP_PIN = pinOf("omp");
 const SRT_PIN = pinOf("srt");
 const BUILD = "TEST1A";
-// The wrapper hands every session the one broker socket, ~/.ug/run/broker.sock, when it is there.
+
 const servers: Server[] = [];
 afterEach(async () => {
   await Promise.all(servers.splice(0).map((server) => new Promise((resolve) => server.close(resolve))));
@@ -40,14 +36,12 @@ const r = require("child_process").spawnSync(process.argv[i + 1], process.argv.s
 process.exit(r.status === null ? 1 : r.status);
 `;
 
-// A fake omp: the broker registration prints a socket; a session prints what it got and stops.
 const FAKE_OMP = `#!/bin/sh
 echo "CWD=$(pwd -P)"
 env | sed 's/^/ENV:/'
 echo "ARGS=$*"
 `;
 
-// A fake broker: sync makes one commit on origin/main of the clone, as the real import does.
 const FAKE_BROKER = `#!/bin/sh
 [ "$1" = sync ] || exit 2
 [ ! -e "$(dirname "$0")/fail-sync" ] || exit 1
@@ -88,7 +82,7 @@ async function fakeHome({ broker = true, config = true } = {}) {
   }
   const socket = join(home, ".ug/run/broker.sock");
   if (broker) await listenAt(socket);
-  // The owner's config repo, in the owner's zone, named in ~/.ug/host/config-repo.
+
   const repo = join(home, "Developer/agent-config");
   if (config) {
     await mkdir(join(repo, "skills/fix-bug"), { recursive: true });
@@ -132,7 +126,7 @@ test("omp-arena: no variable of the caller's shell reaches omp, and omp starts i
   assert.equal(r.envOf("OMP_WORKTREE_DIR"), join(arena, ".omp/wt/Test-Owner-proj"));
   assert.match(r.stdout, new RegExp(`^CWD=${join(arena, "work/Test-Owner/proj")}$`, "m"));
   assert.match(r.stdout, /^ARGS=--model x$/m);
-  // The stored value, not `remote get-url`: that one applies the tester's own insteadOf rules.
+
   const remote = spawnSync("git", ["-C", join(arena, "work/Test-Owner/proj"), "config", "--get", "remote.origin.url"], { encoding: "utf8" });
   assert.equal(remote.stdout.trim(), "https://github.com/Test-Owner/proj.git");
 });
@@ -140,7 +134,7 @@ test("omp-arena: no variable of the caller's shell reaches omp, and omp starts i
 test("omp-arena points every session's omp at the usage broker, which a caller cannot change, so a /login saves nothing", async (t) => {
   const { home, checkout } = await fakeHome();
   t.after(() => gone(home));
-  // A caller that points omp at the real auth broker, or at another config, must not get through.
+
   const r = run(home, checkout, [], {
     OMP_AUTH_BROKER_URL: "http://127.0.0.1:8765",
     OMP_AUTH_BROKER_TOKEN: "real-broker-bearer",
@@ -168,8 +162,7 @@ test("omp-arena: srt may write only the arena, read no part of the real home out
   assert.deepEqual(s.network.allowUnixSockets, [socket, join(arena, ".omp/run")]);
   assert.ok(s.network.allowedDomains.every((d: string) => !d.includes("@")), "a placeholder is left");
   assert.equal(s.allowAppleEvents, false);
-  // srt anchors its built-in write denies at its own working folder, so that must be the run folder:
-  // not / (the denies would cripple git in the arena) and not the arena or the checkout.
+
   const srtCwd = /^SRTCWD=(.*)$/m.exec(r.stdout)?.[1] ?? "";
   assert.ok(srtCwd.startsWith(`${home}/.ug/run/session.`), `srt starts in ${srtCwd}`);
 });
@@ -281,8 +274,6 @@ test("omp-arena does not take a plain file at the socket path for the broker", a
   assert.match(r.stderr, /the broker socket .*broker\.sock is missing/);
   assert.equal(r.envOf("UG_BROKER_SOCKET"), undefined);
 });
-
-// --- the config repo (docs/SPEC.md, B3) ------------------------------------------------------------
 
 const agentFile = (arena: string, name: string) => join(arena, ".omp/agent", name);
 
@@ -458,8 +449,6 @@ test("omp-arena refuses a config repo with models.yaml, whose gateway markers it
   assert.equal(existsSync(agentFile(arena, "models.yaml")), false);
 });
 
-// --- the raw omp's config (docs/SPEC.md, B2) ----------------------------------------------------------
-
 const RAW = "disabledProviders: [apple, lm-studio, ollama, llama.cpp, strata]\n";
 const rawConfig = (home: string) => join(home, ".omp/agent/config.yml");
 
@@ -478,7 +467,7 @@ test("omp-arena writes the config repo's raw-omp/config.yml to ~/.omp/agent, kee
   assert.equal(await readFile(`${rawConfig(home)}.before-ug`, "utf8"), "theme: owner\n");
   assert.doesNotMatch(r.stderr, /raw-omp/);
   assert.equal(existsSync(agentFile(arena, "raw-omp")), false, "raw-omp reached the arena");
-  // A raw omp changes its file; the next start puts the repo's copy back and keeps the first backup.
+
   await writeFile(rawConfig(home), "disabledProviders: []\n");
   assert.equal(run(home, checkout).status, 0);
   assert.equal(await readFile(rawConfig(home), "utf8"), RAW);
@@ -539,8 +528,6 @@ test("omp-arena refuses a link at raw-omp/config.yml, at ~/.omp/agent, or at its
     assert.equal(await readFile(join(outside, "config.yml"), "utf8"), "owner file\n", `${label}: wrote through the link`);
   }
 });
-
-// --- the arena backup's freshness (docs/SPEC.md, B10) -------------------------------------------------
 
 test("omp-arena warns when the arena backup never ran or is over two days old, and is quiet when it is fresh", async (t) => {
   const { home, checkout } = await fakeHome();

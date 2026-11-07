@@ -11,9 +11,6 @@ import { promisify } from "node:util";
 import { send } from "../../host/broker/client.ts";
 import { tempDir } from "../temp.ts";
 
-// The broker client as a session runs it: `client.ts` on this node, with a fake broker on a unix
-// socket that records each request and answers with a canned reply, and local git repos.
-
 const REPO = "o/r";
 const BRANCH = "agent/x";
 const CLIENT = join(import.meta.dirname, "../../host/broker/client.ts");
@@ -39,7 +36,6 @@ function localBranch(): string {
   return git(work, "for-each-ref", "--format=%(objectname)", `refs/heads/${BRANCH}`);
 }
 
-// A fake broker: it records the request line of each connection and answers with `reply`, as is.
 async function broker(reply: string): Promise<void> {
   server = createServer({ allowHalfOpen: true }, (conn) => {
     let text = "";
@@ -211,7 +207,7 @@ test("a PR bundle with two refs is refused, and the session's repo gets no origi
   await commit(work, "a.txt");
   const bundlePath = join(root, "two.bundle");
   git(work, "bundle", "create", bundlePath, `refs/heads/${BRANCH}`, "refs/heads/main");
-  // The first listed ref is the one an import that skips the count check would take.
+
   const head = git(work, "bundle", "list-heads", bundlePath).split("\n")[0].split(" ")[0];
   const bundle_b64 = execFileSync("base64", ["-i", bundlePath], { encoding: "utf8" }).replace(/\s/g, "");
   await broker(JSON.stringify({ exit: 0, stdout: "", stderr: "", pr: 7, head, bundle_b64 }));

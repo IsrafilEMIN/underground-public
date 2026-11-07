@@ -20,7 +20,6 @@ import {
 import { REVIEWER_ROLES } from "./protocol.ts";
 import type { MergeReply, Reply, Request, SyncPrReply, SyncReply } from "./protocol.ts";
 
-// The arena wrapper sets it to the one broker socket, ~/.ug/run/broker.sock.
 export const SOCKET_ENV = "UG_BROKER_SOCKET";
 
 const EXIT_USAGE = 64;
@@ -74,10 +73,6 @@ function parseWorktrees(porcelainZ: string): Worktree[] {
   return trees;
 }
 
-// After a merge, the work is on the default branch, so the local worktree and branch of the PR
-// go too. Each git call runs in the main worktree, because the worktree it removes can be the cwd.
-// The branch goes only if it still points at the merged commit, and the worktree only if git
-// finds no uncommitted change in it.
 export async function cleanUpLocal(merged: MergeReply["merged"], cwd: string = process.cwd()): Promise<number> {
   const ref = `refs/heads/${merged.branch}`;
   const listed = await runGit(["worktree", "list", "--porcelain", "-z"], cwd);
@@ -216,8 +211,6 @@ async function importSync(reply: SyncReply): Promise<number> {
   }
 }
 
-// Imports the PR head into the session's own repo as origin/pr/<n>, and checks it against the head
-// that GitHub names. Reviewers read the PR there (docs/SPEC.md, B8).
 export async function importPr(reply: SyncPrReply, cwd: string = process.cwd()): Promise<number> {
   const git = async (args: string[]): Promise<string> => (await execFileAsync("git", args, { cwd, encoding: "utf8" })).stdout.trim();
   const ref = `refs/remotes/origin/pr/${reply.pr}`;

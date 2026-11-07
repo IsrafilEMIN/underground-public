@@ -1,6 +1,5 @@
 import type { Checked } from "./protocol.ts";
 
-// The addresses file: gateway=<ip>:<port> and engine=<ip>:<port>. The usage broker reads it.
 export type Addresses = { gateway: string; engine: string };
 
 const IP_PORT = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3}):(\d{1,5})$/;

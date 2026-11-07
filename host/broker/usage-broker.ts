@@ -36,8 +36,7 @@ async function gatewayUsage(config: UsageBrokerConfig): Promise<UsageReply> {
   const addresses = parseAddresses(await readFile(config.addressesFile, "utf8"));
   if (!addresses.ok) return json(502, { error: `addresses file: ${addresses.reason}` });
   const token = (await readFile(config.gatewayTokenFile, "utf8")).trim();
-  // A token with a space or control character is not a valid header value, and fetch quotes the
-  // whole value in its error, which reaches the 502 body.
+
   if (!/^[\x21-\x7e]+$/.test(token)) return json(502, { error: "gateway token file does not hold one printable token" });
   const reply = await config.fetchImpl(`http://${addresses.value.gateway}/v1/usage`, { headers: { Authorization: `Bearer ${token}` } });
   return { status: reply.status, body: await reply.text() };

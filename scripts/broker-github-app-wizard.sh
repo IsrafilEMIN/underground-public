@@ -180,7 +180,6 @@ repo_from_checkout() {
   printf '%s\n' "$repo"
 }
 
-# The newest <slug>.<date>.private-key.pem in a folder, or nothing. A glob, not ls, so any file name works.
 newest_key() {
   local newest="" file
   for file in "$1/$2".*.private-key.pem; do

@@ -7,12 +7,6 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { tempDir } from "../temp.ts";
 
-// The daily arena backup (docs/SPEC.md, B10), run against fakes: a restic that records each call
-// and exits with a planted code, an ssh that answers only while a marker file says the machine is
-// awake, and wake and sleep commands that set and clear that marker. The tests try to get a failed
-// backup recorded, the other machine put to sleep when the job did not wake it, a snapshot
-// forgotten, or a config line run as a shell command.
-
 const SRC = join(import.meta.dirname, "../..");
 const JOB = join(SRC, "host/bin/ug-backup");
 const versions = await readFile(join(SRC, "VERSIONS"), "utf8");
@@ -25,7 +19,7 @@ case " $* " in *" backup "*) step=backup ;; *" init "*) step=init ;; *" cat conf
 code=$(cat "$HOME/exit-$step" 2>/dev/null) || code=0
 exit "$code"
 `;
-// The machine is awake while $HOME/awake exists. A wake makes it awake after the job's first check.
+
 const FAKE_SSH = `#!/bin/sh
 printf 'SSH: %s\\n' "$*" >>"$HOME/calls"
 [ -e "$HOME/awake" ]
@@ -209,7 +203,7 @@ test("ug-backup runs a config command as plain words, never through a shell", as
   );
   run(home);
   assert.equal(existsSync(pwned), false, "the wake line ran a second command");
-  // A working wake on a sleeping machine, so the job reaches the sleep line too.
+
   for (const trick of [`$(touch ${pwned})`, `\`touch ${pwned}\``, `; touch ${pwned}`, `&& touch ${pwned}`]) {
     await rm(join(home, "awake"), { force: true });
     await writeFile(

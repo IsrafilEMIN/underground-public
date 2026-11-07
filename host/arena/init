@@ -1,10 +1,4 @@
 #!/bin/sh
-# The first step of a session inside the sandbox (docs/SPEC.md, B3 and B4). The wrapper starts it
-# through srt; it sets the arena as HOME, puts the owner's files in place, makes or finds the
-# repo's arena clone, and then starts omp there. Everything that writes the arena runs here,
-# inside the sandbox, so a link that an agent planted in the arena can only lead into the arena.
-#
-#   init <arena> <run-dir> <owner/repo or -> <omp> [omp args...]
 set -eu
 
 if [ $# -lt 4 ]; then
@@ -28,10 +22,6 @@ export HOME TMPDIR
 
 mkdir -p "$HOME/tmp" "$HOME/.omp/agent" "$HOME/work"
 
-# The config repo's items (host/bin/omp-arena copied them into the run folder, which the sandbox
-# cannot write). The repo owns each name in config-names: the arena's copy goes, even when the repo
-# has none. Replace, never write through: rm removes a planted link itself, then cp writes anew.
-# With no config-names (no config repo), the arena keeps what it has.
 if [ -f "$run_dir/config-names" ]; then
   while IFS= read -r name; do
     case $name in
@@ -64,8 +54,6 @@ OMP_WORKTREE_DIR=$HOME/.omp/wt/$(printf '%s' "$slug" | tr '/' '-')
 export OMP_WORKTREE_DIR
 mkdir -p "$OMP_WORKTREE_DIR"
 
-# A clone is whole when its HEAD names a commit. One that is not (a start that stopped halfway)
-# is made again. A new clone is built in a temp folder and moved into place only when it is whole.
 if [ -d "$clone" ] && ! git -C "$clone" rev-parse --verify -q HEAD >/dev/null 2>&1; then
   printf 'ug-arena-init: %s is not a whole clone; making it again\n' "$clone" >&2
   rm -rf "$clone"

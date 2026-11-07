@@ -6,9 +6,6 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { tempDir } from "../temp.ts";
 
-// ug-auth starts the pinned omp on the host, with no sandbox, against the root that holds every
-// login. So it must run nothing but the two auth command groups, and always with that root.
-
 const UG_AUTH = join(import.meta.dirname, "../../host/bin/ug-auth");
 const PIN = /^omp=(.+)$/m.exec(await readFile(join(import.meta.dirname, "../../VERSIONS"), "utf8"))?.[1] ?? "";
 

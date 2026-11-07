@@ -10,12 +10,6 @@ import type { Broker, ServerConfig } from "../../host/broker/server.ts";
 import { fakeTokens, tokenRemote } from "./fake-app.ts";
 import { tempDir } from "../temp.ts";
 
-// One session flow end to end: the real broker client (`client.ts`, which the shim
-// `~/.ug/sys/agent-bin/broker` execs) talks over the one real unix socket to the broker, and a local
-// bare repo plus a stateful fake gh stand in for GitHub. Every session uses that socket; a review
-// names its reviewer role. The client runs on this node, because that shim names the Homebrew node,
-// which CI does not have.
-
 const REPO = "o/r";
 const BRANCH = "agent/x";
 const BROKER_DIR = join(import.meta.dirname, "../../host/broker");
@@ -33,13 +27,6 @@ let remote: string;
 let work: string;
 let tree: string;
 
-// GitHub, as far as the broker sees it: PRs live in a JSON file; `pr view` reports the current
-// remote branch head and the CI conclusion in that file; `pr merge` checks --match-head-commit,
-// records the merge, and advances the bare repo's main. Like GitHub, `pr view` keeps
-// refs/pull/<n>/head at the branch head, which `sync --pr` fetches. CI is one run, `ci` (id 1),
-// whose conclusion and failed log are in the state file. `afterMerge` plays what can happen to
-// the head branch right after the merge: "delete" (a repo that deletes head branches on merge)
-// or "move" (another writer pushes to it; the new commit goes to state.moved).
 function fakeGh(): string {
   return `#!${process.execPath}
 const { execFileSync } = require("node:child_process");
@@ -129,7 +116,6 @@ async function setCi(conclusion: string): Promise<void> {
   await setGh({ ci: conclusion });
 }
 
-// The broker's push record of `branch`: the sha it last pushed there, or undefined.
 async function pushRecord(branch: string): Promise<string | undefined> {
   const path = join(config.pushesDir, REPO, encodeURIComponent(branch));
   return existsSync(path) ? (await readFile(path, "utf8")).trim() : undefined;
@@ -147,8 +133,6 @@ async function run(file: string, args: string[], cwd: string, env: Record<string
   }
 }
 
-// `broker <args>` as a session runs it, with the wrapper's one socket in UG_BROKER_SOCKET. The role
-// only names who acts in a test; the broker does not know it.
 async function brokerAs(_role: Role, cwd: string, ...args: string[]): Promise<Run> {
   return run(NODE, [join(BROKER_DIR, "client.ts"), ...args], cwd, { UG_BROKER_SOCKET: config.socketPath });
 }
@@ -201,9 +185,7 @@ async function assertRefusedWithoutMerge(pr: number, reason?: RegExp): Promise<v
 }
 
 beforeEach(async () => {
-  // The temp dir is the session HOME. The socket path under it must fit in 103 bytes, as on a real
-  // HOME, so it sits in /tmp, not in macOS's long $TMPDIR; an agent sandbox, which cannot write
-  // /tmp, sets XDG_STATE_HOME.
+
   root = await tempDir(join(process.env.XDG_STATE_HOME ?? "/tmp", "u"));
   const agents = join(root, ".ug/host/broker");
   const owner = join(root, ".ug/host");
@@ -242,7 +224,6 @@ beforeEach(async () => {
   execFileSync(config.gitPath, ["init", "--quiet", "-b", "main", work], { env: GIT_ENV });
   git(work, "remote", "add", "origin", `https://github.com/${REPO}.git`);
 
-  // AGENTS.md steps 1 and 2: get main through the broker, then a worktree on agent/x.
   await ok("author", work, "sync", REPO);
   tree = join(root, "wt", "x");
   git(work, "worktree", "add", "--quiet", "-b", BRANCH, tree, "origin/main");

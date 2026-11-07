@@ -6,16 +6,9 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { tempDir } from "../temp.ts";
 
-// The U1 and U2 probe must aim at the owner's real home. In the arena, HOME is ~/.ug/home, so a
-// probe of $HOME looks only at the arena and reports nothing even when the sandbox leaks. These
-// tests give it fake macOS tools that leak: each one reads whatever path it is given, as a tool
-// with no sandbox would. A probe that misses a leak of the real home fails here.
-
 const PROBE = join(import.meta.dirname, "../../scripts/probe-u1-u2.sh");
 const CANARY = "UG-CANARY-7f3a9c2e";
 
-// security and defaults: the default keychain and the preference domain resolve under the arena
-// HOME, so they find nothing; a full path reads that file. pbpaste leaks the clipboard.
 const TOOLS: Record<string, string> = {
   security: `[ "$1" = find-internet-password ] && [ -n "\${FAKE_DP:-}" ] && { printf '%s' "${CANARY}"; exit 0; }
 last=""; for a in "$@"; do last=$a; done
@@ -26,8 +19,7 @@ echo "Domain $2 not found" >&2; exit 1`,
   pbpaste: `printf '%s' "${CANARY}"`,
   osascript: `exit 1`,
   screencapture: `exit 1`,
-  // Stands in for python3 -I -c <lookup> <service names>: prints "<name> <code>" per name, with the
-  // code from FAKE_CODES ("name=code ...") or FAKE_DEFAULT.
+
   "fake-python": `shift 3
 for name in "$@"; do
   code=\${FAKE_DEFAULT:-0}
@@ -95,8 +87,6 @@ test("on the host, the same reads of the home say ok", async () => {
   for (const probe of [...REAL_HOME_PROBES, "U2 clipboard"]) assert.equal(verdicts.get(probe), "ok", probe);
   assert.equal(verdicts.get("U2 screen"), "broken");
 });
-
-// --- the services that the camera, the microphone, keystrokes, and privacy prompts need ------------
 
 const SERVICE_PROBES = ["U2 svc-microphone", "U2 svc-camera", "U2 svc-camera-vdc", "U2 svc-keystrokes", "U2 svc-tcc", "U2 svc-tcc-system"];
 

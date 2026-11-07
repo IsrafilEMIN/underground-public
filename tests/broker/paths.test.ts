@@ -6,10 +6,6 @@ import { appFiles } from "../../host/broker/github-app.ts";
 import { defaultConfig } from "../../host/broker/server.ts";
 import { defaultConfig as usageConfig } from "../../host/broker/usage-broker.ts";
 
-// Where the host services keep their files (docs/PRODUCT-BRIEF.md, zones). The sandbox may use the
-// one socket in ~/.ug/run but not write there, and gets nothing at all in the host zone ~/.ug/host.
-// A file that drifts into the arena ~/.ug/home, or back into ~/.agents or ~/.config, fails here.
-
 const HOME = homedir();
 const HOST = join(HOME, ".ug/host");
 

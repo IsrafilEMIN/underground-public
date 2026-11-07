@@ -199,7 +199,6 @@ function localBranch(): string {
   return git(work, "for-each-ref", "--format=%(objectname)", `refs/heads/${BRANCH}`);
 }
 
-// The client runs git with the process env, so the test gives it GIT_ENV and keeps what it prints to stderr.
 async function clientCleanUp(head: string, cwd: string): Promise<{ exit: number; stderr: string }> {
   const saved = { GIT_CONFIG_GLOBAL: process.env.GIT_CONFIG_GLOBAL, GIT_CONFIG_NOSYSTEM: process.env.GIT_CONFIG_NOSYSTEM };
   const write = process.stderr.write;
