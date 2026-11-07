@@ -55,5 +55,6 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const boxes = JSON.parse(readFileSync(0, "utf8")) as Inspected[];
   const problems = boxes.length === 1 ? boxProblems(boxes[0], { name, repo, tag }) : [`inspect returned ${boxes.length} boxes`];
   for (const p of problems) console.error(`- ${p}`);
+  if (problems.length === 0) console.log("BOX_OK");
   process.exit(problems.length ? 1 : 0);
 }

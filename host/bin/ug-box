@@ -100,7 +100,7 @@ To start on the new image: quit those sessions, then run ug-box again."
   else
     boot "$name" "$repo" "$tag"
   fi
-  if ! container inspect "$name" | "$NODE" "$SRC/host/bin/ug-box-check.ts" "$name" "$repo" "$tag"; then
+  if [[ $(container inspect "$name" | "$NODE" "$SRC/host/bin/ug-box-check.ts" "$name" "$repo" "$tag") != BOX_OK ]]; then
     [[ $(live_sessions "$dir") -gt 0 ]] || container stop "$name" >/dev/null 2>&1 || true
     unlock "$dir"
     die "box $name failed its check (listed above), so no session started"
