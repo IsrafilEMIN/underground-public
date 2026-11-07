@@ -144,13 +144,18 @@ test("the box gets the config repo's last commit, only the config names, and non
   }
 });
 
-test("a committed link or a committed token in the config repo stops the start before any session", async (t) => {
+test("a committed link, token, or auth bearer in the config repo stops the start before any session", async (t) => {
   for (const [label, plant, why] of [
     ["a link", (cfg: string) => symlink("/etc/passwd", join(cfg, "skills/fix-bug/key")), /link or a special file/],
     ["a GitHub token", (cfg: string) => writeFile(join(cfg, "AGENTS.md"), `token: ghp_${"b".repeat(36)}\n`), /holds a token/],
+    ["the gateway bearer", (cfg: string) => writeFile(join(cfg, "models.yml"), 'providers:\n  gw:\n    baseUrl: "http://@GATEWAY@"\n    apiKey: "gateway-bearer-1234567890"\n'), /holds a token/],
+    ["the auth broker's bearer", (cfg: string) => writeFile(join(cfg, "skills/fix-bug/SKILL.md"), "use broker-bearer-1234567890\n"), /holds a token/],
   ] as const) {
     const s = await setup();
     t.after(s.cleanup);
+    await mkdir(join(s.root, "ug/host/auth"), { recursive: true });
+    await writeFile(join(s.root, "ug/host/auth/auth-gateway.token"), "gateway-bearer-1234567890\n");
+    await writeFile(join(s.root, "ug/host/auth/auth-broker.token"), "broker-bearer-1234567890\n");
     await plant(s.cfg);
     commit(s.cfg);
     const r = s.run();

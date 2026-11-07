@@ -97,8 +97,12 @@ box_config() {
   [[ -z $(git -C "$cfg" status --porcelain 2>/dev/null) ]] ||
     echo "ug-box: the config repo has changes that are not committed; the box gets its last commit" >&2
   secrets=$stage/secrets
-  { tr -d '[:space:]' <"$UG/host/auth/auth-broker.token" >"$secrets"; } 2>/dev/null || : >"$secrets"
-  [[ $(wc -c <"$secrets") -ge 12 ]] && echo >>"$secrets" || : >"$secrets"
+  : >"$secrets"
+  local token_file value
+  for token_file in "$UG/host/auth/auth-broker.token" "$UG/host/auth/auth-gateway.token"; do
+    value=$({ tr -d '[:space:]' <"$token_file"; } 2>/dev/null) || value=""
+    [[ ${#value} -lt 12 ]] || printf '%s\n' "$value" >>"$secrets"
+  done
   while IFS= read -r name; do
     item=$stage/repo/$name
     [[ -e $item || -L $item ]] || continue
