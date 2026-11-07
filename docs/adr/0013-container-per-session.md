@@ -12,7 +12,7 @@ What a container changes, in the terms of `../PRODUCT-BRIEF.md`:
 
 - The line between the agent and the owner stops being a list of paths on one user. It becomes a list of mounts. A path list fails open (a new omp version adds a path and the deny misses it, `0002-role-homes.md`); a mount list fails closed (a path that is not mounted is lost, not leaked).
 - Reset is free: the container is deleted at exit. "A broken arena gets deleted and rebuilt" (principle 5) needs no code.
-- U2 (clipboard, keychain, screen, Apple events) and U7 (host localhost and sockets) close by structure: a Linux VM has no mach services and no route to the host's loopback. The U1 and U2 probes and the macOS build pin lose their reason.
+- U2 (clipboard, keychain, screen, Apple events) closes by structure: a Linux VM has no mach services. U7 (host localhost and sockets) narrows to one address: the container reaches the host only at the `ug` network's gateway address, and a host service bound to every interface answers there too (on 2026-11-03 that was AirPlay on 5000 and 7000 and `rapportd`, `../SPEC.md`, Checks). So U7 is closed by the proxy, whose entries name a host and a port, plus a probe that scans the gateway address from inside a container against the `lsof` inventory. The U1 and U2 probes and the macOS build pin lose their reason.
 - Two crossings move from "srt does it" to "we build it": the broker socket into the container, and the egress allowlist.
 
 ## Decision
@@ -33,7 +33,7 @@ Compared on 2026-11-07:
 | runtime | box | what is shared by default | host socket in | egress control | on this mac |
 |---|---|---|---|---|---|
 | Apple `container` 1.7.1 | one VM per container | nothing; mounts only | `--volume` of a socket path (`--ssh` is built on it) | `--internal` network, `--no-dns`, our proxy on the host | not installed; signed pkg from GitHub, admin password |
-| Lima 2.2.1 (VZ, `--plain`) | one VM per instance | nothing in plain mode (`docs/config/plain.md`: mounts, port forwards, agent all off) | not documented for host to guest; ssh only | a full Linux guest per session, with no mounts in plain mode, so state would go over ssh [inference] | installed (`limactl`) |
+| Lima 2.2.1 (VZ, `--plain`) | one VM per instance | builtin default mounts nothing; the shipped template mounts the home read-only (`/opt/homebrew/share/lima/templates/default.yaml:55` to `:58`, read 2026-11-07); plain mode turns mounts, port forwards, and the agent off (`docs/config/plain.md`) | not documented for host to guest; ssh only | a full Linux guest per session, with no mounts in plain mode, so state would go over ssh [inference] | installed (`limactl`) |
 | Colima 0.10.3 + Docker 29.9 | one shared VM, containers inside | the VM mounts the host home (`embedded/defaults/colima.yaml` could not be read as text through the proxy; its mount default is from memory, unverified) and exposes the Docker socket to the host | a socket mounted twice (host to VM, VM to container) | Docker networks plus our proxy | installed |
 | Docker Desktop | one shared VM | `/Users` shared by default [inference, not checked here] | same two hops | same | not installed |
 
@@ -53,11 +53,11 @@ Known limits (`docs/technical-overview.md`, read 2026-11-07): memory freed insid
   - The entrypoint, `host/container/init`: the config replace step of today's `host/arena/init` (`rm -rf` then `cp -R` for each repo-owned name), then `git clone https://github.com/<owner>/<repo> /home/agent/work/<owner>/<repo>` through the proxy, `git switch -c wt/<timestamp>`, `exec omp` in it.
 - **State mounts.** The agent's state that the owner keeps is mounted read-write from the host; everything else is the container's and dies with it. The list is short and named, so a forgotten path is lost, not leaked:
   - `sessions` at `/home/agent/.omp/agent/sessions`, and `blobs` beside it (session attachments [inference from the folder name; check omp]).
-  - `history.db` and `stats.db`: SQLite with a `-wal` and `-shm` sibling, so a one-file mount loses the WAL. `init` copies them in at start and out at exit instead. A crash loses that session's prompt history; the session file itself is on the live mount.
+  - `history.db` and `stats.db` are not persisted. They are SQLite with `-wal` and `-shm` siblings, so a one-file mount loses the WAL, and a copy in at start and out at exit is last-writer-wins when two sessions run at once, which they do. `stats.db` is built from the session history (`../SPEC.md`, B10) and comes back; `history.db`, the prompt history, is lost per session. If the owner wants it kept, omp needs a folder for it that a mount can carry; that is an open item below.
   - Where on the host: the owner's `~/.omp/agent/sessions` (owner's ask, 2026-11-07: "go back to the original `~/.omp` structure"). A session the agent wrote can then be opened by any omp on the host that reads `~/.omp`: the wrapper's `omp --resume` opens it in a container, and Tern's omp or a full-path omp opens it on the host. Accepted: a resume on the host is the owner's own act, like a raw start (U36 below). The alternative is `~/.ug/state/sessions`, a folder no host omp reads by convention; the choice is the owner's and changes one path.
 - **Repos.** One fresh clone per session, inside the container, from GitHub over the proxy, anonymous, because the repos are public (`../PRODUCT-BRIEF.md`, user and scope). No clone lives on the host, so the host never runs git in agent-written files (U4) by construction, not by rule. The worktree per session goes: the clone is the session's. `broker sync` stays for a rebase (`git fetch` through the proxy does the same for a public repo; `sync` remains the path when a repo turns private, U14). The clone of this repo is 1.1 MB and arkan 2.0 MB (`du`, 2026-11-07), so a clone per start is cheap; the probe measures it (principle 9).
 - **Unpushed work.** It dies with the container, like today's worktree hole for a resumed session (`0011`, amendment). At exit, `init` writes a `git bundle` of commits not on `origin` and a patch of the uncommitted change into the state mount under `unpushed/<owner>-<repo>-<timestamp>/`, and the wrapper names them. The next session restores with `git fetch <bundle>` inside the container. The host runs no git on them (U4 rule, unchanged).
-- **Egress proxy.** A new host service, `host/broker/egress-proxy.ts`, under launchd like the other brokers: an HTTP CONNECT proxy that allows the entries of `host/network-allowlist` with `@GATEWAY@` filled, refuses every other name with 403, and listens on the `ug` network's gateway address, where only containers on that network reach it. It replaces srt's proxy, which is the only part of srt the design still used. The usage broker (`127.0.0.1:18765`) is reached through it as one more allowlist entry, resolved on the host, so it keeps its loopback bind. The auth gateway keeps its tailscale bind; the proxy tunnels to it.
+- **Egress proxy.** A new host service, `host/broker/egress-proxy.ts`, under launchd like the other brokers: an HTTP CONNECT proxy that allows the entries of `host/network-allowlist` with `@GATEWAY@` filled, refuses every other name with 403, and listens on the `ug` network's gateway address, where only containers on that network reach it. Each entry names a host and a port, as the allowlist did under srt (`0004-no-local-binding.md`): a bare host would let CONNECT reach every port of that host, including `127.0.0.1:8765`, the auth broker. It replaces srt's proxy, which is the only part of srt the design still used. The usage broker is reached through it as the entry `127.0.0.1:18765`, resolved on the host, so it keeps its loopback bind. The auth gateway keeps its tailscale bind; the proxy tunnels to it.
 - **Credentials.** They stay on the host, never mounted: the auth broker's logins, the gateway tokens, the app key, the backup password. The owner's ask of 2026-11-07 is omp's default root for the logins (`~/.omp`), which drops `PI_CONFIG_DIR` from the auth broker's plist, `ug-auth`, and `raw-omp-config.bash`. U36 then reads: an agent in the container cannot start a logged-in omp, because no credential root is mounted; an omp started on the host by the owner is the owner's act. `~/.ug/host` keeps the app key, the backup files, and the addresses file.
 
 ### Zones after the change
@@ -65,7 +65,7 @@ Known limits (`docs/technical-overview.md`, read 2026-11-07): memory freed insid
 | where | path | the agent gets |
 |---|---|---|
 | the container | its own root, `/home/agent` | everything, gone at exit |
-| state mounts | `~/.omp/agent/sessions`, `blobs`, the copied `history.db` and `stats.db`, `unpushed/` | read and write |
+| state mounts | `~/.omp/agent/sessions`, `blobs`, `unpushed/` | read and write |
 | broker socket | `~/.ug/run/broker.sock` | connect |
 | config copy | `<run dir>/config` | read |
 | the egress proxy | the `ug` gateway address | CONNECT to the allowlist |
@@ -83,7 +83,7 @@ The parts that exist only because of srt or the shared arena (read 2026-11-07: `
 - The macOS build pin and its refusal at start (B1), `scripts/probe-u1-u2.sh` and its test, the srt-specific checks of `scripts/probe-arena.sh` (read deny, write deny, links, the socket link, the home-reach log, `srt-on-bun`) and its test.
 - `allowLocalBinding` and `0004-no-local-binding.md` as a live decision; the localhost inventory check (`../SPEC.md`, Checks) stays as an owner habit, not a control.
 - `PI_CONFIG_DIR` for the auth broker, `ug-auth`'s `PI_CONFIG_DIR` line, and `host/lib/raw-omp-config.bash` with the `disabledProviders` write to `~/.omp/agent/config.yml`, if the owner moves the logins to `~/.omp` (owner decision pending).
-- The agent-bin shim install in setup (`install_arena_files`): the broker shim and the omp link move into the image.
+- The agent-bin shim install in setup (`install_arena_files`): the shim execs the host's node and the darwin omp (`host/bin/ug-setup:204` to `:206`), which do not run in a Linux guest; the image carries Linux node, git, and `omp-linux-arm64`. The `apple` keyless provider is a macOS feature, so it is absent in the box without a `disabledProviders` line.
 
 ## What stays
 
@@ -108,7 +108,7 @@ The parts that exist only because of srt or the shared arena (read 2026-11-07: `
 
 Each step is one PR, in this order, so that the old design keeps working until step 5.
 
-1. Probe first, build nothing: a throwaway script runs `container` by hand on this mac and answers the open facts: a host unix socket through `--volume` connects; a container on an internal network reaches the gateway address and nothing else; `--no-dns` plus `HTTPS_PROXY` is enough for `git`, `bun`, `npm`, and omp; the cold start time of boot plus clone plus omp. The owner installs the `container` pkg for this step.
+1. Probe first, build nothing: a throwaway script runs `container` by hand on this mac and answers the open facts: a host unix socket through `--volume` connects; a container on an internal network reaches the gateway address and nothing else; a scan of the gateway address from inside the container, checked against `lsof -nP -iTCP -sTCP:LISTEN` on the host, lists what answers there; `--no-dns` plus `HTTPS_PROXY` is enough for `git`, `bun`, `npm`, and omp; the cold start time of boot plus clone plus omp. The owner installs the `container` pkg for this step.
 2. The egress proxy service and its tests, bound to loopback for the tests and to the `ug` gateway address in the plist.
 3. The image: `Containerfile`, the `omp-linux-arm64` pin, the build step in setup, the image digest record.
 4. `host/container/init` and the wrapper's `container run`, behind a flag in the wrapper until step 5; the probe script.
@@ -117,7 +117,7 @@ Each step is one PR, in this order, so that the old design keeps working until s
 
 ## Cost
 
-- Linux only. A task that needs a macOS toolchain does not run in the box. The owner's repos today are shell and TypeScript (`du` of the two clones, 2026-11-07).
+- Linux only. A task that needs a macOS toolchain does not run in the box. This repo is TypeScript, Markdown, plists, and shell (`git ls-files`, 2026-11-07); arkan was not checked.
 - A clone, an omp start, and a cache warm-up per session. Measured in step 1, judged against principle 9.
 - The session folders are keyed by the working directory, so sessions started under `/home/agent/work/<owner>/<repo>` are new folders beside the `--Users-kutluk-.ug-home-work-…` ones (`ls ~/.omp/agent/sessions`, 2026-11-07). The old folders stay readable by path.
 - Two parts to build that srt gave us: the proxy and the socket crossing. Both are small; the proxy is the only new service.
@@ -129,3 +129,4 @@ Each step is one PR, in this order, so that the old design keeps working until s
 - The state mount's host path: `~/.omp/agent/sessions` (the ask) or `~/.ug/state/sessions` (no host omp reads it by convention).
 - The logins' root: `~/.omp` (the ask) or `~/.ug/host/auth` (today). Either way they are never mounted.
 - `--memory` and `--cpus` per session.
+- `history.db`: lost per session as designed, or kept, which needs a folder for it that omp reads and a mount can carry, with the concurrent-session question answered.
