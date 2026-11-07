@@ -24,10 +24,15 @@ image_tag() {
 }
 
 build() {
+  local ctx status=0
+  ctx=$(mktemp -d)
+  cp "$SRC"/box/* "$SRC/host/broker/client.ts" "$SRC/host/broker/protocol.ts" "$ctx/"
   container build -t "$(image_tag)" \
     --build-arg "OMP_VERSION=$(pin box_omp)" --build-arg "OMP_SHA256=$(pin box_omp_sha256)" \
     --build-arg "OVNFS_VERSION=$(pin ovnfs)" --build-arg "OVNFS_SHA256=$(pin ovnfs_sha256)" \
-    -f "$SRC/box/Containerfile" "$SRC"
+    -f "$ctx/Containerfile" "$ctx" || status=$?
+  rm -rf "$ctx"
+  return "$status"
 }
 
 lock() {
