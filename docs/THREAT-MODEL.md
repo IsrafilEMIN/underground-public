@@ -40,7 +40,7 @@ The checklist that `../AGENTS.md`, "Redesign phase", asks for: each row of MVP 0
 |U30|Unchanged: the gateway bearer authorizes every session for every served model (`adr/0005-model-auth-gateway.md`). No spend limit, by owner decision: subscription OAuth only (`adr/0013-agent-box.md`).|accepted|
 |U14|Unchanged: data can leave to an allowed site. Accepted while the repos are public (`adr/0001-accepted-risks.md`).|accepted|
 |U16, U27|Unchanged, MVPF.|as before|
-|U19, U20|Unchanged: a revert PR goes through the broker like any PR; sync, push, PR, status, and merge all work from the box (owner runs, 2026-11-07).|handled|
+|U19, U20|Unchanged: a revert PR goes through the broker like any PR. From the box, `sync` and `pr-status` ran on 2026-11-07 (owner runs); a successful push, PR, and merge from the box have not run and rest on `tests/broker`.|handled|
 |U31|The owner's checkouts are never mounted; the box holds its own clones.|handled|
 |U37|Regressed. The daily backup snapshots `~/.ug/home`, but the box's transcripts, `history.db`, and unpushed work sit on the `ug-box-home` volume (`~/Library/Application Support/com.apple.container/volumes/ug-box-home/volume.img`), which nothing backs up. Closes with the box backup (`adr/0015-box-layout.md`, Open).|open|
 |U22|Open. The home volume and the leftover per-repo volume `ug-underground-public-…-home` grow on the mac's disk with no cap; `container volume create` takes a size (`-s`), not yet used.|open|
