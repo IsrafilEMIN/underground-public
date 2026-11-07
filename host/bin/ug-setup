@@ -50,6 +50,16 @@ die() {
   exit 1
 }
 
+
+check_checkout() {
+  local head main dirty
+  dirty=$(git -C "$src" status --porcelain 2>/dev/null) || die "$src is not a git checkout"
+  [[ -z $dirty ]] || die "the checkout $src has changes that are not committed; setup installs only what CI proved on origin/main"
+  head=$(git -C "$src" rev-parse HEAD)
+  main=$(git -C "$src" rev-parse --verify --quiet origin/main) || die "the checkout has no origin/main; fetch first"
+  [[ $head == "$main" ]] || die "the checkout is at ${head:0:7}, not origin/main ${main:0:7}; setup installs only what CI proved on origin/main. Check out main and pull, or fetch."
+}
+check_checkout
 pin() {
   local value
   value=$(sed -n "s/^$1=//p" "$src/VERSIONS")
@@ -81,15 +91,6 @@ grep -q "\"$srt_package\": \"$srt_pin\"" "$src/host/srt/package.json" ||
 cleanup=()
 trap '[[ ${#cleanup[@]} -eq 0 ]] || rm -rf "${cleanup[@]}"' EXIT
 
-check_checkout() {
-  local head main dirty
-  dirty=$(git -C "$src" status --porcelain 2>/dev/null) || die "$src is not a git checkout"
-  [[ -z $dirty ]] || die "the checkout $src has changes that are not committed; setup installs only what CI proved on origin/main"
-  head=$(git -C "$src" rev-parse HEAD)
-  main=$(git -C "$src" rev-parse --verify --quiet origin/main) || die "the checkout has no origin/main; fetch first"
-  [[ $head == "$main" ]] || die "the checkout is at ${head:0:7}, not origin/main ${main:0:7}; setup installs only what CI proved on origin/main. Check out main and pull, or fetch."
-}
-
 run_mac_only_tests() {
   local tap status=0
   tap=$(mktemp "${TMPDIR:-/tmp}/ug-tests.XXXXXX")
@@ -102,7 +103,6 @@ run_mac_only_tests() {
     die "a [mac] test, which only this mac can run, did not pass, so nothing is set up"
   fi
 }
-[[ -n ${UG_SETUP_SKIP_CHECKOUT_CHECK:-} ]] || check_checkout
 run_mac_only_tests
 
 [[ -d $HOME/.ug ]] || install -d -m 700 "$HOME/.ug"

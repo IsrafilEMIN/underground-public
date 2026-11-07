@@ -36,7 +36,7 @@ test("ug-setup from a checkout outside ~/.ug gets past that guard", async (t) =>
   const r = spawnSync("bash", [setup], { env: { HOME: home, PATH: "/usr/bin:/bin" }, encoding: "utf8" });
   assert.notEqual(r.status, 64, r.stderr);
   assert.doesNotMatch(r.stderr, /inside ~\/\.ug/);
-  assert.match(r.stderr, /bad pin for omp in VERSIONS/);
+  assert.match(r.stderr, /is not a git checkout/);
 });
 
 test("ug-setup refuses a checkout that is not at origin/main or has local changes, so only what CI proved is installed", async (t) => {
@@ -44,9 +44,6 @@ test("ug-setup refuses a checkout that is not at origin/main or has local change
   t.after(() => rm(home, { recursive: true, force: true }));
   const checkout = join(home, "code/underground");
   const setup = await copyAt(checkout);
-  await copyFile(join(import.meta.dirname, "../../VERSIONS"), join(checkout, "VERSIONS"));
-  await mkdir(join(checkout, "host/srt"), { recursive: true });
-  await copyFile(join(import.meta.dirname, "../../host/srt/package.json"), join(checkout, "host/srt/package.json"));
   const git = (...args: string[]) => spawnSync("git", ["-C", checkout, "-c", "user.email=o@x", "-c", "user.name=o", ...args], { encoding: "utf8" });
   git("init", "-q");
   git("add", "-A");
