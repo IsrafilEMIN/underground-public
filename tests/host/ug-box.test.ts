@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { once } from "node:events";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -21,10 +21,15 @@ case "$1 $2" in
   "build -t") echo "docker.io/library/$3" >> "$FAKE/images" ;;
   "stop "*) grep -vxF "$2" "$FAKE/running" > "$FAKE/r" || true; mv "$FAKE/r" "$FAKE/running" ;;
   "run "*) while [ "$1" != --name ]; do shift; done; echo "$2" >> "$FAKE/running" ;;
-  "exec "*) case "$*" in *ug-session*) echo "SESSION";; *models.yml*) cat > "$FAKE/models.yml";; esac ;;
+  "exec "*) case "$*" in *ug-session*) echo "SESSION";; *ug-config*) rm -rf "$FAKE/config"; mkdir "$FAKE/config"; tar -x -C "$FAKE/config" -f - ;; esac ;;
   "inspect "*) sed -e "s|__NAME__|$2|g" -e "s|__REF__|$(tail -n 1 "$FAKE/images")|g" "$FAKE/inspect.json" ;;
 esac
 `;
+
+function commit(repo: string) {
+  spawnSync("git", ["-C", repo, "add", "-A"]);
+  spawnSync("git", ["-C", repo, "-c", "user.email=o@x", "-c", "user.name=o", "commit", "-q", "-m", "c"]);
+}
 
 async function setup(built = true) {
   const root = await tempDir(join(tmpdir(), "ug-box-"));
@@ -39,8 +44,14 @@ async function setup(built = true) {
   spawnSync("git", ["-C", repo, "remote", "add", "origin", "git@github.com:owner/app.git"]);
   const ug = join(root, "ug");
   await mkdir(join(ug, "host"), { recursive: true });
-  await mkdir(join(root, "cfg"));
-  await writeFile(join(root, "cfg/models.yml"), 'providers:\n  gw:\n    baseUrl: "http://@GATEWAY@"\n    apiKey: "@GATEWAY_TOKEN@"\n');
+  const cfg = join(root, "cfg");
+  spawnSync("git", ["init", "-q", cfg]);
+  await mkdir(join(cfg, "skills/fix-bug"), { recursive: true });
+  await writeFile(join(cfg, "models.yml"), 'providers:\n  gw:\n    baseUrl: "http://@GATEWAY@"\n    apiKey: "@GATEWAY_TOKEN@"\n');
+  await writeFile(join(cfg, "AGENTS.md"), "# owner rules\n");
+  await writeFile(join(cfg, "skills/fix-bug/SKILL.md"), "fix the bug\n");
+  await writeFile(join(cfg, "notes.txt"), "not a config name\n");
+  commit(cfg);
   await writeFile(join(ug, "host/config-repo"), "~/cfg\n");
   await writeFile(join(ug, "host/addresses"), "gateway=100.64.0.1:4000\n");
   await writeFile(join(bin, "fake-egress"), `#!/bin/sh\nexec "${process.execPath}" -e 'require("net").createServer().listen(process.argv[1])' "$1"\n`);
@@ -76,7 +87,7 @@ async function setup(built = true) {
     }
     await rm(root, { recursive: true, force: true });
   };
-  return { root, fake, repo, egress, broker, brokerServer, run, log, cleanup };
+  return { root, fake, repo, cfg, egress, broker, brokerServer, run, log, cleanup };
 }
 
 interface Box {
@@ -112,10 +123,41 @@ test("the first session boots a box with no network, a read-only root, and only 
   const session = calls.find((c) => c.includes("ug-session")) ?? "";
   assert.match(session, /UG_REPO=owner\/app /);
   assert.match(session, /PI_PROXY=http:\/\/127\.0\.0\.1:3128/);
-  const models = await readFile(join(s.fake, "models.yml"), "utf8");
+  const models = await readFile(join(s.fake, "config/models.yml"), "utf8");
   assert.match(models, /baseUrl: "http:\/\/gateway\.internal:4000"/);
   assert.match(models, /apiKey: "ug-placeholder"/);
   assert.equal(calls.at(-1), "stop ug-box", "the box ran on after its last session");
+});
+
+test("the box gets the config repo's last commit, only the config names, and none of its uncommitted work", async (t) => {
+  const s = await setup();
+  t.after(s.cleanup);
+  await writeFile(join(s.cfg, "AGENTS.md"), "# half-done edit\n");
+  await writeFile(join(s.cfg, "RULES.md"), "untracked\n");
+  const r = s.run();
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stderr, /not committed; the box gets its last commit/);
+  assert.equal(await readFile(join(s.fake, "config/AGENTS.md"), "utf8"), "# owner rules\n");
+  assert.equal(await readFile(join(s.fake, "config/skills/fix-bug/SKILL.md"), "utf8"), "fix the bug\n");
+  for (const absent of ["RULES.md", "notes.txt", ".git"]) {
+    await assert.rejects(readFile(join(s.fake, "config", absent)), `${absent} reached the box`);
+  }
+});
+
+test("a committed link or a committed token in the config repo stops the start before any session", async (t) => {
+  for (const [label, plant, why] of [
+    ["a link", (cfg: string) => symlink("/etc/passwd", join(cfg, "skills/fix-bug/key")), /link or a special file/],
+    ["a GitHub token", (cfg: string) => writeFile(join(cfg, "AGENTS.md"), `token: ghp_${"b".repeat(36)}\n`), /holds a token/],
+  ] as const) {
+    const s = await setup();
+    t.after(s.cleanup);
+    await plant(s.cfg);
+    commit(s.cfg);
+    const r = s.run();
+    assert.notEqual(r.status, 0, label);
+    assert.match(r.stderr, why, label);
+    assert.ok(!(await s.log()).some((c) => c.includes("ug-session") || c.includes("ug-config")), label);
+  }
 });
 
 test("outside a repo the session starts in the box with no repo, and a repo without a GitHub origin is refused", async (t) => {

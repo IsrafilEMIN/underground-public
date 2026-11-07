@@ -1,0 +1,23 @@
+#!/bin/sh
+set -eu
+names=${UG_CONFIG_NAMES:-/usr/local/lib/ug/config-names}
+for dir in "$HOME/.omp" "$HOME/.omp/agent"; do
+  if [ -L "$dir" ] || { [ -e "$dir" ] && [ ! -d "$dir" ]; }; then rm -f "$dir"; fi
+  mkdir -p "$dir"
+done
+agent=$HOME/.omp/agent
+new=$(mktemp -d "$agent/.ug-config.XXXXXX")
+trap 'rm -rf "$new"' EXIT
+tar -x -C "$new/" -f -
+mkdir "$new/.old"
+while IFS= read -r name; do
+  [ -n "$name" ] || continue
+  if [ -e "$new/$name" ] || [ -L "$new/$name" ]; then
+    if [ -d "$agent/$name" ] || [ -L "$agent/$name" ] || [ -d "$new/$name" ]; then
+      if [ -e "$agent/$name" ] || [ -L "$agent/$name" ]; then mv -T "$agent/$name" "$new/.old/$name"; fi
+    fi
+    mv -f -T "$new/$name" "$agent/$name"
+  elif [ -e "$agent/$name" ] || [ -L "$agent/$name" ]; then
+    mv "$agent/$name" "$new/.old/$name"
+  fi
+done < "$names"

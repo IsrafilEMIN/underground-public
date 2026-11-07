@@ -17,4 +17,5 @@ RUN curl -fsSL -o /usr/local/bin/omp "https://github.com/can1357/oh-my-pi/releas
  && chmod 755 /usr/local/bin/omp
 RUN useradd -u 1000 -M -d /home/agent agent
 COPY client.ts protocol.ts /usr/local/lib/broker/
-COPY broker ug-init ug-holder ug-session /usr/local/bin/
+COPY config-names /usr/local/lib/ug/
+COPY broker ug-config ug-init ug-holder ug-session /usr/local/bin/
