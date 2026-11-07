@@ -243,7 +243,7 @@ test("ug-box refuses when the image for the current pins is not built, and boots
   t.after(s.cleanup);
   const r = s.run();
   assert.notEqual(r.status, 0);
-  assert.match(r.stderr, /not built[\s\S]*ug-box build/);
+  assert.match(r.stderr, /not built[\s\S]*ug-setup/);
   assert.ok(!(await s.log()).some((c) => c.startsWith("run ") || c.startsWith("exec ")));
 });
 
