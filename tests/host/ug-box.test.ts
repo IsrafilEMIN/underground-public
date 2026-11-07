@@ -10,6 +10,8 @@ import { tempDir } from "../temp.ts";
 import { inspectedBox } from "./fixtures/box-inspect.ts";
 
 const UG_BOX = join(import.meta.dirname, "../../host/bin/ug-box");
+const SRC = join(import.meta.dirname, "../..");
+const BOX_IMAGE = join(SRC, "host/lib/box-image.bash");
 
 const FAKE = `#!/bin/bash
 echo "$*" >> "$FAKE/log"
@@ -76,7 +78,8 @@ async function setup(built = true) {
   const run = (cwd = repo, ...args: string[]) => spawnSync("bash", [UG_BOX, ...args], { cwd, env, encoding: "utf8" });
   const log = async () => (await readFile(join(fake, "log"), "utf8").catch(() => "")).trim().split("\n").filter(Boolean);
   if (built) {
-    assert.equal(run(repo, "build").status, 0);
+    const build = spawnSync("bash", ["-c", `source "${BOX_IMAGE}" && box_image_build "${SRC}"`], { env, encoding: "utf8" });
+    assert.equal(build.status, 0, build.stderr);
     await writeFile(join(fake, "log"), "");
   }
   const cleanup = async () => {
@@ -240,7 +243,7 @@ test("ug-box refuses when the image for the current pins is not built, and boots
   t.after(s.cleanup);
   const r = s.run();
   assert.notEqual(r.status, 0);
-  assert.match(r.stderr, /not built[\s\S]*ug-box build/);
+  assert.match(r.stderr, /not built[\s\S]*ug-setup/);
   assert.ok(!(await s.log()).some((c) => c.startsWith("run ") || c.startsWith("exec ")));
 });
 
