@@ -2,6 +2,8 @@
 
 Status: approved by the owner on 2026-10-30. Controls rewritten on 2026-11-02 for the redesign in `PRODUCT-BRIEF.md`. Row ids stay. `SPEC.md` lists the build work for each MVP 0.5 row; a control marked with a build id that is not built yet is the target, not today's code.
 
+Redesign phase (owner decision, 2026-11-07; `../AGENTS.md`, "Redesign phase"): the control column describes the srt design and is not the base of the new one. The harms are the checklist: the new base handles each irreversible row or accepts it by name. The list can change with the base.
+
 This file lists the workflow nodes and threat nodes from two articles and from the owner's grill. It splits them by job: underground or arkan. underground owns the sandbox, the broker, and the merge gate. arkan owns the agents: tasks, schedules, memory, budgets, and output.
 
 Scope: one owner, one mac, one macOS user, and omp as the only agent. The repos are public. A private repo reopens U14 (`PRODUCT-BRIEF.md`, user and scope).

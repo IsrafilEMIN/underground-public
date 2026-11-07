@@ -4,6 +4,19 @@
 
 An unattended agent can only do harm that you can undo.
 
+## Redesign phase
+
+Owner decision, 2026-11-07. We are redesigning the architecture from the problem up. The code and most docs describe the srt design: the arena, the zones, the wrapper, and srt as the sandbox. That design is wrong in part, so nothing in it is the base of the new one.
+
+- Given: the north star, the gate, and the scope (`docs/PRODUCT-BRIEF.md`, user and scope). Everything else is open.
+- Decide the base first: the harms that cannot be undone, what the agent needs to do its work, and the mechanism that handles both. Only then look at what exists.
+- What exists is aid, not anchor: the code, the ADRs, the brief's principles, zones, and flows, the spec's build rows, and the threat model's controls. Take a part in only when the new base needs it, and change it to fit that base.
+- A part does not stay because it exists, is built, or works today. A "kept", "stays", or "gone" line in a doc is a candidate until the base is decided.
+- Argue a design choice from the problem, a threat, or evidence, never from today's code or an earlier ADR alone.
+- The threat model's rows are a checklist for the new base: it handles each irreversible row or accepts it by name. The list can change with the base.
+
+The old docs still say what today's code does. Read them for that, not for the new design. A change to the architecture starts here, not from `docs/SPEC.md`.
+
 ## Where to look
 
 Open a file only when the task needs it.

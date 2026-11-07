@@ -2,6 +2,8 @@
 
 The design is in `PRODUCT-BRIEF.md` (owner decision, 2026-11-02). The rows come from `THREAT-MODEL.md`. The reasons are in `adr/`; the redesign is in `adr/0011-one-agent-arena.md` and `adr/0012-pinned-omp-and-setup.md`. Deadline: not set.
 
+Redesign phase (owner decision, 2026-11-07; `../AGENTS.md`, "Redesign phase"): the rows below build the srt design. They say what today's code does. They are not the base of the new design; a row comes into it only when the new base needs it.
+
 Status: **built** means the code exists today. **Change** means the code exists but must move to the redesign. **To build** means no code yet.
 
 ## Build

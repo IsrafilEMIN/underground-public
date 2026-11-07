@@ -2,6 +2,8 @@
 
 Date: 2026-11-07. Status: proposed. The owner agreed to the rough layout on 2026-11-07; the doors, the folders, and the start are not decided yet. Once built, it supersedes `0004-no-local-binding.md` and `0011-one-agent-arena.md` (except its one trust level), and amends `0001-accepted-risks.md`, `0005-model-auth-gateway.md`, `0008-preflight.md`, and `0012-pinned-omp-and-setup.md`. Each of them has an amendment of 2026-11-07 that says what changes. Amended by `0014-session-containers.md` (2026-11-07): one long-running VM, a Linux container per session inside it, and the layers of the box.
 
+Redesign phase (owner decision, 2026-11-07; `../../AGENTS.md`, "Redesign phase"): this ADR was drafted on top of the srt design, so its decisions are checked again from the problem up. Its "Kept from underground" and "Gone once built" lines are candidates, not decisions: a part comes back only if the new base needs it.
+
 ## Context
 
 The agent runs on the owner's mac as the owner's user. It shares the user, the network stack, localhost, and a home that persists. srt keeps it in with a list of rules on top of that shared host, and each gap in the list has needed its own patch:
