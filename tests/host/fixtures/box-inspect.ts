@@ -1,6 +1,6 @@
 import type { Inspected } from "../../../host/bin/ug-box-check.ts";
 
-export function inspectedBox(name: string, repo: string, reference: string, egress: string): Inspected {
+export function inspectedBox(name: string, reference: string, egress: string, broker: string): Inspected {
   return {
     configuration: {
       capAdd: [],
@@ -15,7 +15,7 @@ export function inspectedBox(name: string, repo: string, reference: string, egre
           type: { volume: { name: `${name}-home` } },
         },
         { destination: "/tmp/ug-egress.sock", options: [], source: egress, type: { virtiofs: {} } },
-        { destination: "/repo", options: ["ro"], source: repo, type: { virtiofs: {} } },
+        { destination: "/tmp/ug-broker.sock", options: [], source: broker, type: { virtiofs: {} } },
       ],
       networks: [],
       publishedPorts: [],

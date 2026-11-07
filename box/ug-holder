@@ -1,7 +1,6 @@
 #!/bin/sh
 set -eu
 export HOME=/home/agent
-export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0=/repo
 socat TCP-LISTEN:3128,bind=127.0.0.1,reuseaddr,fork UNIX-CONNECT:/tmp/ug-egress.sock &
 ovnfs start
 echo ready > /tmp/ug-ready

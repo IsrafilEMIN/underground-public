@@ -57,3 +57,12 @@ Owner, 2026-11-07: build to find out what discussion cannot. The first build, `h
 - **Sessions counted on the mac.** The first session boots the box, later ones join it, the last one to quit stops it; a box on an older image refuses new sessions until its last one quits.
 
 Not in the trial: the doors (no model, no broker), the config, and the start check of the running box, which waits for a real `container inspect` reply to read. So the trial box is not for unattended use. A read-only mount shows the box every file in the repo folder, ignored ones such as `.env` included; the owner accepts this (2026-11-07: no repo keeps secrets there).
+
+## Amendment 2026-11-07: clones through the broker, one box again
+
+Owner decision, 2026-11-07: the box clones each repo through the broker door instead of mounting the owner's checkout, so the owner's local work is never in the box. With no repo mount, the fixed-mounts problem is gone, and one box (`ug-box`, home volume `ug-box-home`) serves every repo, with omp's history shared across them. The allowlist of repos is the broker app's installation: `broker sync` refuses a repo without it, and the broker runs on the mac. A session started outside a repo gets a scratch folder and no clone.
+
+- The box's `broker` command is the broker's own client (`host/broker/client.ts`), run by the Bun inside the pinned omp (`BUN_BE_BUN=1 omp`; the owner's run of 2026-11-07 printed `1.4.4`), so the box needs no Node.
+- The box has four mounts, all checked from the mac: `/tmp`, its home volume, the egress door, and the broker door (`~/.ug/run/broker.sock`). The check refuses any folder of the mac.
+- Each session syncs the clone under a lock and opens an ovnfs checkout at `origin/<default branch>`.
+- Open: github.com stays on the egress allowlist, so the agent can also clone any public repo directly; that brings code in and sends nothing out.
