@@ -1,6 +1,6 @@
 import type { Inspected } from "../../../host/bin/ug-box-check.ts";
 
-export function inspectedBox(name: string, repo: string, reference: string): Inspected {
+export function inspectedBox(name: string, repo: string, reference: string, egress: string): Inspected {
   return {
     configuration: {
       capAdd: [],
@@ -14,6 +14,7 @@ export function inspectedBox(name: string, repo: string, reference: string): Ins
           source: `/Users/owner/Library/Application Support/com.apple.container/volumes/${name}-home/volume.img`,
           type: { volume: { name: `${name}-home` } },
         },
+        { destination: "/tmp/ug-egress.sock", options: [], source: egress, type: { virtiofs: {} } },
         { destination: "/repo", options: ["ro"], source: repo, type: { virtiofs: {} } },
       ],
       networks: [],

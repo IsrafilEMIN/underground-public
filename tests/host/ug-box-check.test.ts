@@ -4,16 +4,16 @@ import { boxProblems, type Inspected } from "../../host/bin/ug-box-check.ts";
 import { inspectedBox } from "./fixtures/box-inspect.ts";
 
 const want = { name: "ug-app-12345678", repo: "/Users/owner/app", tag: "ugbox:abc", egress: "/Users/owner/.local/state/underground/box/egress.sock" };
-const box = () => inspectedBox(want.name, want.repo, `docker.io/library/${want.tag}`);
+const box = () => inspectedBox(want.name, want.repo, `docker.io/library/${want.tag}`, want.egress);
+
+function mount(b: Inspected, destination: string) {
+  const m = b.configuration.mounts.find((x) => x.destination === destination);
+  assert.ok(m, destination);
+  return m;
+}
 
 test("the box as the owner's real run reported it passes the check", () => {
   assert.deepEqual(boxProblems(box(), want), []);
-});
-
-test("the egress socket, when the inspect reply lists it, passes as the fourth mount", () => {
-  const b = box();
-  b.configuration.mounts.push({ destination: "/tmp/ug-egress.sock", options: [], source: want.egress, type: {} });
-  assert.deepEqual(boxProblems(b, want), []);
 });
 
 test("each weakened wall of the box fails the check", () => {
@@ -29,10 +29,11 @@ test("each weakened wall of the box fails the check", () => {
     ["another first process", (b) => { b.configuration.initProcess.executable = "/bin/sh"; }, /first process/],
     ["an extra mount", (b) => b.configuration.mounts.push({ destination: "/mac", options: [], source: "/Users/owner", type: { virtiofs: {} } }), /unexpected mounts/],
     ["a second mount on the repo path", (b) => b.configuration.mounts.push({ destination: "/repo", options: [], source: "/Users/owner", type: { virtiofs: {} } }), /unexpected mounts/],
-    ["another socket as the egress door", (b) => b.configuration.mounts.push({ destination: "/tmp/ug-egress.sock", options: [], source: "/Users/owner/.ssh/agent.sock", type: {} }), /not the egress door/],
-    ["a writable repo", (b) => { b.configuration.mounts[2].options = []; }, /read-only/],
-    ["another folder as the repo", (b) => { b.configuration.mounts[2].source = "/Users/owner"; }, /read-only/],
-    ["another box's home", (b) => { b.configuration.mounts[1].type = { volume: { name: "ug-other-home" } }; }, /own volume/],
+    ["no egress door", (b) => { b.configuration.mounts = b.configuration.mounts.filter((m) => m.destination !== "/tmp/ug-egress.sock"); }, /egress door/],
+    ["another socket as the egress door", (b) => { mount(b, "/tmp/ug-egress.sock").source = "/Users/owner/.ssh/agent.sock"; }, /egress door/],
+    ["a writable repo", (b) => { mount(b, "/repo").options = []; }, /read-only/],
+    ["another folder as the repo", (b) => { mount(b, "/repo").source = "/Users/owner"; }, /read-only/],
+    ["another box's home", (b) => { mount(b, "/home/agent").type = { volume: { name: "ug-other-home" } }; }, /own volume/],
     ["a stopped box", (b) => { b.status.state = "stopped"; }, /not running/],
   ];
   for (const [label, weaken, why] of cases) {

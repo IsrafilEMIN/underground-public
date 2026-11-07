@@ -43,7 +43,7 @@ async function setup(built = true) {
   await writeFile(join(bin, "fake-egress"), `#!/bin/sh\nexec "${process.execPath}" -e 'require("net").createServer().listen(process.argv[1])' "$1"\n`);
   await chmod(join(bin, "fake-egress"), 0o755);
   const env = { HOME: root, PATH: `${bin}:/usr/bin:/bin`, FAKE: fake, UG_DIR: ug, UG_BOX_STATE: join(root, "state"), UG_BOX_LOCK_WAIT: "1", UG_BOX_NODE: process.execPath, UG_BOX_EGRESS: join(bin, "fake-egress") };
-  await writeFile(join(fake, "inspect.json"), JSON.stringify([inspectedBox("__NAME__", repo, "__REF__")]));
+  await writeFile(join(fake, "inspect.json"), JSON.stringify([inspectedBox("__NAME__", repo, "__REF__", join(root, "state/egress.sock"))]));
   const run = (cwd = repo, ...args: string[]) => spawnSync("bash", [UG_BOX, ...args], { cwd, env, encoding: "utf8" });
   const log = async () => (await readFile(join(fake, "log"), "utf8").catch(() => "")).trim().split("\n").filter(Boolean);
   if (built) {
@@ -150,7 +150,7 @@ test("ug-box refuses when the image for the current pins is not built, and boots
 test("a box whose real settings fail the check gets no session, and is stopped", async (t) => {
   const s = await setup();
   t.after(s.cleanup);
-  const weak = inspectedBox("__NAME__", s.repo, "__REF__");
+  const weak = inspectedBox("__NAME__", s.repo, "__REF__", join(s.root, "state/egress.sock"));
   weak.configuration.networks.push({ network: "default" });
   await writeFile(join(s.fake, "inspect.json"), JSON.stringify([weak]));
   const r = s.run();
