@@ -13,7 +13,7 @@ The agent runs on the owner's mac as the owner's user. It shares the user, the n
 
 ## Decision (proposed)
 
-- **The box.** The agent runs in an Apple `container` VM with `--network none`: its own kernel, filesystem, and loopback, and no route off the box. A fresh box starts from a pinned image at each session.
+- **The box.** The agent runs in an Apple `container` VM with `--network none`: its own kernel, filesystem, and loopback, and no route off the box. Each start is a fresh VM from a pinned image, with the box's home on a host volume that persists (where it lives: Open).
 - **Vanilla omp inside.** omp runs in its default layout in the box's home. Nothing in omp is moved, wrapped, or reset. Whatever the agent changes inside the box stays inside it, and a reset or a backup restore undoes it.
 - **Doors.** The box reaches the host only through unix sockets that the host mounts in. Draft list: the GitHub broker, and an egress socket to an allowlist proxy on the host. Model calls go through the egress door, and the host adds the gateway bearer there, so no secret enters the box.
 - **Safety lives in the doors.** A box can be taken over and stay taken over across starts, so each door must hold against a hostile caller. What the broker door allows (`broker merge`, N1 of the 2026-11-07 re-check) and what the model door can spend are part of this design, not separate from it.
