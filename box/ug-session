@@ -15,22 +15,31 @@ if [ ! -d "$clone/.git" ]; then
   git -C "$clone" init -q
   git -C "$clone" remote add origin "https://github.com/$UG_REPO.git"
 fi
-cd "$clone"
-synced=$(flock .git/ug-sync.lock broker sync "$UG_REPO") || {
-  echo "ug-session: broker sync $UG_REPO failed; is the broker app installed on it?" >&2
-  exit 69
-}
-branch=$(printf '%s\n' "$synced" | sed -n 's|^origin/\([^ ]*\) is now .*|\1|p')
-[ -n "$branch" ] || { echo "ug-session: broker sync gave no branch: $synced" >&2; exit 69; }
-checkout=$(ovnfs new "$clone" --rev "origin/$branch")
-cd "$checkout"
-git switch -q -c "wt/$(date -u +%Y%m%d-%H%M%S)-$$"
+if [ "${1:-}" = --checkout ]; then
+  checkout=$HOME/checkouts/${2:-}
+  [ -n "${2:-}" ] && [ -d "$checkout" ] || { echo "ug-session: no checkout ${2:-}; the checkouts are: $(ls "$HOME/checkouts" | tr '\n' ' ')" >&2; exit 64; }
+  shift 2
+  cd "$checkout"
+  base=$(git config --get ug.base)
+else
+  cd "$clone"
+  synced=$(flock .git/ug-sync.lock broker sync "$UG_REPO") || {
+    echo "ug-session: broker sync $UG_REPO failed; is the broker app installed on it?" >&2
+    exit 69
+  }
+  base=$(printf '%s\n' "$synced" | sed -n 's|^origin/\([^ ]*\) is now .*|\1|p')
+  [ -n "$base" ] || { echo "ug-session: broker sync gave no branch: $synced" >&2; exit 69; }
+  checkout=$(ovnfs new "$clone" --rev "origin/$base")
+  cd "$checkout"
+  git config ug.base "$base"
+  git switch -q -c "wt/$(date -u +%Y%m%d-%H%M%S)-$$"
+fi
 status=0
 omp "$@" || status=$?
 cd "$HOME"
-if [ -z "$(git -C "$checkout" status --porcelain)" ] && [ "$(git -C "$checkout" rev-list --count "origin/$branch..HEAD")" = 0 ]; then
+if [ -z "$(git -C "$checkout" status --porcelain)" ] && [ "$(git -C "$checkout" rev-list --count "origin/$base..HEAD")" = 0 ]; then
   ovnfs rm "$(basename "$checkout")" >/dev/null || echo "ug-session: could not remove the clean checkout $checkout" >&2
 else
-  echo "ug-session: kept $checkout: it has changes or commits" >&2
+  echo "ug-session: kept $(basename "$checkout"): it has changes or commits; open it again with: ug-box --checkout $(basename "$checkout")" >&2
 fi
 exit "$status"
