@@ -53,7 +53,7 @@ Source: the earlier onboarding list, checks 1 to 6 (`git show f16005c^:docs/ONBO
 
 ## Deferred
 
-- A per-port localhost setting in srt, so the sandbox could reach its own servers but not the host's.
+- A per-port localhost setting in srt, so the sandbox could reach its own servers but not the host's. Or the box of `adr/0013-throwaway-container.md`, proposed 2026-11-07 and not built: a container per session, which also closes incoming connections (N4 of the security re-check). Until its step 4, B2, B3, B5, and the Checks describe srt.
 - Per-repo network allowlists, with the data-out question (U14).
 - The merge gate's machinery: what is still needed now that reviewers are quality only.
 - The runtime for scripts (principle 9 of `PRODUCT-BRIEF.md`).

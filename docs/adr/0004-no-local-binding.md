@@ -33,3 +33,7 @@ Accepted risk: every role and the owner's own omp share localhost. A role can bi
 omp runs its daemons under one daemon broker per state folder. The broker keeps the sandbox rules of the session that started it, outlives that session, and later sessions of the same role and repo reuse it through `<state>/omp/run/daemons/<scope>/<name>/broker.pid`. After a rules change, its workers still run under the old rules, and text prediction stayed down after the socket grant was fixed (ticket 23).
 
 Decision: `install.sh` stops every daemon broker of every role (`stop_role_brokers`), because an install is the one moment the rules change and the owner restarts sessions after it. The wrapper stops a daemon broker of its state folder whose worker failed (`stop_failed_brokers`, `host/bin/omp`), because such a broker serves no session. A broker with a running worker stays. Both match only a process whose command line ends in `__omp_worker_daemon_broker`. No host watchdog: nothing in the sandbox can send a signal, and a kill-and-respawn loop would hide a real failure.
+
+## Amendment 2026-11-07: localhost in the box, proposed
+
+`0013-throwaway-container.md` proposes a container per session. There the all-or-nothing choice above ends: the box has its own localhost for omp's features and the agent's servers, and the mac's ports are out of reach. Not built; the loopback decision above holds until the plan's step 4.

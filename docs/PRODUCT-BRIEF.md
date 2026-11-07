@@ -130,11 +130,11 @@ Setup runs when a pin changes, a host service changes, or macOS updates. It inst
 - Localhost is open to every port for now. srt 0.0.81 has one switch for it (`dist/sandbox/macos-sandbox-utils.js:951` to `:954`).
 - The agent can send what it reads to an allowlisted domain (U14). This is fine while the repos are public.
 - A session can damage another repo's clone in the arena. Only agent work is lost.
-- The box can be swapped. If srt fails us, the arena moves into a VM, and the rest stays.
+- The box can be swapped. If srt fails us, the arena moves into a VM, and the rest stays. Proposed 2026-11-07: a container per session, which closes incoming connections and the mac's localhost by structure (`adr/0013-throwaway-container.md`); not built.
 
 ## Deferred
 
-- Localhost: decided 2026-11-03, it stays on, because omp's own features need it (`SPEC.md`, B5). Still open: a per-port setting in srt.
+- Localhost: decided 2026-11-03, it stays on, because omp's own features need it (`SPEC.md`, B5). Still open: a per-port setting in srt, or the box's own localhost (`adr/0013-throwaway-container.md`).
 - Per-repo allowlists, with the data-out question.
 - The merge gate's machinery: what is still needed now that reviewers are quality only.
 - The runtime choice for scripts.

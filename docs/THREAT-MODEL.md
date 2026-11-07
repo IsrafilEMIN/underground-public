@@ -1,6 +1,6 @@
 # Threat model
 
-Status: approved by the owner on 2026-10-30. Controls rewritten on 2026-11-02 for the redesign in `PRODUCT-BRIEF.md`. Row ids stay. `SPEC.md` lists the build work for each MVP 0.5 row; a control marked with a build id that is not built yet is the target, not today's code.
+Status: approved by the owner on 2026-10-30. Controls rewritten on 2026-11-02 for the redesign in `PRODUCT-BRIEF.md`. Row ids stay. `SPEC.md` lists the build work for each MVP 0.5 row; a control marked with a build id that is not built yet is the target, not today's code. Proposed 2026-11-07, not built: a container per session in place of srt (`adr/0013-throwaway-container.md`); it would rewrite the controls of U1, U2, U3, U7, and U36, and close N4 of the security re-check, at its step 4. Until then the rows below describe srt.
 
 This file lists the workflow nodes and threat nodes from two articles and from the owner's grill. It splits them by job: underground or arkan. underground owns the sandbox, the broker, and the merge gate. arkan owns the agents: tasks, schedules, memory, budgets, and output.
 

@@ -49,3 +49,7 @@ Cost: the wrapper now writes one file outside `~/.ug`. It keeps the first file t
 Check, added 2026-11-03: the probe's `raw-models` line asks a raw omp's `omp auth-gateway stdio` for `/v1/models` in the caller's own environment, and fails on any model in the list (`scripts/probe-arena.sh`). The older `raw-omp` line makes one `anthropic` call with `env -i`, so it missed `strata` (a key in the owner's shell) and the keyless providers. After the owner's list, the same request by hand returned `"data":[]`, and `-p` prompts to `apple/on-device`, `strata/...`, and `anthropic/...` each failed (owner run, 2026-11-03).
 
 Setup, added 2026-11-03: setup also writes the raw omp's `config.yml` before its probe (`install_raw_config`, `host/bin/ug-setup`; the code is shared with the wrapper in `host/lib/raw-omp-config.bash`). After the owner's cleanup made a fresh `~/.omp`, setup's probe reported `BREACH ... can call: apple/on-device`, and the wrapper, which would write the file, refused to start, because setup removes the macOS build record before the probe (`host/bin/ug-setup:231`; owner run, 2026-11-03).
+
+## Amendment 2026-11-07: the box's pins, proposed
+
+`0013-throwaway-container.md` proposes a container per session. Setup would then install Apple's `container` as a pin, build the box image and record its digest, and pin `omp-linux-arm64` beside the mac file; the srt pin and `install_srt` would go. The build check stays. Not built; the pins above hold until the plan's step 4.
