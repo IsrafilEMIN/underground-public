@@ -1,0 +1,14 @@
+#!/bin/sh
+set -eu
+export HOME=/home/agent
+export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0=/repo
+for rev in origin/HEAD origin/main; do
+  if git -C /repo rev-parse --verify --quiet "$rev^{commit}" >/dev/null; then
+    checkout=$(ovnfs new /repo --rev "$rev")
+    cd "$checkout"
+    exec omp "$@"
+  fi
+done
+git -C /repo rev-parse --verify origin/main >&2 || true
+echo "ug-session: the repo has no origin/HEAD or origin/main; fetch it on the mac first" >&2
+exit 1

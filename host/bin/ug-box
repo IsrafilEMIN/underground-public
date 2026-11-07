@@ -1,0 +1,128 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SRC=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)
+STATE=${UG_BOX_STATE:-$HOME/.local/state/underground/box}
+LOCK_WAIT=${UG_BOX_LOCK_WAIT:-30}
+READY_WAIT=${UG_BOX_READY_WAIT:-20}
+
+die() { echo "ug-box: $*" >&2; exit 1; }
+
+pin() { sed -n "s/^$1=//p" "$SRC/VERSIONS"; }
+
+image_tag() {
+  local h
+  h=$( { grep -E '^(box_omp|box_omp_sha256|ovnfs|ovnfs_sha256)=' "$SRC/VERSIONS"; cat "$SRC"/box/*; } | shasum -a 256 | cut -c1-16)
+  echo "ugbox:$h"
+}
+
+build() {
+  container build -t "$(image_tag)" \
+    --build-arg "OMP_VERSION=$(pin box_omp)" --build-arg "OMP_SHA256=$(pin box_omp_sha256)" \
+    --build-arg "OVNFS_VERSION=$(pin ovnfs)" --build-arg "OVNFS_SHA256=$(pin ovnfs_sha256)" \
+    -f "$SRC/box/Containerfile" "$SRC/box"
+}
+
+lock() {
+  local dir=$1/lock waited=0
+  until mkdir "$dir" 2>/dev/null; do
+    local holder
+    holder=$(cat "$dir/pid" 2>/dev/null || true)
+    if [[ -n $holder ]] && ! kill -0 "$holder" 2>/dev/null; then
+      rm -rf "$dir"
+      continue
+    fi
+    (( waited++ < LOCK_WAIT * 10 )) || die "another start holds the lock of $(basename "$1")"
+    sleep 0.1
+  done
+  echo $$ > "$dir/pid"
+}
+unlock() { rm -rf "$1/lock"; }
+
+live_sessions() {
+  local f n=0
+  for f in "$1"/sessions/*; do
+    [[ -e $f ]] || continue
+    if kill -0 "$(basename "$f")" 2>/dev/null; then n=$((n + 1)); else rm -f "$f"; fi
+  done
+  echo "$n"
+}
+
+running() { container list --quiet | grep -qxF "$1"; }
+
+boot() {
+  local name=$1 repo=$2 tag=$3 home=$name-home gone=0
+  while container list --all --quiet | grep -qxF "$name"; do
+    (( gone++ < READY_WAIT * 10 )) || die "the old box $name is still there"
+    sleep 0.1
+  done
+  container volume list --quiet | grep -qxF "$home" || container volume create "$home" >/dev/null
+  container run --detach --rm --name "$name" \
+    --network none --read-only --tmpfs /tmp \
+    --mount "type=bind,source=$repo,target=/repo,readonly" \
+    --volume "$home:/home/agent" \
+    "$tag" /usr/local/bin/ug-init >/dev/null
+  local waited=0
+  until container exec "$name" test -e /tmp/ug-ready 2>/dev/null; do
+    (( waited++ < READY_WAIT * 10 )) || { container stop "$name" >/dev/null 2>&1 || true; die "box $name did not get ready"; }
+    sleep 0.1
+  done
+}
+
+session() {
+  local repo name dir tag
+  repo=$(git rev-parse --show-toplevel 2>/dev/null) || die "not in a git repo"
+  repo=$(cd "$repo" && pwd -P)
+  name="ug-$(basename "$repo" | tr -c 'A-Za-z0-9_.\n-' '-')-$(printf '%s' "$repo" | shasum -a 256 | cut -c1-8)"
+  dir=$STATE/$name
+  tag=$(image_tag)
+  container image list --quiet | grep -qE "(^|/)${tag}\$" ||
+    die "the box image for the current pins is not built (${tag#ugbox:}).
+VERSIONS or the box files changed since the last build. Run: ug-box build"
+  mkdir -p "$dir/sessions"
+
+  lock "$dir"
+  if running "$name"; then
+    if [[ $(cat "$dir/image" 2>/dev/null) != "$tag" ]]; then
+      local open
+      open=$(live_sessions "$dir")
+      if [[ $open -gt 0 ]]; then
+        unlock "$dir"
+        die "update waiting for $(basename "$repo").
+A newer box image is built (new omp, ovnfs, or box files), but this repo's box still runs the old one,
+because $open omp session(s) are open in it. A running box is never restarted under an open session.
+To start on the new image: quit those sessions, then run ug-box again."
+      fi
+      container stop "$name" >/dev/null
+      boot "$name" "$repo" "$tag"
+    fi
+  else
+    boot "$name" "$repo" "$tag"
+  fi
+  echo "$tag" > "$dir/image"
+  : > "$dir/sessions/$$"
+  unlock "$dir"
+
+  trap 'finish "$dir" "$name"; exit 130' INT TERM HUP
+  local status=0
+  container exec --interactive --tty --uid 1000 --gid 1000 --env HOME=/home/agent "$name" \
+    nsenter --target 1 --user --mount -- /usr/local/bin/ug-session "$@" || status=$?
+  trap - INT TERM HUP
+  finish "$dir" "$name"
+  return "$status"
+}
+
+finish() {
+  local dir=$1 name=$2
+  rm -f "$dir/sessions/$$"
+  lock "$dir"
+  if [[ $(live_sessions "$dir") -eq 0 ]] && running "$name"; then
+    container stop "$name" >/dev/null 2>&1 || true
+  fi
+  unlock "$dir"
+}
+
+case ${1:-} in
+  build) build ;;
+  *) session "$@" ;;
+esac

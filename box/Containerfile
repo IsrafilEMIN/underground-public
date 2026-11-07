@@ -1,0 +1,19 @@
+FROM debian:bookworm-slim
+ARG OMP_VERSION
+ARG OMP_SHA256
+ARG OVNFS_VERSION
+ARG OVNFS_SHA256
+RUN apt-get update -qq \
+ && apt-get install -y -qq --no-install-recommends fuse3 git ca-certificates curl util-linux >/dev/null \
+ && rm -rf /var/lib/apt/lists/*
+RUN cd /tmp \
+ && curl -fsSLO "https://github.com/stencil-hq/ovnfs/releases/download/v${OVNFS_VERSION}/ovnfs_${OVNFS_VERSION}_linux_arm64.tar.gz" \
+ && echo "${OVNFS_SHA256}  ovnfs_${OVNFS_VERSION}_linux_arm64.tar.gz" | sha256sum -c - \
+ && tar xzf "ovnfs_${OVNFS_VERSION}_linux_arm64.tar.gz" ovnfs \
+ && install -m 755 ovnfs /usr/local/bin/ovnfs \
+ && rm -f ovnfs*
+RUN curl -fsSL -o /usr/local/bin/omp "https://github.com/can1357/oh-my-pi/releases/download/v${OMP_VERSION}/omp-linux-arm64" \
+ && echo "${OMP_SHA256}  /usr/local/bin/omp" | sha256sum -c - \
+ && chmod 755 /usr/local/bin/omp
+RUN useradd -u 1000 -M -d /home/agent agent
+COPY ug-init ug-holder ug-session /usr/local/bin/
