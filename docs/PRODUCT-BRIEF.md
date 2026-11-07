@@ -2,6 +2,8 @@
 
 Owner decision, 2026-11-02. This brief replaces the design of the first MVP 0.5. `SPEC.md` lists the build work, `THREAT-MODEL.md` the threats and their controls, and `adr/0011-one-agent-arena.md` and `adr/0012-pinned-omp-and-setup.md` the reasons. The code still runs the old design until the spec is built.
 
+**Redesign phase** (owner decision, 2026-11-07; `../AGENTS.md`, "Redesign phase"). The architecture is being redesigned from the problem up. This brief describes the srt design, which the code runs today (`host/bin/omp-arena`, `host/arena/init`). For the new design, its summary, the first paragraph of its problem, its user and scope, and its north star hold. The rest (the second paragraph of the problem, the principles, zones, flows, "What stays", "What goes", and the trade-offs) is aid, not base: a part comes back only if the new base needs it. This includes "the rest stays" under Accepted trade-offs; it is not a decision for the box (`adr/0013-agent-box.md`).
+
 ## Summary
 
 underground lets the omp coding agent work on the owner's mac and merge its own PRs while the owner is away.

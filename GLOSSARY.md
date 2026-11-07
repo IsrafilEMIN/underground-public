@@ -1,6 +1,6 @@
 # underground
 
-A safe environment for running the omp coding agent unattended on one macOS laptop. The design is in `docs/PRODUCT-BRIEF.md`. Where a term names a place that a build item in `docs/SPEC.md` moves, the term gives the new place and the build id.
+A safe environment for running the omp coding agent unattended on one macOS laptop. The design is in `docs/PRODUCT-BRIEF.md`. Where a term names a place that a build item in `docs/SPEC.md` moves, the term gives the new place and the build id. The architecture is being redesigned (`AGENTS.md`, "Redesign phase"): the terms describe today's srt design, and a term marked (proposed) names a candidate of the redesign, not a decision.
 
 ## Language
 
