@@ -7,11 +7,6 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { tempDir } from "../temp.ts";
 
-// The probe must never pass a check that it did not prove. These tests run it against a fake srt
-// in a fake home: a leaky one that runs every command with no sandbox, and a broken one that runs
-// nothing. Against the leaky one, every breach attempt must report a BREACH. Against the broken one,
-// no check may PASS, because its control fails.
-
 const SRC = join(import.meta.dirname, "../..");
 const PROBE = join(SRC, "scripts/probe-arena.sh");
 const versions = await readFile(join(SRC, "VERSIONS"), "utf8");
@@ -25,7 +20,7 @@ process.exit(r.status === null ? 1 : r.status);
 `;
 const BROKEN = `process.stderr.write("srt: cannot start\\n"); process.exit(1);
 `;
-// A leaky srt that also writes down the folder that it was started in, once per run.
+
 const RECORDING = `require("fs").appendFileSync(process.env.HOME + "/srt-cwds", process.cwd() + "\\n");
 ` + LEAKY;
 
@@ -37,7 +32,7 @@ async function fakeHome(srt: string): Promise<string> {
   await mkdir(srtDir, { recursive: true });
   await mkdir(join(home, ".ug/host"), { recursive: true });
   await writeFile(join(srtDir, "cli.js"), srt);
-  // A fake omp that does what the probe asks of a working omp, so only the sandbox is under test.
+
   await writeFile(
     join(ompDir, "omp"),
     `#!/bin/sh
@@ -46,8 +41,6 @@ case "$1" in
   -p) mkdir -p "$HOME/.omp/agent/sessions" && touch "$HOME/.omp/agent/sessions/probe" && echo 391 ;;
   -e) exec "${process.execPath}" -e "$2" ;;
   auth-gateway)
-    # The stdio gateway: it lists the ids in ~/.ug/fake-models, one per line, plus strata/qwen when
-    # STRATA_API_KEY is set; ~/.ug/fake-models-broken makes it answer with no list.
     [ "$2" = stdio ] || exit 64
     exec "${process.execPath}" -e '
       const fs = require("fs");
@@ -71,7 +64,7 @@ esac
   await mkdir(join(home, ".ug/host/auth"), { recursive: true });
   await writeFile(join(home, ".ug/host/auth/auth-gateway.token"), "test-bearer\n");
   await writeFile(join(home, ".ug/host/addresses"), "gateway=192.0.2.1:4000\nengine=192.0.2.2:8081\n");
-  // The arena backup's password and config (docs/SPEC.md, B10).
+
   await mkdir(join(home, ".ug/host/backup"), { recursive: true });
   await writeFile(join(home, ".ug/host/backup/password"), "backup-password-for-the-probe\n");
   await writeFile(join(home, ".ug/host/backup/config"), "repo=sftp:owner@other-box:backups/arena\n");
@@ -104,7 +97,7 @@ test("probe-arena reports a BREACH for every deny check when srt runs commands w
     assert.match(result(name), /^FAIL\s+\S+\s+BREACH:/, `${name}\n${run.stdout}${run.stderr}`);
   }
   assert.doesNotMatch(result("egress"), /^PASS /, run.stdout);
-  // The fake omp answers any prompt, so a raw omp on the host answers too: that must be a breach.
+
   assert.match(result("raw-omp"), /^FAIL\s+\S+\s+BREACH:/, run.stdout);
   assert.match(result("raw-models"), /^PASS /, run.stdout);
   assert.doesNotMatch(result("home-reach"), /^PASS /, run.stdout);
@@ -117,7 +110,7 @@ test("probe-arena passes no check when srt cannot start, because the control fai
   const { run, lines, result } = runProbe(home);
   assert.match(result("control"), /^FAIL /, run.stdout + run.stderr);
   assert.match(result("breaches"), /^INC /, run.stdout);
-  // pin and raw-models run on the host with no srt, and each has its own control.
+
   const hostChecks = ["pin", "raw-models"];
   assert.deepEqual(lines.filter((l) => l.startsWith("PASS ") && !hostChecks.includes(l.split(/\s+/)[1])), [], run.stdout);
   assert.notEqual(run.status, 0, run.stdout);
@@ -130,7 +123,7 @@ test("probe-arena lists every model that a raw omp can call, in the caller's own
   const keyless = runProbe(home).result("raw-models");
   assert.match(keyless, /^FAIL\s+\S+\s+BREACH:.*apple\/on-device lm-studio\/qwen;/, keyless);
   await rm(join(home, ".ug/fake-models"));
-  // A key in the owner's shell reaches a raw omp, so the check must not start from env -i.
+
   const shell = runProbe(home, { STRATA_API_KEY: "from-the-shell" });
   assert.match(shell.result("raw-models"), /^FAIL\s+\S+\s+BREACH:.*strata\/qwen/, shell.run.stdout);
   assert.match(runProbe(home).result("raw-models"), /^PASS /);
@@ -174,7 +167,7 @@ test("probe-arena reports a BREACH when the sandbox reaches the ssh agent, direc
 test("probe-arena starts srt in ~/.ug/run, whatever folder it is run from", async (t) => {
   const home = await fakeHome(RECORDING);
   t.after(() => rm(home, { recursive: true, force: true }));
-  // Run from the home folder, the case where the arena lies under srt's start folder.
+
   const env: Record<string, string> = { HOME: home, USER: "probe", LOGNAME: "probe", PATH: "/usr/bin:/bin:/usr/sbin:/sbin", UG_PROBE_NODE: process.execPath };
   spawnSync("bash", [PROBE], { env, cwd: home, encoding: "utf8", timeout: 120_000 });
   const cwds = (await readFile(join(home, "srt-cwds"), "utf8")).trim().split("\n");

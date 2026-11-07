@@ -1,18 +1,7 @@
 #!/usr/bin/env bash
-# The arena wrapper (docs/SPEC.md, B3; docs/adr/0011-one-agent-arena.md). It starts the pinned omp
-# under the pinned srt with the arena ~/.ug/home as HOME, in the arena clone of the repo that the
-# owner's checkout names. Setup links it as ~/.ug/sys/bin/omp.
-#
-# Every session uses the one GitHub broker socket, ~/.ug/run/broker.sock, with no registration
-# (docs/SPEC.md, B7). The usage broker is on 127.0.0.1:18765, the auth gateway on the tailscale
-# address. The owner's config repo, named in ~/.ug/host/config-repo, holds the agent's rules,
-# skills, and settings; each start copies it into the arena (docs/SPEC.md, B3).
-# shellcheck disable=SC2016  # single quotes hold node -e code that must not expand here
+# shellcheck disable=SC2016
 set -euo pipefail
 
-# Start again with a clean environment, so no variable of the caller (NODE_OPTIONS, GIT_*, a token)
-# reaches even the host steps below. Only the names here pass; PATH stays the caller's for the host
-# commands, and the sandbox gets its own.
 if [[ -z ${UG_ARENA_CLEAN:-} ]]; then
   pass=(UG_ARENA_CLEAN=1 "HOME=$HOME" "PATH=$PATH" "USER=${USER:-$(id -un)}")
   for name in LOGNAME TERM COLORTERM TERM_PROGRAM TERM_PROGRAM_VERSION LANG LC_ALL LC_CTYPE TZ UG_TEST_NODE; do
@@ -37,12 +26,6 @@ addresses="$HOME/.ug/host/addresses"
 gateway_token_file="$HOME/.ug/host/auth/auth-gateway.token"
 broker_token_file="$HOME/.ug/host/auth/auth-broker.token"
 config_repo_file="$HOME/.ug/host/config-repo"
-# The names in omp's ~/.omp/agent that the config repo owns (omp docs, config-usage.md, hooks.md,
-# omp 18.13.2). Each start replaces each of them in the arena with the repo's copy, and removes one
-# that the repo does not have. The other spellings that omp also reads are on the list too, so a
-# planted models.yaml or .mcp.json cannot outlast a start (keybindings.md:91, lsp-config.md:32,
-# config-usage.md:202). omp's own data (sessions, agent.db, caches) and secrets (secrets.yml,
-# .env) are not on the list.
 config_names=(AGENTS.md RULES.md APPEND_SYSTEM.md PERSONALITY.md SYSTEM_TEMPLATE.md WATCHDOG.md TITLE_SYSTEM.md
   config.yml settings.json models.yml models.yaml keybindings.yml keybindings.yaml keybindings.json
   mcp.json .mcp.json lsp.json .lsp.json lsp.yaml .lsp.yaml lsp.yml .lsp.yml
@@ -53,8 +36,7 @@ die() {
   exit "${code:-1}"
 }
 
-# The raw omp's config: write_raw_config and ug_config_repo (docs/SPEC.md, B2).
-# shellcheck source=host/lib/raw-omp-config.bash disable=SC1091  # CI lints that file on its own
+# shellcheck source=host/lib/raw-omp-config.bash disable=SC1091
 source "$src/host/lib/raw-omp-config.bash"
 
 pin() { sed -n "s/^$1=//p" "$src/VERSIONS"; }
@@ -70,8 +52,6 @@ for arg in "$@"; do
     --profile | --profile=*) code=64 die "$arg would move omp off its default root in the arena; remove it" ;;
   esac
 done
-
-# --- preflight ------------------------------------------------------------------------------------
 
 [[ -x $node_bin ]] || die "missing $node_bin"
 [[ -f $omp_bin && -x $omp_bin && ! -L $omp_bin ]] || die "the pinned omp $omp_bin is missing; run $src/host/bin/ug-setup"
@@ -91,8 +71,6 @@ else
 fi
 others=$(type -ap omp 2>/dev/null | grep -v -x -F -e "$sys/bin/omp" -e "$src/host/bin/omp-arena" | head -3 | tr '\n' ' ') || true
 [[ -z $others ]] || printf 'omp: warning: another omp is on PATH: %s\n' "$others" >&2
-
-# --- the repo -------------------------------------------------------------------------------------
 
 cwd=$(pwd -P)
 case $cwd/ in
@@ -119,9 +97,6 @@ if [[ ! -S $broker_socket ]]; then
   broker_socket=""
 fi
 
-# --- the arena backup -----------------------------------------------------------------------------
-# A backup that stopped is false safety, so each start says when the last good one is more than two
-# days old: the daily job may miss one night (docs/SPEC.md, B10; host/bin/ug-backup writes the time).
 backup_last="$HOME/.ug/host/backup/last"
 last=$(cat "$backup_last" 2>/dev/null) || last=""
 if [[ ! $last =~ ^[0-9]+$ ]]; then
@@ -130,20 +105,12 @@ elif (($(date +%s) - last > 2 * 86400)); then
   printf 'omp: warning: the last arena backup is %s days old; see ~/.ug/host/backup/backup.log\n' "$((($(date +%s) - last) / 86400))" >&2
 fi
 
-# --- this session's files in ~/.ug/run ------------------------------------------------------------
-
 find "$run_root" -mindepth 1 -maxdepth 1 -name 'session.*' -mtime +1 -exec rm -rf {} + 2>/dev/null || true
 run_dir=$(mktemp -d "$run_root/session.XXXXXX")
 gateway=$(sed -n 's/^gateway=//p' "$addresses" 2>/dev/null) || gateway=""
 [[ -n $gateway ]] || die "no gateway= line in $addresses"
 [[ -f $gateway_token_file ]] || die "missing the gateway bearer $gateway_token_file"
 
-# --- the config repo ------------------------------------------------------------------------------
-# The wrapper copies the repo's items into this session's run folder, which the sandbox can read but
-# not write; the start step inside the sandbox then puts them in the arena. Everything that it copies
-# becomes readable by the agent, so a link (it could point at ~/.ssh), a special file, or a file
-# with a token shape or the auth broker's bearer stops the start. models.yml keeps its
-# @GATEWAY@ and @GATEWAY_TOKEN@ markers in the repo; the wrapper fills them below.
 config_repo=$(ug_config_repo)
 models_src=""
 if [[ -z $config_repo ]]; then
@@ -206,19 +173,11 @@ fi
   fs.writeFileSync(`${runDir}/srt.json`, JSON.stringify(settings, null, 2) + "\n", { mode: 0o600 });
 ' "$run_dir" "$HOME" "$arena" "$sys" "$src" "$gateway" "$gateway_token_file" "$broker_socket" "$models_src"
 
-# --- start ----------------------------------------------------------------------------------------
-# A clean environment: only the variables named here reach srt and omp. srt keeps the real HOME
-# for itself and adds its proxy variables; ug-arena-init sets the arena as HOME for omp.
 keep=()
 for name in TERM COLORTERM TERM_PROGRAM TERM_PROGRAM_VERSION LANG LC_ALL LC_CTYPE TZ; do
   [[ -n ${!name:-} ]] && keep+=("$name=${!name}")
 done
 [[ -n $broker_socket ]] && keep+=("UG_BROKER_SOCKET=$broker_socket")
-# srt adds write denies for .git/hooks, .git/config, .gitconfig, .bashrc, .zshrc, .vscode and others
-# beneath the folder that it starts in (srt dist/sandbox/macos-sandbox-utils.js,
-# macGetMandatoryDenyEntries). Those protect host tools from agent-written files; the host runs no
-# tool in the arena, so there they only cripple git. srt starts in this session's run folder, which
-# the sandbox cannot write anyway, so the denies cost nothing and the arena works as a normal home.
 cd "$run_dir"
 user=${USER:-$(id -un)}
 exec env -i HOME="$HOME" USER="$user" LOGNAME="${LOGNAME:-$user}" SHELL=/bin/zsh \

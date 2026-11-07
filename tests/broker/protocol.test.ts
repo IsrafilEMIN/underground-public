@@ -130,7 +130,6 @@ test("review refuses a verdict other than pass, manual or block", () => {
   accepts({ ...VALID.review, role: "risk-review", verdict: "manual", reason: "needs a human" });
 });
 
-// Since 2026-11-03 a review names its reviewer role in the request: no socket says who asks.
 test("review refuses a role that is not one of the three reviewer roles", () => {
   for (const role of ["author", "Code-Review", "codereview", "", undefined, 7]) refuses(withField("review", "role", role), /role must be code-review, security-review, risk-review/);
   for (const role of ["code-review", "security-review"]) accepts(withField("review", "role", role));

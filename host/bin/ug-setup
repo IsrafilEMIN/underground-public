@@ -1,20 +1,4 @@
 #!/usr/bin/env bash
-# Setup, the one install tool of underground (docs/SPEC.md, B1 and B2;
-# docs/adr/0012-pinned-omp-and-setup.md). It runs from the owner's checkout of underground:
-#   - a checkout check: HEAD is origin/main with no local change, so CI proved what is installed
-#   - the tests marked [mac] in their name, which only this mac can run; CI proves the rest
-#   - the pinned omp and the pinned srt in ~/.ug/sys
-#   - the arena files: the session start step, the seed config, the broker client
-#   - ~/.ug/sys/bin/omp, a link to the arena wrapper in this checkout
-#   - the four launchd services: the GitHub broker and the usage broker run from this checkout,
-#     the auth broker and the auth gateway run the pinned omp
-#   - the arena backup: the pinned restic in ~/.ug/sys, its password in ~/.ug/host/backup, and the
-#     daily launchd job com.underground.backup that runs host/bin/ug-backup (docs/SPEC.md, B10)
-#   - the proof: it runs scripts/probe-arena.sh and records the macOS build only when the probe
-#     passes; the wrapper refuses to start on any other build
-# The auth broker and the auth gateway keep their logins and tokens in ~/.ug/host/auth. The GitHub
-# broker keeps its key, its records, and the owner's broker files in ~/.ug/host, and listens on
-# ~/.ug/run/broker.sock.
 set -euo pipefail
 
 if [[ $# -ne 0 ]]; then
@@ -24,8 +8,6 @@ fi
 
 src=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)
 ug_real=$(cd "$HOME/.ug" 2>/dev/null && pwd -P) || ug_real="$HOME/.ug"
-# Setup points the launchd services, which run with no sandbox and hold the GitHub key, at the
-# code in $src. Agents write everything under ~/.ug, so a checkout there would hand them the host.
 case $src/ in
   "$HOME/.ug/"* | "$ug_real/"*)
     printf 'ug-setup: %s is inside ~/.ug, where agents write; run setup from your own checkout\n' "$src" >&2
@@ -49,7 +31,6 @@ die() {
   printf 'ug-setup: %s\n' "$*" >&2
   exit 1
 }
-
 
 check_checkout() {
   local head main dirty
@@ -171,9 +152,6 @@ install_restic() {
   printf 'restic %s: installed in %s\n' "$restic_pin" "$dest"
 }
 
-# The arena backup's password, made once and never replaced: a new password would lock every old
-# snapshot. Setup never wakes the owner's other machine; the daily job makes the repo on its
-# first run (docs/SPEC.md, B10).
 setup_backup() {
   local backup="$host_zone/backup"
   install -d -m 700 "$backup"
@@ -186,7 +164,6 @@ setup_backup() {
   fi
 }
 
-# Write a file in place of the old one, never through it: a new file next to it, then a rename.
 put() {
   local from=$1 to=$2 mode=$3 tmp
   tmp=$(mktemp "$(dirname "$to")/.put.XXXXXX")
@@ -205,7 +182,6 @@ link() {
 install_arena_files() {
   local shim
   put "$src/host/arena/init" "$sys/libexec/ug-arena-init" 555
-  # The seed config.yml is gone: the config repo holds config.yml (docs/SPEC.md, B3).
   rm -rf "$sys/arena"
   put "$src/host/broker/client.ts" "$sys/broker/client.ts" 444
   put "$src/host/broker/protocol.ts" "$sys/broker/protocol.ts" 444
@@ -228,12 +204,10 @@ install_egress() {
   printf 'egress door: installed in %s\n' "$dir"
 }
 
-# The raw omp's config, before the probe: its raw-models check reads it, and the wrapper, which
-# also writes it, cannot start until the probe passes (host/lib/raw-omp-config.bash).
 install_raw_config() {
-  # shellcheck disable=SC2034  # write_raw_config reads ug_tag for its warnings
+  # shellcheck disable=SC2034
   local repo ug_tag=ug-setup
-  # shellcheck source=host/lib/raw-omp-config.bash disable=SC1091  # CI lints that file on its own
+  # shellcheck source=host/lib/raw-omp-config.bash disable=SC1091
   source "$src/host/lib/raw-omp-config.bash"
   repo=$(ug_config_repo)
   if [[ -z $repo || ! -d $repo || -L $repo ]]; then
@@ -254,7 +228,6 @@ prove() {
   printf 'proof: macOS build %s recorded in %s\n' "$build" "$sys/macos-build"
 }
 
-# The tailscale address of this mac, for the auth gateway. Written once; the owner edits it later.
 write_addresses() {
   local tailscale ip tmp
   [[ -e $addresses_file || -L $addresses_file ]] && return 0
@@ -290,7 +263,6 @@ restart_service() {
   die "launchctl bootstrap of $label failed: $err"
 }
 
-# The host zone: the auth root (PI_CONFIG_DIR in the auth plists) and the GitHub broker's folders.
 make_host_zone() {
   install -d -m 700 "$host_zone" "$auth_root" "$auth_root/agent" "$host_zone/broker" "$host_zone/broker/repos" \
     "$host_zone/broker/tmp" "$host_zone/broker/reviews" "$host_zone/broker/pushes"

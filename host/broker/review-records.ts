@@ -50,7 +50,6 @@ function serially<T>(work: () => Promise<T>): Promise<T> {
   return next;
 }
 
-// One append at a time, so two reviews never mix their lines in one file.
 export function appendReviewRecord(dir: string, record: ReviewRecord): Promise<void> {
   return serially(async () => {
     const path = reviewRecordsPath(dir, record);

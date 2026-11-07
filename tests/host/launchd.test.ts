@@ -3,11 +3,6 @@ import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
 
-// The launchd templates that host/bin/ug-setup renders. Setup fills exactly these placeholders, so
-// any other one would reach launchd unfilled. The services must run the pinned omp from ~/.ug/sys
-// (@OMP@) and the broker code of the owner's checkout (@SRC@), never Tern's omp or an old copy
-// in ~/.agents.
-
 const DIR = join(import.meta.dirname, "../../host/launchd");
 const FILLED = new Set(["@HOME@", "@OMP@", "@SRC@", "@SYS@", "@GATEWAY@", "@ENGINE@"]);
 
@@ -56,4 +51,3 @@ test("the backup job runs once a day at 20:00, not at load, and logs in the host
   assert.doesNotMatch(text, /<key>(RunAtLoad|KeepAlive|StartInterval)<\/key>/, "it would wake the other machine at each setup or all day");
   assert.match(text, /<key>StandardErrorPath<\/key>\s*<string>@HOME@\/\.ug\/host\/backup\/backup\.log<\/string>/);
 });
-

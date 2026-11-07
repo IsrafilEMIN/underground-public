@@ -21,7 +21,6 @@ const BRANCH = "agent/x";
 const AUTHOR: Session = { role: "author" };
 const GIT_ENV = { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" };
 
-// The fake gh logs every call. The default branch comes from $HOME/default-branch.
 const FAKE_GH = `#!/bin/sh
 printf '%s\\n' "$*" >> "$HOME/gh-calls"
 case "$1 $2 $4" in
@@ -222,8 +221,6 @@ test("an author's pr-create opens a PR from its agent branch with its title and 
   assert.equal(await readHome("created-body"), "Line one\nLine two\n");
 });
 
-// The broker has no repo list since 2026-11-03: a repo works when the broker app is installed on it.
-// The app gets no token for any other repo, so nothing reaches GitHub or the broker's records.
 test("a repo where the broker app is not installed gets no token, so no gh call, push, merge, or record happens", async () => {
   const head = await commit(BRANCH, "a.txt");
   const bundle = execFileSync(config.gitPath, ["bundle", "create", "-", `refs/heads/${BRANCH}`], { cwd: work, env: GIT_ENV }).toString("base64");

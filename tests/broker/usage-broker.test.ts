@@ -53,7 +53,6 @@ test("the snapshot has no credentials and only the keys that omp's broker client
   });
 });
 
-// One macrotask: every microtask queued by a timer that has fired runs before it.
 function flush(): Promise<void> {
   return new Promise((resolve) => setImmediate(resolve));
 }
@@ -266,9 +265,6 @@ function reachable(host: string, port: number): Promise<boolean> {
   return promise;
 }
 
-// The entry point listens on a fixed port, which the installed usage broker holds on the owner's
-// mac. A preload moves only that port to a free one, keeps the host the entry point passes, and
-// reports the address the server really bound.
 const FREE_PORT_PRELOAD = `
 import net from "node:net";
 const listen = net.Server.prototype.listen;
@@ -305,10 +301,6 @@ test("the usage broker service listens on loopback only", async (t) => {
   if (lan !== undefined) assert.equal(await reachable(lan, address.port), false, `reachable on ${lan}`);
 });
 
-// A /login in a wrapped session: omp in broker mode saves a login only on the broker, with the
-// writes of omp's api-key login (omp auth-broker/remote-store.ts:972 to :1003, omp 18.13.2): it
-// turns off the old rows, then uploads the new one. The usage broker is that broker in every
-// session, so the login must fail, keep nothing, and never reach the gateway.
 test("over HTTP, a /login's writes answer 404, and the key reaches no later reply and no gateway", async (t) => {
   const seen: (string | undefined)[] = [];
   const gateway = createServer((req, res) => {

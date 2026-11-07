@@ -1,25 +1,4 @@
 #!/usr/bin/env bash
-# The U1 and U2 canary probes of docs/SPEC.md, section Checks.
-#
-#   scripts/probe-u1-u2.sh plant     on the host: plant the canaries
-#   scripts/probe-u1-u2.sh read      on the host, then in an arena session: read each canary
-#   scripts/probe-u1-u2.sh remove    on the host: remove the canaries
-#
-# Each read prints one line: <probe>  <open|blocked|inconclusive|ok>  <evidence>.
-# On the host every probe must print ok; in the sandbox, open means the probe read its target
-# (the canary; for ssh-dir a listing that exits 0, even an empty one; for apple-events an answer
-# from a command that exits 0), blocked means the sandbox refused with "Operation not permitted",
-# and inconclusive is anything else, including a plain unix "Permission denied" or a macOS
-# privacy (TCC) refusal.
-#
-# The services probes (U2 svc-*) do not touch the camera, the microphone, or the keyboard. Each asks
-# launchd for the system service that the device needs, by name (bootstrap_look_up), and takes no
-# port's message: no light, no recording, no prompt. srt lets the sandbox look up only a fixed list
-# of services (srt 0.0.81 dist/sandbox/macos-sandbox-utils.js:772 to :786, :907), and these are not
-# on it. On the host each lookup must succeed (ok), or the service is absent on this macOS; in the
-# sandbox, 0 is open, 1100 (BOOTSTRAP_NOT_PRIVILEGED) is blocked, and the kernel log shows the deny.
-# svc-control looks up com.apple.system.logger, which srt allows: if it fails in the sandbox, the
-# lookup itself does not work there, and every svc line is inconclusive.
 set -uo pipefail
 
 canary="UG-CANARY-7f3a9c2e"
@@ -42,15 +21,10 @@ remove() {
   printf 'removed: keychain item, preference, clipboard; delete the %s password in the Passwords app by hand\n' "$dp_site"
 }
 
-# The arena wrapper sets the arena ~/.ug/home as HOME inside the sandbox (host/arena/init).
 in_sandbox() { [[ ${HOME:-} == */.ug/home ]]; }
 
-# The owner's real home, where the secrets are. In the sandbox HOME is the arena, so a probe of
-# $HOME only finds the arena and proves nothing; the real home is the arena path without /.ug/home.
 real_home() { if in_sandbox; then printf '%s' "${HOME%/.ug/home}"; else printf '%s' "$HOME"; fi; }
 
-# kind is canary (read means the output has the canary), exit (read means exit 0), or answer
-# (read means exit 0 with output).
 classify() {
   local probe=$1 kind=$2 out=$3 err=$4 status=$5 read=no
   case $kind in
@@ -81,13 +55,10 @@ probe() {
   classify "$name" "$kind" "$out" "$err" "$status"
 }
 
-# Prints the canary if the file opens, so a read counts as open; the file itself is encrypted or binary.
 opens() {
   head -c 1 "$1" >/dev/null && printf '%s' "$canary"
 }
 
-# The services that the camera, the microphone, keystrokes (event taps and the screen), and the
-# privacy prompts need, and one service that srt allows, as the control.
 SERVICES=(
   "svc-control com.apple.system.logger"
   "svc-microphone com.apple.audio.coreaudiod"

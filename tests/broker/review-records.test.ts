@@ -106,7 +106,6 @@ async function prLines(pr = 7): Promise<unknown[]> {
     .map((line): unknown => JSON.parse(line));
 }
 
-// A record that the broker moved from the old reviews.json before 2026-11-03 names no reviewer.
 async function writeOldRecord(head: string, verdict: string, reason: string): Promise<void> {
   const line = { repo: REPO, pr: 7, role_name: null, role: null, head, verdict, reason, at: "2026-10-01T00:00:00.000Z" };
   await mkdir(join(config.reviewsDir, REPO), { recursive: true });
@@ -138,7 +137,6 @@ beforeEach(async () => {
   execFileSync(config.gitPath, ["init", "--quiet", "-b", "main", work], { env: GIT_ENV });
 });
 
-// Since 2026-11-03 the record's role name is the reviewer role that the request names.
 test("broker review appends one line to the file of its PR, with the reviewer role it names", async () => {
   const head = await pushedPr("a.txt");
   const first = await review(CODE, head, "pass");
@@ -305,7 +303,6 @@ function record(pr: number, reason: string): ReviewRecord {
   return { repo: REPO, pr, role: "code-review", head: "a".repeat(40), verdict: "block", reason, at: "2026-10-01T00:00:00.000Z" };
 }
 
-// Node writes an append of more than 512 KiB in several writes, so two appends that run at once would interleave.
 const BIG = 1536 * 1024;
 
 test("a review file that exists but cannot be read is unreadable, not empty, and pr-status refuses", async () => {
@@ -326,4 +323,3 @@ test("appends that run at once land whole, one per line, in the order they were 
   await Promise.all(records.map((one) => appendReviewRecord(config.reviewsDir, one)));
   assert.deepEqual(await readReviewRecords(config.reviewsDir, { repo: REPO, pr: 7 }), { kind: "records", records });
 });
-

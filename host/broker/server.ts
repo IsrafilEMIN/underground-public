@@ -41,9 +41,6 @@ import type { GithubTokens } from "./github-app.ts";
 import { dropPushRecord, readPushRecord, writePushRecord } from "./push-record.ts";
 import { appendReviewRecord, readReviewRecords } from "./review-records.ts";
 
-// One socket serves every arena session, and every request stands on its own: there are no
-// bindings, no roles, and no list of repos. A repo works when the broker app is installed on it,
-// because the app gets no token for any other (docs/SPEC.md, B7 and the onboarding checks).
 export type ServerConfig = {
   socketPath: string;
   reposRoot: string;
@@ -70,8 +67,6 @@ function defaultGitPath(): string {
   return "/usr/bin/git";
 }
 
-// The socket sits in ~/.ug/run, which the sandbox may use but not write. Everything else is in the
-// host zone ~/.ug/host, which the sandbox cannot reach at all.
 export function defaultConfig(): ServerConfig {
   const host = join(HOME, ".ug/host");
   return {
@@ -334,9 +329,6 @@ async function handlePrStatus(config: ServerConfig, req: PrStatusRequest, signal
   return { exit: 0, stdout: `${JSON.stringify({ ...view.pr, reviewRecords: records.records }, null, 2)}\n`, stderr: "" };
 }
 
-// The author gets the failed steps of the pull_request runs of the PR head, and nothing else:
-// no run of another event or commit, and no log at all once the head has a deployment, which
-// GitHub creates for every job that uses an environment. The reply is capped and marked untrusted.
 async function handleCiLog(config: ServerConfig, req: CiLogRequest, signal: AbortSignal): Promise<Reply> {
   const view = await viewPr(config, req.repo, req.number, "headRefName,isCrossRepository,headRefOid", signal);
   if ("reply" in view) return view.reply;

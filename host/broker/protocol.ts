@@ -25,8 +25,7 @@ export type PrCreateRequest = { verb: "pr-create"; repo: string; head: string; t
 export type PrStatusRequest = { verb: "pr-status"; repo: string; number: number };
 export type CiLogRequest = { verb: "ci-log"; repo: string; number: number };
 export type MergeRequest = { verb: "merge"; repo: string; number: number };
-// Every session shares one trust level, so the request names the reviewer role it speaks for
-// (docs/adr/0011-one-agent-arena.md). The reviewers are a quality step, not a safety wall.
+
 export type ReviewRequest = { verb: "review"; repo: string; number: number; sha: string; role: ReviewerRole; verdict: Verdict; reason: string };
 export type Request =
   | SyncRequest
@@ -37,8 +36,6 @@ export type Request =
   | ReviewRequest
   | MergeRequest;
 
-// role is null only in a record that the broker moved from the old reviews.json, which named no
-// reviewer. That file is gone from the host (owner, 2026-11-03), but its records stay in the PR files.
 export type ReviewRecord = { repo: string; pr: number; role: ReviewerRole | null; head: string; verdict: Verdict; reason: string; at: string };
 export type ReviewRecords = { kind: "records"; records: ReviewRecord[] } | { kind: "unreadable" };
 
@@ -292,8 +289,6 @@ function hasRecordFields(value: unknown): value is Omit<ReviewRecord, "role"> {
   );
 }
 
-// Records written before 2026-11-03 also carry role_name, the name from the old role table: null
-// when role is null, else a name. The reader accepts it and drops it.
 function isOldRoleName(value: Record<string, unknown>): boolean {
   if (!("role_name" in value)) return true;
   return value.role === null ? value.role_name === null : typeof value.role_name === "string";
@@ -386,8 +381,6 @@ export function prHeadRefusal(pr: Record<string, unknown>): string | undefined {
 
 export type FailedRun = { id: number; name: string };
 
-// Keeps the failed `pull_request` runs of exactly this head. Runs on main, `push` and
-// `workflow_dispatch` runs, and runs of another commit never reach the author.
 export function failedPullRequestRuns(pages: unknown, head: string): Checked<FailedRun[]> {
   if (!Array.isArray(pages)) return fail("cannot read the workflow runs");
   const runs: FailedRun[] = [];
@@ -403,7 +396,6 @@ export function failedPullRequestRuns(pages: unknown, head: string): Checked<Fai
   return { ok: true, value: runs };
 }
 
-// Keeps the last `bytes` of a log, from a line start.
 export function tailLog(text: string, bytes: number): { text: string; cut: boolean } {
   const buffer = Buffer.from(text, "utf8");
   if (buffer.byteLength <= bytes) return { text, cut: false };

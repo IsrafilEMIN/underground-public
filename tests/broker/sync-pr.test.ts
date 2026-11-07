@@ -1,5 +1,4 @@
-// sync --pr brings a PR head into the session's own repo as origin/pr/<n>, where reviewers read
-// it (docs/SPEC.md, B8). Until 2026-11-03 it went into a separate reviewer store.
+
 import assert from "node:assert/strict";
 import { execFile, execFileSync } from "node:child_process";
 import { mkdir, rm, writeFile } from "node:fs/promises";
@@ -18,8 +17,7 @@ import { tempDir } from "../temp.ts";
 
 const REPO = "o/r";
 const CLIENT = join(import.meta.dirname, "../../host/broker/client.ts");
-// git 2.47+ ends fetch, commit and push with a detached `git maintenance run --auto`, which can still write in a
-// repo after the command exits; afterEach then fails with ENOTEMPTY when it removes the repo. No test here needs it.
+
 const NO_AUTO_MAINTENANCE = { GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "maintenance.auto", GIT_CONFIG_VALUE_0: "false" };
 const GIT_ENV = { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1", ...NO_AUTO_MAINTENANCE };
 const execFileAsync = promisify(execFile);

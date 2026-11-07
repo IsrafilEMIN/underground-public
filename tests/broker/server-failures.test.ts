@@ -31,8 +31,6 @@ const UNREADABLE_DEFAULT_BRANCHES = [
   "not json",
 ];
 
-// The fake gh logs every call and answers from files in $HOME. A call whose arguments contain the
-// text of $HOME/gh-fail fails the way GitHub fails: exit 4 and an HTTP error on stderr.
 const FAKE_GH = `#!/bin/sh
 printf '%s\\n' "$*" >> "$HOME/gh-calls"
 if [ -f "$HOME/gh-fail" ]; then
@@ -55,8 +53,6 @@ case "$1 $2" in
 esac
 `;
 
-// The fake git runs the real git with the token URL of GitHub pointed at a local bare repo, so no call
-// reaches GitHub. A call whose arguments contain the text of $HOME/git-fail fails with exit 3.
 function fakeGit(remote: string): string {
   return `#!/bin/sh
 printf '%s\\n' "$*" >> "$HOME/git-calls"
@@ -129,7 +125,6 @@ function assertRefused(reply: Reply, reason: string): void {
   assert.ok("refused" in reply && reply.refused.includes(reason), JSON.stringify(reply));
 }
 
-// A failure of git or gh reaches the caller as that tool's exit code and error output, not as a refusal.
 function assertForwarded(reply: Reply, exit: number, stderr: string): void {
   assert.ok(!("refused" in reply), JSON.stringify(reply));
   assert.equal(reply.exit, exit, JSON.stringify(reply));
@@ -142,7 +137,6 @@ function assertCannotReadDefaultBranch(reply: Reply): void {
   assert.ok(reply.stderr.includes("cannot read default branch"), JSON.stringify(reply));
 }
 
-// A PR head that the broker pushed and that has a pass from all three reviewer roles and green CI.
 async function pushedHead(): Promise<string> {
   const head = await commit(BRANCH, "a.txt");
   git(work, "push", "--quiet", remote, `${BRANCH}:${BRANCH}`);
@@ -233,14 +227,8 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-// --- the files that every request reads ---
-
-// --- the connection: one JSON line in, one JSON reply out ---
-
 type Served = { path: string; server: Server; inputs: unknown[] };
 
-// The socket sits in /tmp, not in macOS's long $TMPDIR, as in flow.test.ts; an agent sandbox,
-// which cannot listen there, sets XDG_STATE_HOME.
 async function serve(handle: (input: unknown) => Promise<Reply>): Promise<Served> {
   const path = join(await tempDir(join(process.env.XDG_STATE_HOME ?? "/tmp", "u")), "s.sock");
   const inputs: unknown[] = [];
@@ -263,7 +251,6 @@ async function close(served: Served): Promise<void> {
   await rm(dirname(served.path), { recursive: true, force: true });
 }
 
-// Sends a request and reads the reply. A broker that never answers counts as no reply after 15 s.
 function exchange(path: string, send: (socket: Socket) => void | Promise<void>): Promise<Reply> {
   const { promise, resolve, reject } = Promise.withResolvers<Reply>();
   const socket = connect(path);
@@ -335,7 +322,7 @@ test("a handler that throws gives exit 1 with an internal error, and the token i
 test("a request one byte over the limit is refused before it reaches a handler", { timeout: 120_000 }, async () => {
   const served = await serve(() => Promise.resolve(HANDLED));
   try {
-    // A valid JSON request of exactly MAX_REQUEST_BYTES + 1 bytes, so the byte over the limit is the last one sent.
+
     const head = '{"verb":"sync","repo":"o/r","pad":"';
     const tail = '"}';
     const block = Buffer.alloc(1024 * 1024, 0x78);
@@ -354,8 +341,6 @@ test("a request one byte over the limit is refused before it reaches a handler",
     await close(served);
   }
 });
-
-// --- the default branch and the broker's bare repo ---
 
 test("sync with an unreadable default branch fails and fetches nothing; a readable one syncs", async () => {
   for (const answer of UNREADABLE_DEFAULT_BRANCHES) {
@@ -413,8 +398,6 @@ test("sync and push fail with git's error when the broker cannot create its bare
   assert.deepEqual(await pushRecord(), { kind: "none" });
 });
 
-// --- sync ---
-
 test("sync whose bundle cannot be made fails with git's error and returns no bundle", async () => {
   await failGit("bundle create");
   const reply = await request({ verb: "sync" });
@@ -451,8 +434,6 @@ test("sync --pr whose bundle cannot be made gives git's error and leaves no temp
   assert.ok(!("bundle_b64" in reply), JSON.stringify(reply));
   assert.equal(brokerTempRefs(), "");
 });
-
-// --- push ---
 
 test("a push whose bundle lacks the branch fails with git's error, lands nothing, and leaves no temp ref", async () => {
   const other = await commit("agent/y", "a.txt");
@@ -502,8 +483,6 @@ test("a push leaves no temp ref in the broker's bare repo, whether it lands or i
   assert.equal(brokerTempRefs(), "");
 });
 
-// --- pr-create ---
-
 test("pr-create opens the PR against the default branch that GitHub names", async () => {
   await writeHome("repo.json", '{"defaultBranchRef":{"name":"trunk"}}');
   const reply = await request({ verb: "pr-create", head: BRANCH, title: "t", body: "" });
@@ -516,8 +495,6 @@ test("pr-create that gh fails gives gh's exit code and error", async () => {
   assertForwarded(await request({ verb: "pr-create", head: BRANCH, title: "t", body: "" }), 4, "HTTP 502");
   assert.equal(await readHome("created"), "");
 });
-
-// --- the PR view that pr-status, ci-log, review, merge and sync --pr read ---
 
 const PR_VERBS: { name: string; input: Record<string, unknown>; session: Session }[] = [
   { name: "sync --pr", input: { verb: "sync", pr: 7 }, session: REVIEWER },
@@ -557,8 +534,6 @@ for (const verb of PR_VERBS) {
     assert.deepEqual(await reviewRecords(), recordsBefore);
   });
 }
-
-// --- ci-log ---
 
 test("ci-log refuses a PR head from another repo or off agent/*, and reads no run", async () => {
   for (const pr of [{ isCrossRepository: true }, { headRefName: "feature/x" }]) {
@@ -631,8 +606,6 @@ test("ci-log redacts a GitHub token that appears in a CI log", async () => {
   assert.ok(reply.stdout.includes("second failure"), JSON.stringify(reply));
 });
 
-// --- review ---
-
 test("review refuses a head that is not the PR head, from another repo, off agent/*, or unreadable, and writes no record", async () => {
   const head = await pushedHead();
   const before = await reviewRecords();
@@ -670,8 +643,6 @@ test("review whose record cannot be written is refused and leaves no record", as
   await chmod(join(config.reviewsDir, REPO), 0o700);
   assert.deepEqual(await reviewRecords(), { kind: "records", records: [] });
 });
-
-// --- merge ---
 
 test("merge refuses a PR whose base is not the default branch, and merges it once the base is", async () => {
   const head = await pushedHead();
@@ -741,8 +712,6 @@ test("merge holds a PR that renames a protected path away, and merges the same r
   const ok = await merge();
   assert.equal(ok.exit, 0, JSON.stringify(ok));
 });
-
-// --- branch cleanup after a merge ---
 
 test("a merge whose branch delete fails while the branch is still at the head exits 1, keeps the branch, and names the merge", async () => {
   const head = await pushedHead();

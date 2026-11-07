@@ -6,11 +6,6 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { tempDir } from "../temp.ts";
 
-// Setup points the launchd services, which run with no sandbox and hold the GitHub key, at the code
-// of the checkout it runs from. A checkout inside ~/.ug is agent-written, so setup must refuse it
-// before it writes anything. The copies here have no VERSIONS file, so a run that gets past the
-// guard stops at the first pin read and never reaches the test suite or the host.
-
 const SETUP = join(import.meta.dirname, "../../host/bin/ug-setup");
 
 async function copyAt(root: string): Promise<string> {

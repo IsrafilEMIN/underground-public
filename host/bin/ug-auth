@@ -1,13 +1,4 @@
 #!/usr/bin/env bash
-# The owner's door to the auth broker and the auth gateway (docs/SPEC.md, B6): the pinned omp with
-# its root in ~/.ug/host/auth, where those two services keep the logins and the tokens.
-#
-#   ug-auth auth-broker login [<provider>]     add or renew a login
-#   ug-auth auth-broker token --regenerate     rotate the broker bearer, then restart the broker
-#   ug-auth auth-gateway token --regenerate    rotate the gateway bearer, then restart the gateway
-#
-# Only those two command groups run here: a session or anything else would start omp with no
-# sandbox and every login. Setup links it as ~/.ug/sys/bin/ug-auth.
 set -euo pipefail
 
 case ${1:-} in
