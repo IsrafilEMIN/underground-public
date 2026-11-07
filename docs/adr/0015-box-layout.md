@@ -25,15 +25,16 @@ Sessions are one trust level and share every door (`0011-one-agent-arena.md`, "W
 
   `container run` has no restart policy: its option list names none (same reference). The start does not need one, because it reuses a healthy box, boots a stopped one, and refuses a bad one. Resuming an unattended run on its own after a crash belongs to arkan (`../THREAT-MODEL.md`, K20), not underground.
 - **The mac runs an installed copy of underground** (owner decision, 2026-11-07). Setup copies a merged `main` commit of underground into a folder that only setup writes. launchd's services and the start run from that copy, never from the owner's checkout. An update is `git pull`, then setup. A checkout of an agent branch in the owner's folder runs nothing on the mac.
-- **The mac side.** `~/.ug` holds only what the mac keeps: the keys and logins, the door sockets, the installed host code, and the backup settings.
+- **The mac side.** `~/.ug` holds only what the mac keeps: the keys and logins, the door sockets, the installed host code, and the backup settings. Candidate (owner, 2026-11-07): fold `~/.ug` into `~/.omp`. The one thing the fold must keep is that a plain omp on the mac finds no login (`../THREAT-MODEL.md`, U36, U15).
 
 ## Open
 
-- The config mechanism: where each read-only item is mounted for omp to find. omp has run with a read-only `config.yml` only in `-p` mode (`0014-session-containers.md`, Evidence); interactive use is untested.
-- The backup of the box's disk, and whether a rebuild carries prompt history (`history.db`) as well.
-- How a session starts from the mac.
-- The doors against a hostile caller (`0013-agent-box.md`, Open).
-- Nothing in this ADR is tested yet.
+- The egress door as a launchd service that restarts itself, run from the installed copy; today `ug-box` starts it from the checkout and nothing restarts it.
+- The installed copy (Decision): not built; `ug-box` and the egress door run from the owner's checkout (`../THREAT-MODEL.md`, U4).
+- The backup of the box's disk (`../THREAT-MODEL.md`, U37, regressed), the rebuild, and a size cap on the home volume (U22).
+- The fold of `~/.ug` into `~/.omp`, and the removal of the srt design: the wrapper, `host/arena/init`, the zones, the probes and their tests, the docs and glossary terms.
+- The switch: `omp` on `PATH` becomes `ug-box`, and the trial name goes.
+- Not run on the owner's mac yet: sessions in the clone with omp's own worktree (#69). Run on the owner's mac on 2026-11-07: the box with its start check, the model door, clone and status through the broker door, the config copy, and the raw-request refusals of the broker (`../THREAT-MODEL.md`, "The box against each row").
 
 ## Rejected
 
