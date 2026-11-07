@@ -9,7 +9,7 @@ import { test } from "node:test";
 // in ~/.agents.
 
 const DIR = join(import.meta.dirname, "../../host/launchd");
-const FILLED = new Set(["@HOME@", "@OMP@", "@SRC@", "@GATEWAY@", "@ENGINE@"]);
+const FILLED = new Set(["@HOME@", "@OMP@", "@SRC@", "@SYS@", "@GATEWAY@", "@ENGINE@"]);
 
 const programArguments = (text: string): string[] => {
   const block = /<key>ProgramArguments<\/key>\s*<array>([\s\S]*?)<\/array>/.exec(text)?.[1] ?? "";
@@ -18,7 +18,7 @@ const programArguments = (text: string): string[] => {
 
 test("every launchd template uses only the placeholders that setup fills", async () => {
   const files = (await readdir(DIR)).filter((n) => n.endsWith(".plist"));
-  assert.equal(files.length, 5, files.join(" "));
+  assert.equal(files.length, 6, files.join(" "));
   for (const file of files) {
     const text = await readFile(join(DIR, file), "utf8");
     for (const placeholder of text.match(/@[A-Z_]+@/g) ?? []) assert.ok(FILLED.has(placeholder), `${file}: ${placeholder}`);
@@ -34,6 +34,13 @@ test("the auth services run the pinned omp, and the brokers run the checkout's c
   assert.deepEqual(await args("com.underground.broker"), ["/opt/homebrew/bin/node", "@SRC@/host/broker/server.ts"]);
   assert.deepEqual(await args("com.underground.usage-broker"), ["/opt/homebrew/bin/node", "@SRC@/host/broker/usage-broker.ts"]);
   assert.deepEqual(await args("com.underground.backup"), ["/bin/bash", "@SRC@/host/bin/ug-backup"]);
+});
+
+test("the egress door runs from setup's copy in ~/.ug/sys, never from the checkout, and reads its pins and allowlist there", async () => {
+  const text = await readFile(join(DIR, "com.underground.egress.plist"), "utf8");
+  assert.deepEqual(programArguments(text), ["/opt/homebrew/bin/node", "@SYS@/egress/host/egress/server.ts", "@HOME@/.ug/run/egress.sock", "@SYS@/egress"]);
+  assert.doesNotMatch(text, /@SRC@/, "the door would run the checkout's code with the gateway bearer");
+  assert.match(text, /<key>KeepAlive<\/key>\s*<true\/>/);
 });
 
 test("the auth services keep their logins and tokens in ~/.ug/host/auth, not in ~/.omp", async () => {
