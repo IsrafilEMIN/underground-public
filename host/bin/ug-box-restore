@@ -10,6 +10,9 @@ snapshot=${1:-latest}
 restic_pin=$(sed -n 's/^restic=//p' "$HOME/.ug/sys/box/VERSIONS" 2>/dev/null || true)
 restic_bin="$HOME/.ug/sys/restic/$restic_pin/restic"
 backup="$HOME/.ug/host/backup"
+state=${UG_BOX_STATE:-$HOME/.local/state/underground/box}/ug-box
+node=${UG_BOX_NODE:-/opt/homebrew/bin/node}
+lock="$state/lock"
 
 die() { echo "ug-box-restore: $*" >&2; exit 1; }
 
@@ -24,16 +27,31 @@ repo=$(sed -n 's/^repo=//p' "$backup/config" 2>/dev/null | sed -n '1p')
 [[ -n $repo ]] || die "no repo= line in $backup/config"
 export RESTIC_PASSWORD_FILE="$backup/password"
 
+mkdir -p "$state"
+mkdir "$lock" 2>/dev/null || die "ug-box holds its lock; end every session first"
+echo $$ >"$lock/pid"
+trap 'rm -rf "$lock"' EXIT
 ! container list --quiet | grep -qxF ug-box || die "the box is running; end every session first"
 
-"$restic_bin" -r "$repo" snapshots --tag ug-box --json "$snapshot" | grep -q '"ug-box-home.tar"' ||
-  die "no box snapshot $snapshot in $repo with tag ug-box"
+"$restic_bin" -r "$repo" cat config >/dev/null 2>&1 || die "the backup repo $repo does not open; is the backup target awake?"
+id=$("$restic_bin" -r "$repo" snapshots --tag ug-box --json "$snapshot" | "$node" -e '
+  let d = "";
+  process.stdin.on("data", (c) => (d += c)).on("end", () => {
+    const s = JSON.parse(d).find((x) => x.paths?.includes("ug-box-home.tar"));
+    if (s) console.log(s.id);
+  });')
+[[ -n $id ]] || die "no box snapshot $snapshot in $repo holds ug-box-home.tar"
 
+tar_cmd=(tar -C /home/agent -c --exclude ./.tmp --exclude ./.cache --exclude ./.omp/agent/cache --exclude node_modules .)
 if container volume list --quiet | grep -qxF ug-box-home; then
+  container run --rm --network none --volume ug-box-home:/home/agent "$image" "${tar_cmd[@]}" |
+    "$restic_bin" -r "$repo" backup --quiet --tag ug-box-prerestore --stdin --stdin-filename ug-box-home.tar ||
+    die "the old box home did not reach $repo, so nothing was deleted"
+  echo "ug-box-restore: the old box home is in $repo with tag ug-box-prerestore"
   container volume delete ug-box-home >/dev/null
-  echo "ug-box-restore: deleted the old box home"
 fi
 container volume create ug-box-home >/dev/null
-"$restic_bin" -r "$repo" dump "$snapshot" ug-box-home.tar |
-  container run --rm --interactive --network none --volume ug-box-home:/home/agent "$image" tar -x -C /home/agent
-echo "ug-box-restore: the box home is back from snapshot $snapshot; the next ug-box starts on it"
+"$restic_bin" -r "$repo" dump "$id" ug-box-home.tar |
+  container run --rm --interactive --network none --volume ug-box-home:/home/agent "$image" tar -x -C /home/agent ||
+  die "the restore of snapshot ${id:0:8} broke partway; the box home is incomplete. Run ug-box-restore again, or with the id of the ug-box-prerestore snapshot for the old home"
+echo "ug-box-restore: the box home is back from snapshot ${id:0:8}; the next ug-box starts on it"

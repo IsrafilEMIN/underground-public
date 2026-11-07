@@ -111,6 +111,81 @@ async function withBox(home: string, { running = false, image = true } = {}) {
   }
 }
 
+const RESTORE = join(SRC, "host/bin/ug-box-restore");
+const FAKE_RESTIC_RESTORE = `#!/bin/sh
+line='RESTIC:'; for a in "$@"; do line="$line [$a]"; done; printf '%s\\n' "$line" >>"$HOME/calls"
+case " $* " in
+  *" cat config "*) [ ! -e "$HOME/repo-closed" ] ;;
+  *" snapshots "*) cat "$HOME/snapshots.json" ;;
+  *" --stdin "*) cat >"$HOME/stdin"; [ ! -e "$HOME/prerestore-fails" ] ;;
+  *" dump "*) echo DUMPDATA; [ ! -e "$HOME/dump-fails" ] ;;
+esac
+`;
+
+async function restoreHome({ volume = true } = {}) {
+  const home = await fakeHome();
+  await withBox(home);
+  await writeFile(join(home, ".ug/sys/box/VERSIONS"), `restic=${RESTIC_PIN}\n`);
+  await exe(join(home, ".ug/sys/restic", RESTIC_PIN, "restic"), FAKE_RESTIC_RESTORE);
+  await writeFile(join(home, "snapshots.json"), JSON.stringify([{ id: "a".repeat(64), paths: ["ug-box-home.tar"], tags: ["ug-box"] }]));
+  await exe(join(home, "fakebin/container"), FAKE_CONTAINER.replace('"volume list") [ ! -e "$HOME/no-volume" ] && echo ug-box-home ;;', '"volume list") [ ! -e "$HOME/no-volume" ] && echo ug-box-home ;;\n  "image list") echo docker.io/library/ugbox:test ;;\n  "run --rm") cat >"$HOME/restored" 2>/dev/null; echo TARDATA ;;'));
+  if (!volume) await writeFile(join(home, "no-volume"), "");
+  return home;
+}
+
+function restore(home: string, ...args: string[]) {
+  return spawnSync("bash", [RESTORE, ...args], {
+    env: { HOME: home, PATH: `${join(home, "fakebin")}:/usr/bin:/bin`, UG_BOX_STATE: join(home, "state"), UG_BOX_NODE: process.execPath },
+    encoding: "utf8",
+    timeout: 30_000,
+  });
+}
+
+test("ug-box-restore saves the old home into the repo before it deletes the volume, then fills a new one from the snapshot", async (t) => {
+  const home = await restoreHome();
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const r = restore(home);
+  assert.equal(r.status, 0, r.stderr);
+  const all = await calls(home);
+  const order = ["[backup] [--quiet] [--tag] [ug-box-prerestore]", "[volume] [delete] [ug-box-home]", "[volume] [create] [ug-box-home]", `[dump] [${"a".repeat(64)}] [ug-box-home.tar]`].map((s) => all.findIndex((c) => c.includes(s)));
+  assert.ok(order.every((i, n) => i >= 0 && (n === 0 || i > order[n - 1])), all.join("\n"));
+  assert.equal(await readFile(join(home, "stdin"), "utf8"), "TARDATA\n");
+  assert.equal(await readFile(join(home, "restored"), "utf8"), "DUMPDATA\n");
+  assert.ok(!existsSync(join(home, "state/ug-box/lock")));
+});
+
+test("ug-box-restore deletes nothing when the old home does not reach the repo, when the box runs, or when ug-box holds its lock", async (t) => {
+  const home = await restoreHome();
+  t.after(() => rm(home, { recursive: true, force: true }));
+  await writeFile(join(home, "prerestore-fails"), "");
+  let r = restore(home);
+  assert.notEqual(r.status, 0);
+  assert.match(r.stderr, /nothing was deleted/);
+  await rm(join(home, "prerestore-fails"));
+  await writeFile(join(home, "box-running"), "");
+  r = restore(home);
+  assert.match(r.stderr, /the box is running/);
+  await rm(join(home, "box-running"));
+  await mkdir(join(home, "state/ug-box/lock"), { recursive: true });
+  await writeFile(join(home, "state/ug-box/lock/pid"), String(process.pid));
+  r = restore(home);
+  assert.match(r.stderr, /holds its lock/);
+  assert.ok(!(await calls(home)).some((c) => c.includes("[volume] [delete]")), (await calls(home)).join("\n"));
+});
+
+test("ug-box-restore refuses a snapshot that holds no box home, and a repo that does not open, before any change", async (t) => {
+  const home = await restoreHome();
+  t.after(() => rm(home, { recursive: true, force: true }));
+  await writeFile(join(home, "snapshots.json"), JSON.stringify([{ id: "b".repeat(64), paths: [join(home, ".ug/home")], tags: ["ug"] }]));
+  let r = restore(home);
+  assert.notEqual(r.status, 0);
+  assert.match(r.stderr, /holds ug-box-home.tar/);
+  await writeFile(join(home, "repo-closed"), "");
+  r = restore(home);
+  assert.match(r.stderr, /does not open/);
+  assert.ok(!(await calls(home)).some((c) => c.includes("[volume]")), (await calls(home)).join("\n"));
+});
+
 test("ug-backup streams the box home out of a stopped box through the installed image, into a second snapshot", async (t) => {
   const home = await fakeHome();
   t.after(() => rm(home, { recursive: true, force: true }));
