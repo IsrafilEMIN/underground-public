@@ -6,6 +6,19 @@ box_image_tag() {
   echo "ugbox:$h"
 }
 
+BOX_HOME_SIZE=64g
+BOX_HOME_BYTES=$((64 * 1024 * 1024 * 1024))
+
+box_home_create() {
+  container volume create --opt "size=$BOX_HOME_SIZE" "$1" >/dev/null
+}
+
+box_home_capped() {
+  local bytes
+  bytes=$(container volume inspect "$1" | grep -o '"sizeInBytes"[^0-9]*[0-9]*' | grep -o '[0-9]*$')
+  [[ -n $bytes && $bytes -le $BOX_HOME_BYTES ]]
+}
+
 box_image_build() {
   local src=$1 tag ctx status=0
   tag=$(box_image_tag "$src")

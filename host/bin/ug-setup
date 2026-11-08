@@ -208,14 +208,15 @@ install_ug_box() {
   local dir="$sys/box" f
   rm -rf "$dir"
   install -d -m 700 "$dir" "$dir/host/bin" "$dir/host/lib" "$dir/host/broker" "$dir/box"
-  for f in host/bin/ug-box host/bin/ug-box-check.ts host/lib/box-image.bash host/secret-patterns \
+  for f in host/bin/ug-box host/bin/ug-box-restore host/bin/ug-box-check.ts host/lib/box-image.bash host/secret-patterns \
     host/broker/client.ts host/broker/protocol.ts VERSIONS "$src"/box/*; do
     f=${f#"$src/"}
     put "$src/$f" "$dir/$f" 444
   done
-  chmod 555 "$dir/host/bin/ug-box"
+  chmod 555 "$dir/host/bin/ug-box" "$dir/host/bin/ug-box-restore"
   link "$dir/host/bin/ug-box" "$sys/bin/ug-box"
-  printf 'ug-box: installed in %s, on PATH as %s\n' "$dir" "$sys/bin/ug-box"
+  link "$dir/host/bin/ug-box-restore" "$sys/bin/ug-box-restore"
+  printf 'ug-box: installed in %s, on PATH as %s and %s\n' "$dir" "$sys/bin/ug-box" "$sys/bin/ug-box-restore"
 }
 
 install_raw_config() {

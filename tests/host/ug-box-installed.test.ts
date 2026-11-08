@@ -24,7 +24,7 @@ test("the installed ug-box runs with the checkout gone: setup copied everything 
     await rm(root, { recursive: true, force: true });
   });
   const checkout = join(root, "checkout");
-  for (const f of ["host/bin/ug-setup", "host/bin/ug-box", "host/bin/ug-box-check.ts", "host/lib/box-image.bash", "host/secret-patterns", "host/broker/client.ts", "host/broker/protocol.ts", "VERSIONS", "box"]) {
+  for (const f of ["host/bin/ug-setup", "host/bin/ug-box", "host/bin/ug-box-restore", "host/bin/ug-box-check.ts", "host/lib/box-image.bash", "host/secret-patterns", "host/broker/client.ts", "host/broker/protocol.ts", "VERSIONS", "box"]) {
     await cp(join(SRC, f), join(checkout, f), { recursive: true });
   }
   const sys = join(root, "sys");

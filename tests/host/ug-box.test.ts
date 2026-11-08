@@ -18,7 +18,8 @@ echo "$*" >> "$FAKE/log"
 case "$1 $2" in
   "list --quiet") cat "$FAKE/running" 2>/dev/null ;;
   "volume list") cat "$FAKE/volumes" 2>/dev/null ;;
-  "volume create") echo "$3" >> "$FAKE/volumes" ;;
+  "volume create") echo "\${@: -1}" >> "$FAKE/volumes"; echo "$*" >> "$FAKE/created" ;;
+  "volume inspect") printf '[{"configuration":{"sizeInBytes" : %s}}]' "$(cat "$FAKE/volsize" 2>/dev/null || echo 68719476736)" ;;
   "image list") cat "$FAKE/images" 2>/dev/null ;;
   "build -t") echo "docker.io/library/$3" >> "$FAKE/images" ;;
   "stop "*) grep -vxF "$2" "$FAKE/running" > "$FAKE/r" || true; mv "$FAKE/r" "$FAKE/running" ;;
@@ -131,6 +132,20 @@ test("the first session boots a box with no network, a read-only root, and only 
   assert.match(models, /baseUrl: "http:\/\/gateway\.internal:4000"/);
   assert.match(models, /apiKey: "ug-placeholder"/);
   assert.equal(calls.at(-1), "stop ug-box", "the box ran on after its last session");
+});
+
+test("a new box home gets a 64 GiB cap, and an uncapped home stops the start before any boot", async (t) => {
+  const s = await setup();
+  t.after(s.cleanup);
+  let r = s.run();
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal((await readFile(join(s.fake, "created"), "utf8")).trim(), "volume create --opt size=64g ug-box-home");
+  await writeFile(join(s.fake, "volsize"), "549755813888");
+  await writeFile(join(s.fake, "log"), "");
+  r = s.run();
+  assert.notEqual(r.status, 0);
+  assert.match(r.stderr, /no size cap of 64g[\s\S]*ug-box-restore/);
+  assert.ok(!(await s.log()).some((c) => c.startsWith("run ") || c.startsWith("exec ")));
 });
 
 test("the box gets the config repo's last commit, only the config names, and none of its uncommitted work", async (t) => {
