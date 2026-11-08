@@ -297,6 +297,19 @@ test("each repo gets its own token: a token cached for one repo never goes to an
   assert.deepEqual(github.calls.map((call) => call.body), [{ repositories: ["r"] }, { repositories: ["s"] }]);
 });
 
+test("a contents-read token asks GitHub for read access to code only, and never stands in for the app token", async () => {
+  await writeApp({ client_id: "Iv23liABC", installation_id: 42 });
+  const github = fakeGithub({ tokens: ["ghs_read", "ghs_app"] });
+  const tokens = createAppTokens({ files, fetch: github.fetch, now: () => NOW });
+  const signal = new AbortController().signal;
+  assert.equal(await tokens.token("o/r", signal, "contents-read"), "ghs_read");
+  assert.equal(await tokens.token("o/r", signal), "ghs_app");
+  assert.equal(await tokens.token("o/r", signal, "contents-read"), "ghs_read");
+  tokens.drop("o/r", "contents-read");
+  assert.equal(await tokens.token("o/r", signal), "ghs_app", "a drop of the read token keeps the app token");
+  assert.deepEqual(github.calls.map((call) => call.body), [{ repositories: ["r"], permissions: { contents: "read" } }, { repositories: ["r"] }]);
+});
+
 test("redaction hides installation tokens of any length, also inside a remote URL", () => {
   const text = `fatal: unable to access '${tokenRemote(REPO)}': 403\nGH_TOKEN=${FAKE_TOKEN} ghs_short\n`;
   const redacted = redactTokens(text);
@@ -327,6 +340,10 @@ function rotatingTokens(): GithubTokens {
 
 function sync(): Promise<Reply> {
   return handleAs(config, AUTHOR, { verb: "sync", repo: REPO }, new AbortController().signal);
+}
+
+function prCreate(): Promise<Reply> {
+  return handleAs(config, AUTHOR, { verb: "pr-create", repo: REPO, head: "agent/x", title: "t", body: "" }, new AbortController().signal);
 }
 
 async function setUp(github: GithubTokens): Promise<void> {
@@ -365,7 +382,7 @@ async function ghEnv(): Promise<string[]> {
 test("gh runs with the installation token in GH_TOKEN and no gh login of its own", async () => {
   await setUp(fakeTokens());
   routeRemote(tokenRemote(REPO));
-  const reply = await sync();
+  const reply = await prCreate();
   assert.equal(reply.exit, 0, JSON.stringify(reply));
   const [line] = await ghEnv();
   const [token, configDir] = (line ?? "").split(" ");
@@ -393,11 +410,12 @@ test("a 401 drops the token and the call runs once more with a fresh one", async
   await setUp(rotatingTokens());
   routeRemote(tokenRemote(REPO, `${FAKE_TOKEN}1`));
   await writeFile(join(config.home, "gh-401"), "");
-  const reply = await sync();
+  const reply = await prCreate();
   assert.equal(reply.exit, 0, JSON.stringify(reply));
   assert.deepEqual(
     (await ghEnv()).map((line) => line.split(" ")[0]),
-    [`${FAKE_TOKEN}0`, `${FAKE_TOKEN}1`],
+    [`${FAKE_TOKEN}0`, `${FAKE_TOKEN}1`, `${FAKE_TOKEN}1`],
+    "gh repo view gets a 401, runs again with the fresh token, and gh pr create uses it too",
   );
 });
 
@@ -407,11 +425,11 @@ test("with the app provider, a 401 drops the cached token and the retry runs wit
   await setUp(createAppTokens({ files, fetch: github.fetch, now: () => NOW }));
   routeRemote(tokenRemote(REPO, `${FAKE_TOKEN}1`));
   await writeFile(join(config.home, "gh-401"), "");
-  const reply = await sync();
+  const reply = await prCreate();
   assert.equal(reply.exit, 0, JSON.stringify(reply));
   assert.deepEqual(
     (await ghEnv()).map((line) => line.split(" ")[0]),
-    [`${FAKE_TOKEN}0`, `${FAKE_TOKEN}1`],
+    [`${FAKE_TOKEN}0`, `${FAKE_TOKEN}1`, `${FAKE_TOKEN}1`],
   );
   assert.equal(github.calls.length, 2, "the first token lives for an hour, so only the drop mints the second");
 });
@@ -419,7 +437,7 @@ test("with the app provider, a 401 drops the cached token and the retry runs wit
 test("a failing call never echoes the token in its reply", async () => {
   await setUp(fakeTokens());
   await writeFile(join(config.home, "gh-leak"), "");
-  const reply = await sync();
+  const reply = await prCreate();
   assert.notEqual(reply.exit, 0);
   assert.ok(!JSON.stringify(reply).includes(FAKE_TOKEN), JSON.stringify(reply));
   assert.match(JSON.stringify(reply), /ghs_\[redacted\]/);

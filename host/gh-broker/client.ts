@@ -14,6 +14,7 @@ import {
   isSyncPrReply,
   isSyncReply,
   isRepo,
+  MAX_SYNC_HAVES,
   parsePrNumber,
   REVIEWER_ROLES,
   validateRequest,
@@ -143,7 +144,7 @@ export async function buildRequest(argv: string[]): Promise<Request> {
     case "sync": {
       needArgCount(args, 1, 3);
       const repo = needRepo(args[0]);
-      if (args.length === 1) return { verb, repo };
+      if (args.length === 1) return { verb, repo, have: await originHeads() };
       if (args[1] !== "--pr" || args.length !== 3) throw new UsageError("want sync <owner/repo> --pr <n>");
       return { verb, repo, pr: needNumber(args[2]) };
     }
@@ -196,19 +197,34 @@ export function send(socketPath: string, request: Request): Promise<Reply> {
   return promise;
 }
 
-async function importSync(reply: SyncReply): Promise<number> {
-  const tempDir = await mkdtemp(join(tmpdir(), "gh-broker-sync-"));
-  try {
-    const bundlePath = join(tempDir, "sync.bundle");
-    await writeFile(bundlePath, Buffer.from(reply.bundle_b64, "base64"), { mode: 0o600 });
-    const ref = `refs/remotes/origin/${reply.branch}`;
-    await execFileAsync("git", ["fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "--update-head-ok", bundlePath, `+refs/heads/${reply.branch}:${ref}`]);
-    const { stdout } = await execFileAsync("git", ["rev-parse", "--verify", `${ref}^{commit}`], { encoding: "utf8" });
-    process.stdout.write(`origin/${reply.branch} is now ${stdout.trim()}\n`);
-    return 0;
-  } finally {
-    await rm(tempDir, { recursive: true, force: true });
+async function originHeads(): Promise<string[]> {
+  const listed = await runGit(["for-each-ref", "--format=%(objectname) %(refname)", "refs/remotes/origin/"], process.cwd());
+  if (!listed.ok) return [];
+  const heads = listed.stdout
+    .split("\n")
+    .map((line) => line.split(" "))
+    .filter(([sha, ref]) => isSha(sha) && ref !== undefined && !ref.startsWith("refs/remotes/origin/pr/"))
+    .map(([sha]) => sha);
+  return [...new Set(heads)].slice(0, MAX_SYNC_HAVES);
+}
+
+async function importSync(reply: SyncReply): Promise<void> {
+  const ref = `refs/remotes/origin/${reply.branch}`;
+  if (reply.bundle_b64 === undefined) {
+    await execFileAsync("git", ["update-ref", ref, `${reply.head}^{commit}`]);
+  } else {
+    const tempDir = await mkdtemp(join(tmpdir(), "gh-broker-sync-"));
+    try {
+      const bundlePath = join(tempDir, "sync.bundle");
+      await writeFile(bundlePath, Buffer.from(reply.bundle_b64, "base64"), { mode: 0o600 });
+      await execFileAsync("git", ["fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "--update-head-ok", bundlePath, `+refs/heads/${reply.branch}:${ref}`]);
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
   }
+  const { stdout } = await execFileAsync("git", ["rev-parse", "--verify", `${ref}^{commit}`], { encoding: "utf8" });
+  const imported = stdout.trim();
+  if (imported !== reply.head) throw new Error(`origin/${reply.branch} is ${imported}, not the gh-broker's ${reply.head}`);
 }
 
 async function importPr(reply: SyncPrReply, cwd: string = process.cwd()): Promise<number> {
@@ -275,7 +291,18 @@ export async function main(argv: string[], socketPath: string | undefined = proc
     if (request.pr !== undefined) {
       if (isSyncPrReply(reply)) return await importPr(reply);
     } else if (isSyncReply(reply)) {
-      return await importSync(reply);
+      let synced = reply;
+      try {
+        await importSync(synced);
+      } catch (error) {
+        if (request.have === undefined || request.have.length === 0) throw error;
+        const full = await send(socketPath, { verb: "sync", repo: request.repo });
+        if (!isSyncReply(full) || full.exit !== 0) throw error;
+        synced = full;
+        await importSync(synced);
+      }
+      process.stdout.write(`origin/${synced.branch} is now ${synced.head}\n`);
+      return 0;
     }
   } catch (error) {
     process.stderr.write(`gh-broker: cannot import sync bundle: ${error instanceof Error ? error.message : String(error)}\n`);

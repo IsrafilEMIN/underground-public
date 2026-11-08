@@ -7,6 +7,7 @@ export const MAX_BODY_CHARS = 65536;
 export const MAX_PR_NUMBER = 2147483647;
 export const MAX_REASON_CHARS = 2000;
 export const MAX_CI_LOG_BYTES = 64 * 1024;
+export const MAX_SYNC_HAVES = 16;
 
 export const VERDICTS = ["pass", "manual", "block"] as const;
 export type Verdict = (typeof VERDICTS)[number];
@@ -19,7 +20,7 @@ export const ROLE_VERDICTS: Record<ReviewerRole, readonly Verdict[]> = {
   "risk-review": ["pass", "manual"],
 };
 
-export type SyncRequest = { verb: "sync"; repo: string; pr?: number };
+export type SyncRequest = { verb: "sync"; repo: string; pr?: number; have?: string[] };
 export type PushRequest = { verb: "push"; repo: string; branch: string; sha: string; bundle_b64: string };
 export type PrCreateRequest = { verb: "pr-create"; repo: string; head: string; title: string; body: string };
 export type PrStatusRequest = { verb: "pr-status"; repo: string; number: number };
@@ -40,7 +41,7 @@ export type ReviewRecord = { repo: string; pr: number; role: ReviewerRole; head:
 export type ReviewRecords = { kind: "records"; records: ReviewRecord[] } | { kind: "unreadable" };
 
 export type ResultReply = { exit: number; stdout: string; stderr: string };
-export type SyncReply = ResultReply & { branch: string; bundle_b64: string };
+export type SyncReply = ResultReply & { branch: string; head: string; bundle_b64?: string };
 export type SyncPrReply = ResultReply & { pr: number; head: string; bundle_b64: string };
 export type MergeReply = ResultReply & { merged: { branch: string; head: string } };
 export type RefusedReply = { exit: 2; refused: string };
@@ -100,6 +101,18 @@ export function isDefaultBranchName(value: unknown): value is string {
   return typeof value === "string" && DEFAULT_BRANCH_RE.test(value) && !value.includes("..");
 }
 
+export function parseRemoteHead(text: string): { branch: string; head: string } | undefined {
+  let branch: string | undefined;
+  let head: string | undefined;
+  for (const line of text.split("\n")) {
+    const symref = /^ref: refs\/heads\/(\S+)\tHEAD$/.exec(line);
+    if (symref !== null) branch = symref[1];
+    const tip = /^(\S+)\tHEAD$/.exec(line);
+    if (tip !== null) head = tip[1];
+  }
+  return isDefaultBranchName(branch) && isSha(head) ? { branch, head } : undefined;
+}
+
 export function isVerdict(value: unknown): value is Verdict {
   return typeof value === "string" && (VERDICTS as readonly string[]).includes(value);
 }
@@ -129,10 +142,15 @@ export function validateRequest(input: unknown): Checked<Request> {
   if (!isRepo(repo)) return fail("invalid repo");
   switch (verb) {
     case "sync": {
-      const { pr } = input;
-      if (pr === undefined) return { ok: true, value: { verb, repo } };
-      if (!isPrNumber(pr)) return fail("invalid PR number");
-      return { ok: true, value: { verb, repo, pr } };
+      const { pr, have } = input;
+      if (pr !== undefined) {
+        if (!isPrNumber(pr)) return fail("invalid PR number");
+        if (have !== undefined) return fail("a PR sync takes no have");
+        return { ok: true, value: { verb, repo, pr } };
+      }
+      if (have === undefined) return { ok: true, value: { verb, repo } };
+      if (!Array.isArray(have) || have.length > MAX_SYNC_HAVES || !have.every(isSha)) return fail(`have must be at most ${MAX_SYNC_HAVES} full 40-hex commit shas`);
+      return { ok: true, value: { verb, repo, have } };
     }
     case "push": {
       const { branch, sha, bundle_b64 } = input;
@@ -184,7 +202,8 @@ export function isSyncReply(value: unknown): value is SyncReply {
     !("refused" in value) &&
     isRecord(value) &&
     isDefaultBranchName(value.branch) &&
-    isBundleB64(value.bundle_b64)
+    isSha(value.head) &&
+    (value.bundle_b64 === undefined || isBundleB64(value.bundle_b64))
   );
 }
 

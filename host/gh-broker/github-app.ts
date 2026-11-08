@@ -7,9 +7,10 @@ import type { Checked } from "./protocol.ts";
 export type AppConfig = { clientId: string; installationId: number | undefined };
 export type AppFiles = { configFile: string; keyFile: string };
 export type Fetch = (url: string, init: RequestInit) => Promise<Response>;
+export type TokenScope = "app" | "contents-read";
 export type GithubTokens = {
-  token(repo: string, signal: AbortSignal): Promise<string>;
-  drop(repo: string): void;
+  token(repo: string, signal: AbortSignal, scope?: TokenScope): Promise<string>;
+  drop(repo: string, scope?: TokenScope): void;
 };
 
 type Minted = { token: string; refreshAt: number };
@@ -108,7 +109,7 @@ async function callGithub(fetch: Fetch, request: { method: string; path: string;
 export function createAppTokens({ files, fetch = globalThis.fetch, now = Date.now }: { files: AppFiles; fetch?: Fetch; now?: () => number }): GithubTokens {
   const cache = new Map<string, Minted>();
 
-  const mint = async (repo: string, signal: AbortSignal): Promise<Minted> => {
+  const mint = async (repo: string, scope: TokenScope, signal: AbortSignal): Promise<Minted> => {
     const config = await readAppConfig(files.configFile);
     const jwt = appJwt({ clientId: config.clientId, privateKey: await readPrivateKey(files.keyFile), nowSeconds: Math.floor(now() / 1000) });
     let installation = config.installationId;
@@ -117,11 +118,12 @@ export function createAppTokens({ files, fetch = globalThis.fetch, now = Date.no
       if (typeof found.id !== "number" || !Number.isSafeInteger(found.id)) throw new Error(`GitHub sent no installation id for ${repo}`);
       installation = found.id;
     }
+    const repositories = [repo.slice(repo.indexOf("/") + 1)];
     const reply = await callGithub(fetch, {
       method: "POST",
       path: `/app/installations/${installation}/access_tokens`,
       jwt,
-      body: { repositories: [repo.slice(repo.indexOf("/") + 1)] },
+      body: scope === "contents-read" ? { repositories, permissions: { contents: "read" } } : { repositories },
       signal,
     });
     const expiresAt = typeof reply.expires_at === "string" ? Date.parse(reply.expires_at) : Number.NaN;
@@ -132,15 +134,16 @@ export function createAppTokens({ files, fetch = globalThis.fetch, now = Date.no
   };
 
   return {
-    async token(repo, signal) {
-      const cached = cache.get(repo);
+    async token(repo, signal, scope = "app") {
+      const key = `${scope} ${repo}`;
+      const cached = cache.get(key);
       if (cached !== undefined && now() < cached.refreshAt) return cached.token;
-      const minted = await mint(repo, signal);
-      cache.set(repo, minted);
+      const minted = await mint(repo, scope, signal);
+      cache.set(key, minted);
       return minted.token;
     },
-    drop(repo) {
-      cache.delete(repo);
+    drop(repo, scope = "app") {
+      cache.delete(`${scope} ${repo}`);
     },
   };
 }

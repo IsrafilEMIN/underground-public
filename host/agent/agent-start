@@ -30,11 +30,15 @@ for dir in "$HOME/.omp" "$agent"; do
   mkdir -p "$dir"
 done
 
+names=()
+staged=()
 while IFS= read -r name; do
   [[ -n $name ]] || continue
-  rm -rf "${agent:?}/${name:?}"
-  if [[ -e $root/config/$name ]]; then cp -R "$root/config/$name" "$agent/$name"; fi
+  names+=("$name")
+  if [[ -e $root/config/$name ]]; then staged+=("$name"); fi
 done <"$root/config-names"
+rm -rf -- "${names[@]/#/$agent/}"
+if (( ${#staged[@]} > 0 )); then cp -R -- "${staged[@]/#/$root/config/}" "$agent/"; fi
 
 if [[ -z ${UG_REPO:-} ]]; then
   mkdir -p "$HOME/scratch"

@@ -10,9 +10,10 @@ import { promisify } from "node:util";
 import { afterEach, beforeEach, test } from "node:test";
 import { isSyncPrReply, validateRequest } from "../../host/gh-broker/protocol.ts";
 import type { Reply } from "../../host/gh-broker/protocol.ts";
-import { defaultConfig, handleRequest, serveConnection } from "../../host/gh-broker/server.ts";
+import { defaultConfig, handleRequest, refreshRepos, serveConnection } from "../../host/gh-broker/server.ts";
 import type { ServerConfig } from "../../host/gh-broker/server.ts";
-import { fakeTokens, tokenRemote } from "./fake-app.ts";
+import type { GithubTokens, TokenScope } from "../../host/gh-broker/github-app.ts";
+import { FAKE_TOKEN, fakeTokens, tokenRemote } from "./fake-app.ts";
 import { tempDir } from "../temp.ts";
 
 const REPO = "o/r";
@@ -110,7 +111,7 @@ beforeEach(async () => {
   await mkdir(config.home);
   await writeFile(config.ghPath, FAKE_GH, { mode: 0o755 });
   remote = join(root, "remote.git");
-  execFileSync(config.gitPath, ["init", "--bare", "--quiet", remote], { env: GIT_ENV });
+  execFileSync(config.gitPath, ["init", "--bare", "--quiet", "-b", "main", remote], { env: GIT_ENV });
   const bare = join(config.reposRoot, `${REPO}.git`);
   execFileSync(config.gitPath, ["init", "--bare", "--quiet", bare], { env: GIT_ENV });
   git(bare, "config", `url.file://${remote}.insteadOf`, tokenRemote(REPO));
@@ -193,4 +194,135 @@ test("sync without --pr imports origin/<default> into the session's repo, and no
   assert.equal(run.code, 0, run.stderr);
   assert.equal(run.stdout, `origin/main is now ${main}\n`);
   assert.equal(git(session, "for-each-ref", "--format=%(refname) %(objectname)"), `refs/remotes/origin/main ${main}`);
+});
+
+async function moveMain(file: string): Promise<string> {
+  const head = await commit(file);
+  git(work, "push", "--quiet", remote, "HEAD:main");
+  return head;
+}
+
+function scopedTokens(): { tokens: GithubTokens; scopes: TokenScope[] } {
+  const scopes: TokenScope[] = [];
+  return {
+    scopes,
+    tokens: {
+      token: (_repo, _signal, scope = "app") => {
+        scopes.push(scope);
+        return Promise.resolve(FAKE_TOKEN);
+      },
+      drop: () => {},
+    },
+  };
+}
+
+test("a sync from a clone that already has main gets no bundle and keeps origin/main", async () => {
+  const main = git(work, "rev-parse", "main");
+  const bundles: boolean[] = [];
+  const socket = await listen((reply) => {
+    bundles.push("bundle_b64" in reply);
+    return reply;
+  });
+  assert.equal((await client(session, { UG_GH_BROKER_SOCKET: socket }, "sync", REPO)).code, 0);
+  const again = await client(session, { UG_GH_BROKER_SOCKET: socket }, "sync", REPO);
+  assert.equal(again.code, 0, again.stderr);
+  assert.equal(again.stdout, `origin/main is now ${main}\n`);
+  assert.deepEqual(bundles, [true, false]);
+  assert.equal(git(session, "rev-parse", "refs/remotes/origin/main"), main);
+});
+
+test("within 40 s of its last check the gh-broker serves main from its copy; after that it asks GitHub and sends only the new commits", async () => {
+  let now = 1_000_000;
+  config.now = () => now;
+  const first = git(work, "rev-parse", "main");
+  const socket = await listen();
+  assert.equal((await client(session, { UG_GH_BROKER_SOCKET: socket }, "sync", REPO)).stdout, `origin/main is now ${first}\n`);
+
+  const moved = await moveMain("a.txt");
+  now += 40_000;
+  const cached = await client(session, { UG_GH_BROKER_SOCKET: socket }, "sync", REPO);
+  assert.equal(cached.stdout, `origin/main is now ${first}\n`, "a check 40 s old still counts as current");
+
+  now += 1;
+  const reply = await handleRequest(config, { verb: "sync", repo: REPO, have: [first] }, new AbortController().signal);
+  assert.ok("head" in reply && reply.head === moved, JSON.stringify(reply));
+  const bundle = "bundle_b64" in reply ? reply.bundle_b64 : undefined;
+  assert.ok(bundle !== undefined, JSON.stringify(reply));
+  const header = Buffer.from(bundle, "base64").toString("latin1").split("\n\n")[0] ?? "";
+  assert.ok(header.split("\n").some((line) => line.startsWith(`-${first}`)), `the bundle needs the clone's commit, so it holds only the new ones: ${header}`);
+
+  const fresh = await client(session, { UG_GH_BROKER_SOCKET: socket }, "sync", REPO);
+  assert.equal(fresh.code, 0, fresh.stderr);
+  assert.equal(fresh.stdout, `origin/main is now ${moved}\n`);
+  assert.equal(git(session, "rev-parse", "refs/remotes/origin/main"), moved);
+});
+
+test("the refresh picks up a new main for a recently synced repo, so the next sync gets it without asking GitHub", async () => {
+  let now = 1_000_000;
+  config.now = () => now;
+  const socket = await listen();
+  assert.equal((await client(session, { UG_GH_BROKER_SOCKET: socket }, "sync", REPO)).code, 0);
+  const moved = await moveMain("a.txt");
+  now += 30_000;
+  await refreshRepos(config, new AbortController().signal);
+  now += 30_000;
+  const { tokens, scopes } = scopedTokens();
+  config.github = tokens;
+  const run = await client(session, { UG_GH_BROKER_SOCKET: socket }, "sync", REPO);
+  assert.equal(run.stdout, `origin/main is now ${moved}\n`);
+  assert.deepEqual(scopes, [], "a sync right after a refresh needs no GitHub call");
+});
+
+test("the refresh asks GitHub only with a token that can read code, and skips a repo with no sync for 7 days", async () => {
+  let now = 1_000_000;
+  config.now = () => now;
+  const { tokens, scopes } = scopedTokens();
+  config.github = tokens;
+  assert.equal((await handleRequest(config, { verb: "sync", repo: REPO }, new AbortController().signal)).exit, 0);
+  scopes.length = 0;
+  await moveMain("a.txt");
+  now += 30_000;
+  await refreshRepos(config, new AbortController().signal);
+  assert.ok(scopes.length > 0 && scopes.every((scope) => scope === "contents-read"), scopes.join(","));
+
+  scopes.length = 0;
+  now += 7 * 24 * 60 * 60 * 1000 + 1;
+  await moveMain("b.txt");
+  await refreshRepos(config, new AbortController().signal);
+  assert.deepEqual(scopes, []);
+});
+
+test("a refresh and a sync at the same moment both succeed and leave the copy at GitHub's main", async () => {
+  let now = 1_000_000;
+  config.now = () => now;
+  const signal = new AbortController().signal;
+  assert.equal((await handleRequest(config, { verb: "sync", repo: REPO }, signal)).exit, 0);
+  const moved = await moveMain("a.txt");
+  now += 41_000;
+  const [, reply] = await Promise.all([refreshRepos(config, signal), handleRequest(config, { verb: "sync", repo: REPO }, signal)]);
+  assert.equal(reply.exit, 0, JSON.stringify(reply));
+  assert.ok("head" in reply && reply.head === moved, JSON.stringify(reply));
+  assert.equal(git(join(config.reposRoot, `${REPO}.git`), "rev-parse", "refs/heads/main"), moved);
+});
+
+test("a clone whose origin/main the gh-broker does not know gets the full history", async () => {
+  const main = git(work, "rev-parse", "main");
+  const stray = join(root, "stray");
+  execFileSync(config.gitPath, ["init", "--quiet", "-b", "main", stray], { env: GIT_ENV });
+  git(stray, "commit", "--quiet", "--allow-empty", "-m", "stray");
+  git(stray, "push", "--quiet", session, "HEAD:refs/remotes/origin/main");
+  const socket = await listen();
+  const run = await client(session, { UG_GH_BROKER_SOCKET: socket }, "sync", REPO);
+  assert.equal(run.code, 0, run.stderr);
+  assert.equal(run.stdout, `origin/main is now ${main}\n`);
+  assert.equal(git(session, "rev-parse", "refs/remotes/origin/main"), main);
+});
+
+test("a sync request takes at most 16 full commit shas as have, and a PR sync takes none", () => {
+  const sha = "a".repeat(40);
+  assert.equal(validateRequest({ verb: "sync", repo: REPO, have: [sha] }).ok, true);
+  for (const have of [["--all"], [`^${sha}`], [sha.slice(1)], Array(17).fill(sha), sha]) {
+    assert.equal(validateRequest({ verb: "sync", repo: REPO, have }).ok, false, JSON.stringify(have));
+  }
+  assert.equal(validateRequest({ verb: "sync", repo: REPO, pr: 7, have: [sha] }).ok, false);
 });

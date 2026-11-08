@@ -30,6 +30,13 @@ const UNREADABLE_DEFAULT_BRANCHES = [
   '{"defaultBranchRef":null}',
   "not json",
 ];
+const UNREADABLE_REMOTE_HEADS = [
+  `ref: refs/heads/-main\tHEAD\n${"a".repeat(40)}\tHEAD\n`,
+  `ref: refs/heads/a..b\tHEAD\n${"a".repeat(40)}\tHEAD\n`,
+  `${"a".repeat(40)}\tHEAD\n`,
+  "ref: refs/heads/main\tHEAD\nnope\tHEAD\n",
+  "",
+];
 
 const FAKE_GH = `#!/bin/sh
 printf '%s\\n' "$*" >> "$HOME/gh-calls"
@@ -58,6 +65,9 @@ function fakeGit(remote: string): string {
 printf '%s\\n' "$*" >> "$HOME/git-calls"
 if [ -f "$HOME/git-fail" ]; then
   case "$*" in *"$(cat "$HOME/git-fail")"*) echo "fake git: cannot $(cat "$HOME/git-fail")" >&2; exit 3 ;; esac
+fi
+if [ -f "$HOME/ls-remote" ]; then
+  case "$*" in *" ls-remote "*) cat "$HOME/ls-remote"; exit 0 ;; esac
 fi
 exec '${REAL_GIT}' -c 'url.file://${remote}.insteadOf=${tokenRemote(REPO)}' "$@"
 `;
@@ -214,7 +224,7 @@ beforeEach(async () => {
   await writeHome("repo.json", '{"defaultBranchRef":{"name":"main"}}\n');
   await writeFile(config.ghPath, FAKE_GH, { mode: 0o755 });
   await writeFile(config.gitPath, fakeGit(remote), { mode: 0o755 });
-  execFileSync(REAL_GIT, ["init", "--bare", "--quiet", remote], { env: GIT_ENV });
+  execFileSync(REAL_GIT, ["init", "--bare", "--quiet", "-b", "main", remote], { env: GIT_ENV });
   work = join(root, "work");
   execFileSync(REAL_GIT, ["init", "--quiet", "-b", "main", work], { env: GIT_ENV });
   await commit("main", "base.txt");
@@ -342,16 +352,16 @@ test("a request one byte over the limit is refused before it reaches a handler",
   }
 });
 
-test("sync with an unreadable default branch fails and fetches nothing; a readable one syncs", async () => {
-  for (const answer of UNREADABLE_DEFAULT_BRANCHES) {
-    await writeHome("repo.json", answer);
+test("sync with an unreadable default branch from GitHub fails and fetches nothing; a readable one syncs", async () => {
+  for (const answer of UNREADABLE_REMOTE_HEADS) {
+    await writeHome("ls-remote", answer);
     const reply = await request({ verb: "sync" });
     assertCannotReadDefaultBranch(reply);
     assert.ok(!("bundle_b64" in reply), answer);
   }
-  assert.equal(await readHome("git-calls"), "");
+  assert.doesNotMatch(await readHome("git-calls"), / fetch /);
 
-  await writeHome("repo.json", '{"defaultBranchRef":{"name":"main"}}');
+  await rm(join(config.home, "ls-remote"));
   const ok = await request({ verb: "sync" });
   assert.equal(ok.exit, 0, JSON.stringify(ok));
   assert.ok("branch" in ok && ok.branch === "main", JSON.stringify(ok));
