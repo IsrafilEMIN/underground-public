@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 type Db = {
@@ -67,6 +67,7 @@ export function rewriteSessions(agentDir: string, from: string, to: string): num
 }
 
 export function rewriteHistory(dbPath: string, from: string, to: string): number {
+  if (!existsSync(dbPath)) return 0;
   const db = openDb(dbPath);
   try {
     let n = 0;

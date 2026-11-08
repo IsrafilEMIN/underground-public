@@ -291,7 +291,7 @@ function countingTokens(): { tokens: GithubTokens; drops: () => number } {
   };
 }
 
-test("a 401 from gh pr merge is not retried", async () => {
+test("a 401 from gh pr merge is not retried, but its token is dropped so the next call gets a new one", async () => {
   const head = await pushedAndReady();
   const counted = countingTokens();
   config.github = counted.tokens;
@@ -301,11 +301,11 @@ test("a 401 from gh pr merge is not retried", async () => {
   assert.equal(reply.exit, 1, JSON.stringify(reply));
   assert.ok("stderr" in reply && reply.stderr.includes("HTTP 401"), JSON.stringify(reply));
   assert.equal(await readFile(join(config.home, "merge-attempts"), "utf8"), "attempt\n");
-  assert.equal(counted.drops(), 0);
+  assert.equal(counted.drops(), 1);
   assert.equal(remoteBranch(), head);
 });
 
-test("a 401 from git push is not retried", async () => {
+test("a 401 from git push is not retried, but its token is dropped so the next call gets a new one", async () => {
   const head = await commit("a.txt");
   const wrapper = join(root, "git");
   await writeFile(
@@ -330,6 +330,6 @@ exec ${config.gitPath} "$@"
   const reply = await brokerPush(head);
   assert.equal(reply.exit, 128, JSON.stringify(reply));
   assert.equal(await readFile(join(config.home, "push-attempts"), "utf8"), "attempt\n");
-  assert.equal(counted.drops(), 0);
+  assert.equal(counted.drops(), 1);
   assert.equal(remoteBranch(), "");
 });

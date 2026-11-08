@@ -179,8 +179,9 @@ async function asApp(
       return { exit: 1, rawStdout: "", stderr: `gh-broker: cannot get a GitHub App token: ${redactTokens(message)}\n` };
     }
     const result = await run(token);
-    if (access === "write" || attempt > 1 || result.exit === 0 || !UNAUTHORIZED.test(result.stderr)) return result;
+    if (result.exit === 0 || !UNAUTHORIZED.test(result.stderr)) return result;
     config.github.drop(repo, scope);
+    if (access === "write" || attempt > 1) return result;
   }
 }
 

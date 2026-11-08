@@ -108,7 +108,7 @@ run_mac_only_tests
 omp_stage=""
 stage_omp() {
   local dest="$root/omp/$omp_pin/omp" have url
-  if [[ -f $dest.sha256 && $(<"$dest.sha256") == "$omp_sha" ]]; then
+  if [[ -f $dest && -f $dest.sha256 && $(<"$dest.sha256") == "$omp_sha" ]]; then
     printf 'omp %s: in place in %s\n' "$omp_pin" "$dest"
     return 0
   fi
