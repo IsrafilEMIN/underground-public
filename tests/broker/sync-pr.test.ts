@@ -231,46 +231,58 @@ test("a sync from a clone that already has main gets no bundle and keeps origin/
   assert.equal(git(session, "rev-parse", "refs/remotes/origin/main"), main);
 });
 
-test("within 40 s of its last check the gh-broker serves main from its copy; after that it asks GitHub and sends only the new commits", async () => {
+test("a launch sync (--cached) within 40 s of the last check gets main from the gh-broker's copy; after that the gh-broker asks GitHub and sends only the new commits", async () => {
   let now = 1_000_000;
   config.now = () => now;
   const first = git(work, "rev-parse", "main");
   const socket = await listen();
-  assert.equal((await client(session, { UG_GH_BROKER_SOCKET: socket }, "sync", REPO)).stdout, `origin/main is now ${first}\n`);
+  assert.equal((await client(session, { UG_GH_BROKER_SOCKET: socket }, "sync", REPO, "--cached")).stdout, `origin/main is now ${first}\n`);
 
   const moved = await moveMain("a.txt");
   now += 40_000;
-  const cached = await client(session, { UG_GH_BROKER_SOCKET: socket }, "sync", REPO);
+  const cached = await client(session, { UG_GH_BROKER_SOCKET: socket }, "sync", REPO, "--cached");
   assert.equal(cached.stdout, `origin/main is now ${first}\n`, "a check 40 s old still counts as current");
 
   now += 1;
-  const reply = await handleRequest(config, { verb: "sync", repo: REPO, have: [first] }, new AbortController().signal);
+  const reply = await handleRequest(config, { verb: "sync", repo: REPO, have: [first], cached: true }, new AbortController().signal);
   assert.ok("head" in reply && reply.head === moved, JSON.stringify(reply));
   const bundle = "bundle_b64" in reply ? reply.bundle_b64 : undefined;
   assert.ok(bundle !== undefined, JSON.stringify(reply));
   const header = Buffer.from(bundle, "base64").toString("latin1").split("\n\n")[0] ?? "";
   assert.ok(header.split("\n").some((line) => line.startsWith(`-${first}`)), `the bundle needs the clone's commit, so it holds only the new ones: ${header}`);
 
-  const fresh = await client(session, { UG_GH_BROKER_SOCKET: socket }, "sync", REPO);
+  const fresh = await client(session, { UG_GH_BROKER_SOCKET: socket }, "sync", REPO, "--cached");
   assert.equal(fresh.code, 0, fresh.stderr);
   assert.equal(fresh.stdout, `origin/main is now ${moved}\n`);
   assert.equal(git(session, "rev-parse", "refs/remotes/origin/main"), moved);
 });
 
-test("the refresh picks up a new main for a recently synced repo, so the next sync gets it without asking GitHub", async () => {
+test("a plain sync asks GitHub even right after a check, so a session that syncs to rebase gets the main of this moment", async () => {
   let now = 1_000_000;
   config.now = () => now;
   const socket = await listen();
-  assert.equal((await client(session, { UG_GH_BROKER_SOCKET: socket }, "sync", REPO)).code, 0);
+  assert.equal((await client(session, { UG_GH_BROKER_SOCKET: socket }, "sync", REPO, "--cached")).code, 0);
+  const moved = await moveMain("a.txt");
+  now += 1_000;
+  const run = await client(session, { UG_GH_BROKER_SOCKET: socket }, "sync", REPO);
+  assert.equal(run.code, 0, run.stderr);
+  assert.equal(run.stdout, `origin/main is now ${moved}\n`);
+});
+
+test("the refresh picks up a new main for a recently synced repo, so the next launch sync gets it without asking GitHub", async () => {
+  let now = 1_000_000;
+  config.now = () => now;
+  const socket = await listen();
+  assert.equal((await client(session, { UG_GH_BROKER_SOCKET: socket }, "sync", REPO, "--cached")).code, 0);
   const moved = await moveMain("a.txt");
   now += 30_000;
   await refreshRepos(config, new AbortController().signal);
   now += 30_000;
   const { tokens, scopes } = scopedTokens();
   config.github = tokens;
-  const run = await client(session, { UG_GH_BROKER_SOCKET: socket }, "sync", REPO);
+  const run = await client(session, { UG_GH_BROKER_SOCKET: socket }, "sync", REPO, "--cached");
   assert.equal(run.stdout, `origin/main is now ${moved}\n`);
-  assert.deepEqual(scopes, [], "a sync right after a refresh needs no GitHub call");
+  assert.deepEqual(scopes, [], "a launch sync right after a refresh needs no GitHub call");
 });
 
 test("the refresh asks GitHub only with a token that can read code, and skips a repo with no sync for 7 days", async () => {
@@ -318,11 +330,14 @@ test("a clone whose origin/main the gh-broker does not know gets the full histor
   assert.equal(git(session, "rev-parse", "refs/remotes/origin/main"), main);
 });
 
-test("a sync request takes at most 16 full commit shas as have, and a PR sync takes none", () => {
+test("a sync request takes at most 16 full commit shas as have and cached only as true, and a PR sync takes neither", () => {
   const sha = "a".repeat(40);
   assert.equal(validateRequest({ verb: "sync", repo: REPO, have: [sha] }).ok, true);
   for (const have of [["--all"], [`^${sha}`], [sha.slice(1)], Array(17).fill(sha), sha]) {
     assert.equal(validateRequest({ verb: "sync", repo: REPO, have }).ok, false, JSON.stringify(have));
   }
   assert.equal(validateRequest({ verb: "sync", repo: REPO, pr: 7, have: [sha] }).ok, false);
+  assert.equal(validateRequest({ verb: "sync", repo: REPO, pr: 7, cached: true }).ok, false);
+  assert.equal(validateRequest({ verb: "sync", repo: REPO, cached: true }).ok, true);
+  for (const cached of [false, "yes", 1]) assert.equal(validateRequest({ verb: "sync", repo: REPO, cached }).ok, false, String(cached));
 });

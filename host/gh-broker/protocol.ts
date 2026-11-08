@@ -20,7 +20,7 @@ export const ROLE_VERDICTS: Record<ReviewerRole, readonly Verdict[]> = {
   "risk-review": ["pass", "manual"],
 };
 
-export type SyncRequest = { verb: "sync"; repo: string; pr?: number; have?: string[] };
+export type SyncRequest = { verb: "sync"; repo: string; pr?: number; have?: string[]; cached?: true };
 export type PushRequest = { verb: "push"; repo: string; branch: string; sha: string; bundle_b64: string };
 export type PrCreateRequest = { verb: "pr-create"; repo: string; head: string; title: string; body: string };
 export type PrStatusRequest = { verb: "pr-status"; repo: string; number: number };
@@ -142,15 +142,17 @@ export function validateRequest(input: unknown): Checked<Request> {
   if (!isRepo(repo)) return fail("invalid repo");
   switch (verb) {
     case "sync": {
-      const { pr, have } = input;
+      const { pr, have, cached } = input;
       if (pr !== undefined) {
         if (!isPrNumber(pr)) return fail("invalid PR number");
-        if (have !== undefined) return fail("a PR sync takes no have");
+        if (have !== undefined || cached !== undefined) return fail("a PR sync takes no have and no cached");
         return { ok: true, value: { verb, repo, pr } };
       }
-      if (have === undefined) return { ok: true, value: { verb, repo } };
+      if (cached !== undefined && cached !== true) return fail("cached must be true when present");
+      const flags = cached === true ? { cached } : {};
+      if (have === undefined) return { ok: true, value: { verb, repo, ...flags } };
       if (!Array.isArray(have) || have.length > MAX_SYNC_HAVES || !have.every(isSha)) return fail(`have must be at most ${MAX_SYNC_HAVES} full 40-hex commit shas`);
-      return { ok: true, value: { verb, repo, have } };
+      return { ok: true, value: { verb, repo, have, ...flags } };
     }
     case "push": {
       const { branch, sha, bundle_b64 } = input;

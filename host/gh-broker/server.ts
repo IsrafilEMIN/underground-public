@@ -64,6 +64,7 @@ const PR_STATUS_FIELDS = "number,state,headRefName,headRefOid,baseRefName,mergea
 const REFRESH_EVERY_MS = 30 * 1000;
 const FRESH_FOR_MS = 40 * 1000;
 const REFRESH_FOR_MS = 7 * 24 * 60 * 60 * 1000;
+const REFRESH_TIMEOUT_MS = 20 * 1000;
 
 function defaultGitPath(): string {
   for (const candidate of ["/opt/homebrew/bin/git", "/usr/bin/git"]) {
@@ -284,10 +285,13 @@ export async function refreshRepos(config: ServerConfig, signal: AbortSignal): P
   await Promise.all(
     due.map(async ([repo, state]) => {
       state.refreshing = true;
+      const bounded = AbortSignal.any([signal, AbortSignal.timeout(REFRESH_TIMEOUT_MS)]);
       try {
         const bare = join(config.reposRoot, `${repo}.git`);
-        const result = await inRepoQueue(config, repo, async () => (await ensureBareRepo(config, bare, signal)) ?? refreshMain(config, repo, bare, signal));
+        const result = await inRepoQueue(config, repo, async () => (await ensureBareRepo(config, bare, bounded)) ?? refreshMain(config, repo, bare, bounded));
         if (!("branch" in result)) process.stderr.write(`${new Date().toISOString()} refresh of ${repo} failed: ${result.stderr.trim()}\n`);
+      } catch (error) {
+        process.stderr.write(`${new Date().toISOString()} refresh of ${repo} failed: ${redactTokens(error instanceof Error ? error.message : String(error))}\n`);
       } finally {
         state.refreshing = false;
       }
@@ -306,7 +310,7 @@ async function handleSync(config: ServerConfig, req: SyncRequest, signal: AbortS
     const initFailure = await ensureBareRepo(config, bare, signal);
     if (initFailure !== undefined) return initFailure;
     let branch = state.branch;
-    if (branch === undefined || state.checkedAt === undefined || now - state.checkedAt > FRESH_FOR_MS) {
+    if (req.cached !== true || branch === undefined || state.checkedAt === undefined || now - state.checkedAt > FRESH_FOR_MS) {
       const refreshed = await refreshMain(config, repo, bare, signal);
       if (!("branch" in refreshed)) return refreshed;
       branch = refreshed.branch;
@@ -566,6 +570,7 @@ async function handleMerge(config: ServerConfig, req: MergeRequest, signal: Abor
     signal,
   );
   if (merge.exit !== 0) return forward(merge);
+  repoState(config, req.repo).checkedAt = undefined;
   return cleanUpMergedBranch(config, { repo: req.repo, branch: pr.headRefName, head: pr.headRefOid }, forward(merge), signal);
 }
 

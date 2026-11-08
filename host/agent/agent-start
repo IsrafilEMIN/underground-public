@@ -56,7 +56,7 @@ if [[ ! -d $clone/.git ]]; then
 fi
 cd "$clone"
 
-synced=$(/usr/bin/lockf -k .git/ug-sync.lock "$root/bin/gh-broker" sync "$UG_REPO") || {
+synced=$(/usr/bin/lockf -k .git/ug-sync.lock "$root/bin/gh-broker" sync "$UG_REPO" --cached) || {
   printf 'agent-start: gh-broker sync %s failed; is the gh-broker app installed on it?\n' "$UG_REPO" >&2
   exit 69
 }

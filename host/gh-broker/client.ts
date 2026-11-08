@@ -28,7 +28,7 @@ const EXIT_REFUSED = 2;
 const EXIT_UNAVAILABLE = 69;
 
 const USAGE = `usage:
-  gh-broker sync <owner/repo> [--pr <n>]
+  gh-broker sync <owner/repo> [--pr <n> | --cached]
   gh-broker push <owner/repo> <agent/branch>
   gh-broker pr-create <owner/repo> <agent/branch> <title> <body>
   gh-broker pr-status <owner/repo> <n>
@@ -145,7 +145,8 @@ export async function buildRequest(argv: string[]): Promise<Request> {
       needArgCount(args, 1, 3);
       const repo = needRepo(args[0]);
       if (args.length === 1) return { verb, repo, have: await originHeads() };
-      if (args[1] !== "--pr" || args.length !== 3) throw new UsageError("want sync <owner/repo> --pr <n>");
+      if (args[1] === "--cached" && args.length === 2) return { verb, repo, have: await originHeads(), cached: true };
+      if (args[1] !== "--pr" || args.length !== 3) throw new UsageError("want sync <owner/repo> --pr <n>, or sync <owner/repo> --cached");
       return { verb, repo, pr: needNumber(args[2]) };
     }
     case "push": {
