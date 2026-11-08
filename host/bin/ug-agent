@@ -39,7 +39,7 @@ fi
 
 top=$(git rev-parse --show-toplevel 2>/dev/null) || top=
 if [[ -n $top ]]; then
-  slug=$(ug_repo_slug) || die "$top has no GitHub origin, so the agent cannot clone it"
+  slug=$(ug_repo_slug "$top") || die "$top has no GitHub origin, so the agent cannot clone it"
   [[ -z $slug ]] || export UG_REPO=$slug
 fi
 

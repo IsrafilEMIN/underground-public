@@ -170,7 +170,7 @@ test("agent-home-tar leaves every config name out of the stream, so the gateway 
 });
 
 test(
-  "[mac] agent-start refuses a session when the omp binary is missing its hash file or does not match it, and starts a matching one",
+  "[mac] agent-start refuses a session when the omp binary is missing its hash file or does not match it, when the config copy fails, or when the sync fails, and starts a matching one",
   { skip: process.platform !== "darwin" && "needs macOS getconf DARWIN_USER_TEMP_DIR" },
   async (t) => {
     const dir = await tempDir(join(tmpdir(), "ug-start-"));
@@ -188,7 +188,11 @@ test(
       .replace("export HOME=/Users/ugagent", `export HOME=${join(dir, "agent-home")}`);
     const start = join(dir, "agent-start");
     await writeFile(start, text);
-    const run = () => spawnSync("bash", [start, "-p", "hi"], { env: { PATH: "/usr/bin:/bin" }, encoding: "utf8" });
+    const run = (env: Record<string, string> = {}) =>
+      spawnSync("bash", [start, "-p", "hi"], { env: { PATH: "/usr/bin:/bin", ...env }, encoding: "utf8" });
+    await writeFile(join(root, "bin/gh-broker"), "#!/bin/sh\nexit 1\n");
+    await chmod(join(root, "bin/gh-broker"), 0o755);
+    const inRepo = { UG_REPO: "owner/repo" };
 
     const missing = run();
     assert.equal(missing.status, 1);
@@ -205,6 +209,34 @@ test(
     assert.equal(changed.status, 1);
     assert.match(changed.stderr, /does not match its pinned SHA-256/);
     assert.doesNotMatch(changed.stdout, /OMP_RAN/);
+
+    const brokenBoth = run(inRepo);
+    assert.equal(brokenBoth.status, 1);
+    assert.match(brokenBoth.stderr, /does not match its pinned SHA-256/);
+    assert.doesNotMatch(brokenBoth.stderr, /gh-broker sync/);
+    assert.doesNotMatch(brokenBoth.stdout, /OMP_RAN/);
+
+    await writeFile(join(root, "bin/gh-broker"), "#!/bin/sh\necho garbage\n");
+    const brokenQuiet = run(inRepo);
+    assert.equal(brokenQuiet.status, 1);
+    assert.match(brokenQuiet.stderr, /does not match its pinned SHA-256/);
+    assert.doesNotMatch(brokenQuiet.stderr, /gh-broker sync/);
+    await writeFile(join(root, "bin/gh-broker"), "#!/bin/sh\nexit 1\n");
+
+    await writeFile(`${bin}.sha256`, `${createHash("sha256").update(await readFile(bin)).digest("hex")}\n`);
+    const syncFailed = run(inRepo);
+    assert.equal(syncFailed.status, 69);
+    assert.match(syncFailed.stderr, /gh-broker sync owner\/repo failed/);
+    assert.doesNotMatch(syncFailed.stdout, /OMP_RAN/);
+
+    await mkdir(join(root, "config"));
+    await writeFile(join(root, "config/models.yml"), "x\n");
+    await chmod(join(root, "config/models.yml"), 0o000);
+    await writeFile(join(root, "config-names"), "models.yml\n");
+    const copyFailed = run();
+    assert.equal(copyFailed.status, 1);
+    assert.match(copyFailed.stderr, /config copy failed/);
+    assert.doesNotMatch(copyFailed.stdout, /OMP_RAN/);
   },
 );
 
