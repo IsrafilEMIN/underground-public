@@ -1,0 +1,10 @@
+#!/bin/sh
+if [ "$#" -ne 0 ]; then
+  echo "usage: agent-home-tar" >&2
+  exit 64
+fi
+/usr/bin/tar -C /Users/ugagent -c --exclude ./.cache --exclude node_modules .
+status=$?
+if [ "$status" -gt 1 ]; then
+  exit "$status"
+fi

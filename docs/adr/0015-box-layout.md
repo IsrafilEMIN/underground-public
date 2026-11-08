@@ -1,6 +1,6 @@
 # The box layout: one home, three mounts, an installed host copy
 
-Date: 2026-11-07. Status: proposed. Owner decisions on 2026-11-07 (design talk of that day): no per-session container, and the mac runs an installed copy of underground. The rest of the layout is a proposal, not yet agreed in detail. Amends `0013-agent-box.md` ("The box", "Vanilla omp inside", and N2 under Open), `0014-session-containers.md` (the session container and the layers go; the one long-running VM, its Context, and its Evidence stay), `0001-accepted-risks.md` (amendment "the live checkout"), `0004-no-local-binding.md` and `0011-one-agent-arena.md` (their 2026-11-07 amendments), and `0012-pinned-omp-and-setup.md` ("`git pull` updates its code").
+Date: 2026-11-07. Status: superseded by `0016-agent-user.md` (2026-11-08). Owner decisions on 2026-11-07 (design talk of that day): no per-session container, and the mac runs an installed copy of underground. The rest of the layout was a proposal, not agreed in detail. Amends `0013-agent-box.md` ("The box", "Vanilla omp inside", and N2 under Open), `0014-session-containers.md` (the session container and the layers go; the one long-running VM, its Context, and its Evidence stay), `0001-accepted-risks.md` (amendment "the live checkout"), `0004-no-local-binding.md` and `0011-one-agent-arena.md` (their 2026-11-07 amendments), and `0012-pinned-omp-and-setup.md` ("`git pull` updates its code").
 
 Owner decision, 2026-11-08: the containers go; the agent runs as its own macOS user (`0016-agent-user.md`), which supersedes this ADR once built.
 

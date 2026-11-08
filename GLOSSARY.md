@@ -1,6 +1,6 @@
 # underground
 
-A safe environment for the omp coding agent on one macOS laptop: the owner designs with it, and it implements ready tickets on its own, up to the merge. The design is in `docs/PRODUCT-BRIEF.md`. Where a term names a place that a build item in `docs/SPEC.md` moves, the term gives the new place and the build id. The architecture is being redesigned (`AGENTS.md`, "Redesign phase"). Terms marked (removed, #90) named the srt design, which commit 54a418a1 removed on 2026-11-07. Sessions run in the box (`host/bin/ug-box`, `docs/adr/0013-agent-box.md`).
+A safe environment for the omp coding agent on one macOS laptop: the owner designs with it, and it implements ready tickets on its own, up to the merge. The design is in `docs/PRODUCT-BRIEF.md`. Where a term names a place that a build item in `docs/SPEC.md` moves, the term gives the new place and the build id. The architecture is being redesigned (`AGENTS.md`, "Redesign phase"). Terms marked (removed, #90) named the srt design, which commit 54a418a1 removed on 2026-11-07. Terms marked (removed) named the box, which step 4 of `docs/adr/0016-agent-user.md` removed on 2026-11-08. Sessions run as the agent user (`docs/adr/0016-agent-user.md`).
 
 ## Language
 
@@ -19,7 +19,7 @@ The agent's one home under the srt design, `~/.ug/home`. Commit 54a418a1 removed
 _Avoid_: workspace, sandbox dir, role home, write area
 
 **Owner zone**:
-The folder `~/.ug/sys`: the pinned omp binary, the pinned srt, and `bin/omp`, the link to `ug-box` (`host/bin/ug-setup:185`). `bin/` is on `PATH`. Only setup writes it. The box does not mount it (`host/bin/ug-box-check.ts`, four mounts).
+The folder `~/.ug/sys`: the pinned omp binary, the pinned restic, and `bin/omp`, the link to `ug-agent` (`host/bin/ug-agent-setup`). `bin/` is on `PATH`. Only setup writes it.
 _Avoid_: install dir, owner part
 
 **Sockets folder**:
@@ -58,20 +58,20 @@ _Avoid_: role home, profile, owner part
 The owner's private repo of agent configs, `~/Developer/agent-config`, in the owner's zone, named in `~/.ug/host/config-repo`: `AGENTS.md`, skills, hooks, `config.yml`, `models.yml` with the gateway markers, and other settings, laid out like omp's `~/.omp/agent`. It holds what the agent does inside the walls; underground holds the walls, such as the network allowlist. It holds no secret: `ug-box` refuses to start on a link, a special file, or a token in it (`host/bin/ug-box`, `box_config`). The owner's local folder is the source of truth; GitHub keeps a private backup. `ug-box` takes its last commit at each start, and `box/ug-config` swaps its names into the box's `~/.omp/agent`, so a change that the agent makes to its config lasts until the next start (`docs/SPEC.md`, B3).
 _Avoid_: dotfiles, role config
 
-**Box**:
-The agent's own machine: one long-running Apple `container` VM with no network and its own kernel, built and run since 2026-11-07 as a trial (`docs/adr/0013-agent-box.md`, `docs/adr/0015-box-layout.md`). Every session runs in it on one home, with no container per session. It replaces the sandbox and the arena, which commit 54a418a1 removed. It reaches the host only through doors.
+**Box** (removed, 2026-11-08):
+The agent's own machine as built on 2026-11-07: one long-running Apple `container` VM with no network. Step 4 of `docs/adr/0016-agent-user.md` removed it; the agent runs as its own macOS user now. The term stays for the history.
 _Avoid_: sandbox, arena, VM per session
 
-**Door**:
-A unix socket that the host owns and mounts into the box: the egress door and the broker door. Each door must hold against a hostile caller (`docs/adr/0013-agent-box.md`).
+**Door** (removed, 2026-11-08):
+A unix socket that the host owned and mounted into the box: the egress door and the broker door. The box is removed; the broker socket is `/Library/Underground/run/broker.sock` (`host/broker/server.ts:73`) (`docs/adr/0013-agent-box.md`).
 _Avoid_: hole, port, tunnel
 
-**Egress guard**:
-srt's HTTP proxy on the host, behind the egress door. It allows a site by its name only, maps the `.internal` names of host services, and adds the gateway bearer to model calls, so the box holds no secret (`docs/adr/0013-agent-box.md`).
+**Egress guard** (removed, 2026-11-08):
+srt's HTTP proxy on the host, behind the egress door. The box, its door, and the srt pin are removed (`docs/adr/0016-agent-user.md`, step 4).
 _Avoid_: firewall, filter, MITM proxy
 
-**Rebuild**:
-A fresh home in the box from the pinned image and the config, which carries over only the transcripts and their attachments. Code planted in the home does not survive it (`docs/adr/0015-box-layout.md`).
+**Rebuild** (removed, 2026-11-08):
+A fresh home in the box from the pinned image and the config. The box is removed; restoring the home is in `docs/adr/0016-agent-user.md`, Step 4.
 _Avoid_: reset, wipe, reinstall
 
 ### Running omp
@@ -96,12 +96,12 @@ _Avoid_: plain omp, unwrapped session
 The owner's command for the auth services: the pinned omp with its root in `~/.ug/host/auth`, limited to `auth-broker` and `auth-gateway`, for example `ug-auth auth-broker login anthropic` or `ug-auth auth-broker token --regenerate`. Setup links it as `~/.ug/sys/bin/ug-auth`.
 _Avoid_: raw omp, admin omp
 
-**Arena backup** (now the box home backup):
-The daily restic snapshot of the box home (volume `ug-box-home`), minus what can be rebuilt, in one repo on the owner's other machine (launchd `com.underground.backup`, `host/bin/ug-backup`, settings in `~/.ug/host/backup/config`). It keeps every snapshot, so harm to the home can be undone (`docs/SPEC.md`, B10).
+**Arena backup** (now the agent home backup):
+The daily restic snapshot of the agent home `/Users/ugagent`, minus `.cache` and `node_modules`, in one repo on the owner's other machine (launchd `com.underground.backup`, `host/bin/ug-backup`, settings in `~/.ug/host/backup/config`). The tar stream is read through the root helper `/Library/Underground/bin/agent-home-tar` (`host/agent/agent-home-tar`). It keeps every snapshot, so harm to the home can be undone (`docs/SPEC.md`, B10).
 _Avoid_: archive, sync, Time Machine
 
 **Setup**:
-The host script that does what `git pull` cannot: install the pinned omp, srt, and restic, make the zones and their modes, make the backup password, register and restart the launchd services, install the box and its image, make `ug-box` the `omp` on `PATH` (`host/bin/ug-setup:185`), and write the raw omp's config. It runs the `[mac]` tests first (`host/bin/ug-setup:82-86`). It runs when a pin changes, a host service changes, or macOS updates. It replaces the install (`docs/adr/0012-pinned-omp-and-setup.md`).
+The host script that does what `git pull` cannot: install the pinned omp and restic, make the zones and their modes, make the backup password, register and restart the launchd services, and write the raw omp's config. The agent user's omp link and backup helper are installed by `host/bin/ug-agent-setup`, run with sudo. It runs the `[mac]` tests first (`host/bin/ug-setup:82-86`). It runs when a pin changes, a host service changes, or macOS updates. It replaces the install (`docs/adr/0012-pinned-omp-and-setup.md`).
 _Avoid_: install, installer, bootstrap
 
 **Preflight** (removed, #90):
@@ -177,7 +177,7 @@ The host service `host/broker/usage-broker.ts` (launchd `com.underground.usage-b
 _Avoid_: usage proxy, fake broker
 
 **Gateway bearer**:
-The shared token that lets a session use the auth gateway. It authorizes every session for all models and accounts served by the gateway, usage, and credential health. It does not expose provider secrets or credential management. It is not in the box: the egress door adds it to model calls on the mac (`host/egress/rules.ts:46`). Before the box, the srt design left it readable in the sandbox (an accepted cost, `docs/adr/0005-model-auth-gateway.md`). The separate auth-broker bearer stays on the host.
+The shared token that lets a session use the auth gateway. It authorizes every session for all models and accounts served by the gateway, usage, and credential health. It does not expose provider secrets or credential management. It is not in the box, which is removed (`docs/adr/0016-agent-user.md`). The agent user reads it from `/Library/Underground/config`, an accepted cost (U30, `docs/adr/0005-model-auth-gateway.md`). The separate auth-broker bearer stays on the host.
 _Avoid_: client token, API key, gateway key
 
 **Gateway provider**:

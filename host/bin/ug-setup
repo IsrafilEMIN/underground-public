@@ -16,9 +16,7 @@ case $src/ in
 esac
 sys="$HOME/.ug/sys"
 node_bin=/opt/homebrew/bin/node
-npm_bin=/opt/homebrew/bin/npm
-srt_package=@anthropic-ai/sandbox-runtime
-labels="com.underground.broker com.underground.auth-broker com.underground.auth-gateway com.underground.usage-broker com.underground.backup com.underground.egress"
+labels="com.underground.broker com.underground.auth-broker com.underground.auth-gateway com.underground.usage-broker com.underground.backup"
 agents_dir="$HOME/Library/LaunchAgents"
 addresses_file="$HOME/.ug/host/addresses"
 host_zone="$HOME/.ug/host"
@@ -51,7 +49,6 @@ sha256() {
 omp_pin=$(pin omp '^[0-9A-Za-z.+-]+$')
 omp_sha=$(pin omp_sha256 '^[0-9a-f]{64}$')
 omp_release=$(pin omp_release '^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/releases/download$')
-srt_pin=$(pin srt '^[0-9A-Za-z.+-]+$')
 restic_pin=$(pin restic '^[0-9A-Za-z.+-]+$')
 restic_sha=$(pin restic_sha256 '^[0-9a-f]{64}$')
 restic_bz2_sha=$(pin restic_bz2_sha256 '^[0-9a-f]{64}$')
@@ -59,9 +56,6 @@ restic_release=$(pin restic_release '^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-
 
 [[ $(uname -s) == Darwin && $(uname -m) == arm64 ]] || die "the omp pin names omp-darwin-arm64; this mac is $(uname -s) $(uname -m)"
 [[ -x $node_bin ]] || die "missing $node_bin"
-[[ -x $npm_bin ]] || die "missing $npm_bin"
-grep -q "\"$srt_package\": \"$srt_pin\"" "$src/host/srt/package.json" ||
-  die "host/srt/package.json does not pin $srt_package $srt_pin, the srt pin in VERSIONS"
 
 cleanup=()
 trap '[[ ${#cleanup[@]} -eq 0 ]] || rm -rf "${cleanup[@]}"' EXIT
@@ -81,7 +75,7 @@ run_mac_only_tests() {
 run_mac_only_tests
 
 [[ -d $HOME/.ug ]] || install -d -m 700 "$HOME/.ug"
-install -d -m 700 "$sys" "$sys/omp" "$sys/srt" "$sys/restic" "$sys/bin" "$HOME/.ug/run"
+install -d -m 700 "$sys" "$sys/omp" "$sys/restic" "$sys/bin" "$HOME/.ug/run"
 
 install_omp() {
   local dir="$sys/omp/$omp_pin" dest tmp have url
@@ -100,27 +94,6 @@ install_omp() {
   install -d -m 700 "$dir"
   mv -f "$tmp" "$dest"
   printf 'omp %s: installed in %s\n' "$omp_pin" "$dest"
-}
-
-install_srt() {
-  local dir="$sys/srt/$srt_pin" lock_sha tmp cli have
-  lock_sha=$(sha256 "$src/host/srt/package-lock.json")
-  cli="$dir/node_modules/$srt_package/dist/cli.js"
-  if [[ -f $dir/lock.sha256 && -f $cli ]] && [[ $(<"$dir/lock.sha256") == "$lock_sha" ]]; then
-    printf 'srt %s: in place\n' "$srt_pin"
-    return 0
-  fi
-  tmp=$(mktemp -d "$sys/srt/.install.XXXXXX")
-  cleanup+=("$tmp")
-  cp "$src/host/srt/package.json" "$src/host/srt/package-lock.json" "$tmp/"
-  (cd / && "$npm_bin" ci --prefix "$tmp" --ignore-scripts --no-audit --no-fund >/dev/null) ||
-    die "npm ci of host/srt failed; nothing changed"
-  have=$("$node_bin" "$tmp/node_modules/$srt_package/dist/cli.js" --version 2>/dev/null) || have=""
-  [[ $have == "$srt_pin" ]] || die "srt in the lockfile has version ${have:-unknown}, want $srt_pin; nothing changed"
-  printf '%s\n' "$lock_sha" >"$tmp/lock.sha256"
-  rm -rf "$dir"
-  mv "$tmp" "$dir"
-  printf 'srt %s: installed in %s\n' "$srt_pin" "$dir"
 }
 
 install_restic() {
@@ -174,18 +147,18 @@ link() {
 }
 
 install_links() {
-  link "$sys/box/host/bin/ug-box" "$sys/bin/omp"
-  rm -rf "$sys/agent-bin" "$sys/libexec" "$sys/broker" "$sys/arena" "$sys/bin/omp-arena" "$sys/macos-build"
-  printf 'links: omp on PATH in %s\n' "$sys/bin"
+  local omp_at="$sys/bin/omp"
+  if [[ -L $omp_at && $(readlink "$omp_at") == "$sys/box/"* ]]; then rm -f "$omp_at"; fi
+  rm -f "$sys/bin/ug-box" "$sys/bin/ug-box-restore"
+  rm -rf "$sys/box" "$sys/egress" "$sys/srt" "$sys/agent-bin" "$sys/libexec" "$sys/broker" "$sys/arena" "$sys/bin/omp-arena" "$sys/macos-build"
+  printf 'links: removed the stale box, egress, and srt copies in %s\n' "$sys"
 }
 
-install_egress() {
-  local dir="$sys/egress" f
-  install -d -m 700 "$dir" "$dir/host/egress"
-  for f in host/egress/server.ts host/egress/rules.ts VERSIONS host/network-allowlist; do
-    put "$src/$f" "$dir/$f" 444
-  done
-  printf 'egress door: installed in %s\n' "$dir"
+remove_egress_agent() {
+  local label=com.underground.egress
+  launchctl bootout "gui/$UID/$label" >/dev/null 2>&1 || true
+  rm -f "$agents_dir/$label.plist"
+  printf 'egress: the old agent %s is booted out and deleted\n' "$label"
 }
 
 install_service_code() {
@@ -199,21 +172,6 @@ install_service_code() {
   chmod 555 "$dir/host/bin/ug-backup" "$dir/host/bin/ug-auth"
   link "$dir/host/bin/ug-auth" "$sys/bin/ug-auth"
   printf 'services: code installed in %s, ug-auth on PATH as %s\n' "$dir" "$sys/bin/ug-auth"
-}
-
-install_ug_box() {
-  local dir="$sys/box" f
-  rm -rf "$dir"
-  install -d -m 700 "$dir" "$dir/host/bin" "$dir/host/lib" "$dir/host/broker" "$dir/box"
-  for f in host/bin/ug-box host/bin/ug-box-restore host/bin/ug-box-check.ts host/lib/box-image.bash host/lib/ug.bash host/lib/backup-target.bash host/secret-patterns \
-    host/broker/client.ts host/broker/protocol.ts VERSIONS "$src"/box/*; do
-    f=${f#"$src/"}
-    put "$src/$f" "$dir/$f" 444
-  done
-  chmod 555 "$dir/host/bin/ug-box" "$dir/host/bin/ug-box-restore"
-  link "$dir/host/bin/ug-box" "$sys/bin/ug-box"
-  link "$dir/host/bin/ug-box-restore" "$sys/bin/ug-box-restore"
-  printf 'ug-box: installed in %s, on PATH as %s and %s\n' "$dir" "$sys/bin/ug-box" "$sys/bin/ug-box-restore"
 }
 
 install_raw_config() {
@@ -294,21 +252,19 @@ install_services() {
   printf 'services: %s restarted\n' "$labels"
 }
 
-install_box_image() {
-  command -v container >/dev/null 2>&1 || die "the container CLI is not installed; the box needs Apple's container tool"
-  # shellcheck source=host/lib/box-image.bash disable=SC1091
-  source "$src/host/lib/box-image.bash"
-  box_image_build "$src" || die "the box image did not build"
-}
-
 install_omp
-install_srt
 install_restic
 install_links
-install_egress
-install_ug_box
+remove_egress_agent
 install_service_code
-install_box_image
 setup_backup
 install_services
 install_raw_config
+stale=()
+if [[ ! -f $sys/agent/bin/ug-agent ]] || ! cmp -s "$sys/agent/bin/ug-agent" "$src/host/bin/ug-agent"; then stale+=(ug-agent); fi
+for f in pin.sb agent-session agent-start sshd_config config-names bin/agent-home-tar; do
+  cmp -s "/Library/Underground/$f" "$src/host/agent/${f#bin/}" || stale+=("$f")
+done
+if [[ ${#stale[@]} -gt 0 ]]; then
+  printf '%s\n' "ug-setup: the installed ${stale[*]} are not this checkout's; run: sudo host/bin/ug-agent-setup"
+fi

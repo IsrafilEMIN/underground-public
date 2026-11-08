@@ -1,2 +1,0 @@
-#!/bin/sh
-BUN_BE_BUN=1 UG_BROKER_SOCKET=/tmp/ug-broker.sock exec omp /usr/local/lib/broker/client.ts "$@"

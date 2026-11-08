@@ -1,7 +1,0 @@
-#!/bin/sh
-set -eu
-export HOME=/home/agent
-socat TCP-LISTEN:3128,bind=127.0.0.1,reuseaddr,fork UNIX-CONNECT:/tmp/ug-egress.sock &
-ovnfs start
-echo ready > /tmp/ug-ready
-exec sleep infinity

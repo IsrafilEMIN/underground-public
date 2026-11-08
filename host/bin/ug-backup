@@ -13,43 +13,12 @@ restic_pin=$(ug_pin "$src/VERSIONS" restic)
 restic_bin="$HOME/.ug/sys/restic/$restic_pin/restic"
 backup="$HOME/.ug/host/backup"
 config="$backup/config"
-box_image=""
-if [[ -f $HOME/.ug/sys/box/host/lib/box-image.bash ]]; then
-  # shellcheck source=host/lib/box-image.bash disable=SC1091
-  source "$HOME/.ug/sys/box/host/lib/box-image.bash"
-  box_image=$(box_image_tag "$HOME/.ug/sys/box")
-fi
+agent_tar=${UG_AGENT_HOME_TAR:-/Library/Underground/bin/agent-home-tar}
 
 log() { printf '%s ug-backup: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >&2; }
 die() {
   log "$*"
   exit 1
-}
-
-box_state="${UG_BOX_STATE:-$HOME/.local/state/underground/box}/ug-box"
-lock_wait=${UG_BOX_LOCK_WAIT:-30}
-
-backup_box() {
-  local reader locked=0
-  [[ -n ${BOX_HOME_TAR:-} ]] || { log "the box home is there but no box is installed to read it; run host/bin/ug-setup"; status=1; return; }
-  ug_lock "$box_state" "$lock_wait" || { log "ug-box holds its lock, so the box home was not read"; status=1; return; }
-  locked=1
-  if container list --quiet | grep -qxF ug-box; then
-    reader=(container exec ug-box)
-    ug_unlock "$box_state"
-    locked=0
-  elif [[ -n $box_image ]]; then
-    reader=(container run --rm --network none --volume ug-box-home:/home/agent "$box_image")
-  else
-    ug_unlock "$box_state"
-    log "the box home is there but no box image is installed to read it; run host/bin/ug-setup"
-    status=1
-    return
-  fi
-  "$restic_bin" -r "$repo" backup --quiet --tag ug-box --stdin-filename ug-box-home.tar --stdin-from-command -- "${reader[@]}" sh -c "$BOX_HOME_TAR"
-  status=$?
-  [[ $locked -eq 0 ]] || ug_unlock "$box_state"
-  [[ $status -eq 0 ]] || log "the box home was not saved (restic exit $status); a failed read stores no snapshot"
 }
 
 [[ -n $restic_pin && -x $restic_bin ]] || die "the pinned restic $restic_bin is missing; run host/bin/ug-setup"
@@ -75,17 +44,14 @@ if [[ $status -eq 10 ]]; then
 fi
 if [[ $status -ne 0 ]]; then
   log "the repo $repo does not open (restic exit $status)"
-elif ! command -v container >/dev/null 2>&1; then
-  log "the container CLI is not on PATH, so the box home cannot be read"
+elif [[ ! -x $agent_tar ]]; then
+  log "the agent home reader $agent_tar is missing; run: sudo host/bin/ug-agent-setup"
   status=1
-elif ! volumes=$(container volume list --quiet); then
-  log "container volume list failed, so the box home cannot be read"
-  status=1
-elif ! grep -qxF ug-box-home <<<"$volumes"; then
-  log "there is no box home yet, so there is nothing to back up"
 else
-  backup_box
+  "$restic_bin" -r "$repo" backup --quiet --tag ug-agent --stdin-filename ug-agent-home.tar --stdin-from-command -- sudo -n "$agent_tar"
+  status=$?
   [[ $status -ne 0 ]] || date +%s >"$backup/last"
+  [[ $status -eq 0 ]] || log "the agent home was not saved (restic exit $status); a failed read stores no snapshot"
 fi
 
 backup_target_sleep
