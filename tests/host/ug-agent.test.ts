@@ -87,6 +87,18 @@ test("ug-agent logs in as ugagent on port 2222 with the owner key, and sends UG_
   assert.deepEqual(argv.slice(-4, -1), ["omp", "-p", "hi"]);
 });
 
+test("ug-agent passes the session's arguments after --, so ssh never reads one as its own option", async (t) => {
+  const o = await owner(t);
+  await stub(o.bin, "launchctl", "exit 1");
+  const log = join(o.home, "ssh-argv");
+  await stub(o.bin, "ssh", `printf '%s\\n' "$@" > ${log}`);
+  const r = runAgent(o, ["-oProxyCommand=x", "--resume"]);
+  assert.equal(r.status, 0, r.stderr);
+  const argv = (await readFile(log, "utf8")).trim().split("\n");
+  const dest = argv.indexOf("ugagent@127.0.0.1");
+  assert.deepEqual(argv.slice(dest), ["ugagent@127.0.0.1", "--", "-oProxyCommand=x", "--resume"]);
+});
+
 test("agent-session refuses a command word outside the allowed characters, before the sandbox", () => {
   const r = spawnSync("bash", [SESSION], {
     env: { SSH_ORIGINAL_COMMAND: "omp $(id)", PATH: "/usr/bin:/bin" },

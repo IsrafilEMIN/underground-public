@@ -36,4 +36,4 @@ if [[ -n $top ]]; then
   [[ -z $slug ]] || export UG_REPO=$slug
 fi
 
-exec ssh -tt -p 2222 -i "$key" -o IdentitiesOnly=yes -o UserKnownHostsFile="$known_hosts" -o StrictHostKeyChecking=yes -o SendEnv=UG_REPO ugagent@127.0.0.1 "$@"
+exec ssh -tt -p 2222 -i "$key" -o IdentitiesOnly=yes -o UserKnownHostsFile="$known_hosts" -o StrictHostKeyChecking=yes -o SendEnv=UG_REPO ugagent@127.0.0.1 -- "$@"
