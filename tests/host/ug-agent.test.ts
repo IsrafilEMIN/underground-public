@@ -155,8 +155,15 @@ test("the pin profile names the agent home and denies the launchd-style exec rou
   );
 });
 
-test("[mac] the pin profile loads under sandbox-exec and runs a plain command", { skip: process.platform !== "darwin" && "needs macOS sandbox-exec" }, () => {
-  const r = spawnSync("/usr/bin/sandbox-exec", ["-f", join(ROOT, "host/agent/pin.sb"), "/bin/echo", "ok"], { encoding: "utf8" });
-  assert.equal(r.status, 0, r.stderr);
-  assert.equal(r.stdout, "ok\n");
-});
+const insideSandbox =
+  process.platform === "darwin" && spawnSync("/usr/bin/sandbox-exec", ["-p", "(version 1)(allow default)", "/usr/bin/true"]).status !== 0;
+
+test(
+  "[mac] the pin profile loads under sandbox-exec and runs a plain command",
+  { skip: (process.platform !== "darwin" && "needs macOS sandbox-exec") || (insideSandbox && "already inside a sandbox, which macOS will not nest") },
+  () => {
+    const r = spawnSync("/usr/bin/sandbox-exec", ["-f", join(ROOT, "host/agent/pin.sb"), "/bin/echo", "ok"], { encoding: "utf8" });
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(r.stdout, "ok\n");
+  },
+);
