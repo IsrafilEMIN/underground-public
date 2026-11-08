@@ -7,11 +7,11 @@ import { access, chmod, mkdir, readdir, readFile, rename, rm, symlink, writeFile
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
-import { appFiles, appJwt, createAppTokens, redactTokens } from "../../host/broker/github-app.ts";
-import type { AppFiles, Fetch, GithubTokens } from "../../host/broker/github-app.ts";
-import type { Reply } from "../../host/broker/protocol.ts";
-import { defaultConfig } from "../../host/broker/server.ts";
-import type { ServerConfig } from "../../host/broker/server.ts";
+import { appFiles, appJwt, createAppTokens, redactTokens } from "../../host/gh-broker/github-app.ts";
+import type { AppFiles, Fetch, GithubTokens } from "../../host/gh-broker/github-app.ts";
+import type { Reply } from "../../host/gh-broker/protocol.ts";
+import { defaultConfig } from "../../host/gh-broker/server.ts";
+import type { ServerConfig } from "../../host/gh-broker/server.ts";
 import { FAKE_TOKEN, fakeTokens, tokenRemote } from "./fake-app.ts";
 import { handleAs } from "./session.ts";
 import type { Session } from "./session.ts";
@@ -150,7 +150,7 @@ test("a missing app config or a GitHub error is a clear failure", async () => {
   await assert.rejects(tokens.token(REPO, new AbortController().signal), /HTTP 401: A JSON web token could not be decoded/);
 });
 
-test("the broker finds the app config and key in the host zone ~/.ug/host of its home", async () => {
+test("the gh-broker finds the app config and key in the host zone ~/.ug/host of its home", async () => {
   const home = join(root, "home");
   const appDir = join(home, ".ug/host");
   await mkdir(appDir, { recursive: true, mode: 0o700 });
@@ -332,7 +332,7 @@ function sync(): Promise<Reply> {
 async function setUp(github: GithubTokens): Promise<void> {
   config = {
     ...defaultConfig(),
-    socketPath: join(root, "run", "broker.sock"),
+    socketPath: join(root, "run", "gh-broker.sock"),
     reposRoot: join(root, "bare"),
     reviewsDir: join(root, "reviews"),
     pushesDir: join(root, "pushes"),

@@ -8,12 +8,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
 import { promisify } from "node:util";
-import { send } from "../../host/broker/client.ts";
+import { send } from "../../host/gh-broker/client.ts";
 import { tempDir } from "../temp.ts";
 
 const REPO = "o/r";
 const BRANCH = "agent/x";
-const CLIENT = join(import.meta.dirname, "../../host/broker/client.ts");
+const CLIENT = join(import.meta.dirname, "../../host/gh-broker/client.ts");
 const GIT_ENV = { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" };
 const REAL_GIT = execFileSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).trim();
 const execFileAsync = promisify(execFile);
@@ -57,7 +57,7 @@ async function client(cwd: string, env: Record<string, string>, ...args: string[
   try {
     const { stdout, stderr } = await execFileAsync(process.execPath, [CLIENT, ...args], {
       cwd,
-      env: { ...GIT_ENV, UG_BROKER_SOCKET: socket, GIT_CEILING_DIRECTORIES: root, ...env },
+      env: { ...GIT_ENV, UG_GH_BROKER_SOCKET: socket, GIT_CEILING_DIRECTORIES: root, ...env },
       encoding: "utf8",
     });
     return { code: 0, stdout, stderr };
@@ -79,7 +79,7 @@ async function commit(cwd: string, file: string): Promise<string> {
 }
 
 function mergedReply(head: string, exit = 0): string {
-  return JSON.stringify({ exit, stdout: "merged\n", stderr: exit === 0 ? "" : "broker: merged, but cannot delete branch agent/x: gone\n", merged: { branch: BRANCH, head } });
+  return JSON.stringify({ exit, stdout: "merged\n", stderr: exit === 0 ? "" : "gh-broker: merged, but cannot delete branch agent/x: gone\n", merged: { branch: BRANCH, head } });
 }
 
 beforeEach(async () => {
@@ -124,19 +124,19 @@ const USAGE_CASES: { name: string; argv: string[]; reason: string }[] = [
 ];
 
 for (const { name, argv, reason } of USAGE_CASES) {
-  test(`usage error, ${name}: exit 64 with the reason and the usage, and nothing reaches the broker`, async () => {
+  test(`usage error, ${name}: exit 64 with the reason and the usage, and nothing reaches the gh-broker`, async () => {
     await broker(JSON.stringify({ exit: 0, stdout: "sent\n", stderr: "" }));
 
     const run = await brokerAt(work, ...argv);
     assert.equal(run.code, 64, JSON.stringify(run));
-    assert.ok(run.stderr.startsWith(`broker: ${reason}`), run.stderr);
+    assert.ok(run.stderr.startsWith(`gh-broker: ${reason}`), run.stderr);
     assert.match(run.stderr, /\nusage:\n/);
     assert.equal(run.stdout, "");
     assert.deepEqual(requests, []);
   });
 }
 
-test("ci-log sends the repo and PR number to the broker and prints the log it returns", async () => {
+test("ci-log sends the repo and PR number to the gh-broker and prints the log it returns", async () => {
   await broker(JSON.stringify({ exit: 0, stdout: "untrusted CI log\n", stderr: "" }));
 
   const run = await brokerAt(work, "ci-log", REPO, "7");
@@ -150,19 +150,19 @@ test("a push of a local branch that does not exist fails with exit 1, not a usag
 
   const run = await brokerAt(work, "push", REPO, "agent/missing");
   assert.equal(run.code, 1, JSON.stringify(run));
-  assert.ok(run.stderr.startsWith("broker: "), run.stderr);
+  assert.ok(run.stderr.startsWith("gh-broker: "), run.stderr);
   assert.doesNotMatch(run.stderr, /usage:/);
   assert.deepEqual(requests, []);
 });
 
-test("a session without a broker socket exits 69 and says the socket is not set", async () => {
-  const run = await client(work, { UG_BROKER_SOCKET: "" }, "pr-status", REPO, "7");
+test("a session without a gh-broker socket exits 69 and says the socket is not set", async () => {
+  const run = await client(work, { UG_GH_BROKER_SOCKET: "" }, "pr-status", REPO, "7");
   assert.equal(run.code, 69, JSON.stringify(run));
-  assert.match(run.stderr, /no broker socket \(UG_BROKER_SOCKET is not set/);
+  assert.match(run.stderr, /no gh-broker socket \(UG_GH_BROKER_SOCKET is not set/);
   assert.equal(run.stdout, "");
 });
 
-test("a broker that is down exits 69 and says it cannot reach the broker", async () => {
+test("a gh-broker that is down exits 69 and says it cannot reach the gh-broker", async () => {
   await broker(JSON.stringify({ exit: 0, stdout: "", stderr: "" }));
   const closed = Promise.withResolvers<void>();
   server?.close(() => closed.resolve());
@@ -171,7 +171,7 @@ test("a broker that is down exits 69 and says it cannot reach the broker", async
 
   const run = await brokerAt(work, "pr-status", REPO, "7");
   assert.equal(run.code, 69, JSON.stringify(run));
-  assert.ok(run.stderr.startsWith("broker: cannot reach broker: "), run.stderr);
+  assert.ok(run.stderr.startsWith("gh-broker: cannot reach gh-broker: "), run.stderr);
   assert.equal(run.stdout, "");
 });
 
@@ -189,7 +189,7 @@ test("a sync reply without a bundle exits 1 as malformed and imports nothing", a
 
   const run = await brokerAt(work, "sync", REPO);
   assert.equal(run.code, 1, JSON.stringify(run));
-  assert.equal(run.stderr, "broker: malformed sync reply\n");
+  assert.equal(run.stderr, "gh-broker: malformed sync reply\n");
   assert.equal(git(work, "for-each-ref", "refs/remotes"), "");
 });
 
@@ -198,7 +198,7 @@ test("a sync --pr reply without a bundle exits 1 as malformed and imports nothin
 
   const run = await client(work, {}, "sync", REPO, "--pr", "7");
   assert.equal(run.code, 1, JSON.stringify(run));
-  assert.equal(run.stderr, "broker: malformed sync reply\n");
+  assert.equal(run.stderr, "gh-broker: malformed sync reply\n");
   assert.equal(git(work, "for-each-ref", "refs/remotes"), "");
 });
 
@@ -214,18 +214,18 @@ test("a PR bundle with two refs is refused, and the session's repo gets no origi
 
   const run = await client(work, {}, "sync", REPO, "--pr", "7");
   assert.equal(run.code, 1, JSON.stringify(run));
-  assert.match(run.stderr, /^broker: cannot import sync bundle: the PR bundle holds 2 refs, want 1\n$/);
+  assert.match(run.stderr, /^gh-broker: cannot import sync bundle: the PR bundle holds 2 refs, want 1\n$/);
   assert.equal(git(work, "for-each-ref", "refs/remotes/origin/pr/7"), "");
 });
 
-test("send resolves with a well-formed broker reply", async () => {
+test("send resolves with a well-formed gh-broker reply", async () => {
   await broker(JSON.stringify({ exit: 0, stdout: "ok\n", stderr: "" }));
 
   assert.deepEqual(await send(socket, { verb: "merge", repo: REPO, number: 7 }), { exit: 0, stdout: "ok\n", stderr: "" });
   assert.deepEqual(requests, [{ verb: "merge", repo: REPO, number: 7 }]);
 });
 
-test("send rejects a JSON reply that is not a broker reply", async () => {
+test("send rejects a JSON reply that is not a gh-broker reply", async () => {
   await broker(JSON.stringify({ ok: true, stdout: "ok\n" }));
 
   await assert.rejects(send(socket, { verb: "merge", repo: REPO, number: 7 }), /malformed reply/);
@@ -237,7 +237,7 @@ test("send rejects a reply that is not JSON", async () => {
   await assert.rejects(send(socket, { verb: "merge", repo: REPO, number: 7 }), /malformed reply/);
 });
 
-test("a merge whose broker reply exits non-zero still cleans up locally, and the client exits with the broker's code", async () => {
+test("a merge whose gh-broker reply exits non-zero still cleans up locally, and the client exits with the gh-gh-broker's code", async () => {
   git(work, "branch", BRANCH);
   const head = localBranch();
   await broker(mergedReply(head, 1));
@@ -257,7 +257,7 @@ test("a merge whose local cleanup fails exits 1 and keeps the dirty worktree and
 
   const run = await brokerAt(tree, "merge", REPO, "7");
   assert.equal(run.code, 1, JSON.stringify(run));
-  assert.ok(run.stderr.startsWith(`broker: merged, but kept worktree ${tree} and local branch ${BRANCH}: `), run.stderr);
+  assert.ok(run.stderr.startsWith(`gh-broker: merged, but kept worktree ${tree} and local branch ${BRANCH}: `), run.stderr);
   assert.equal(existsSync(join(tree, "draft.txt")), true);
   assert.equal(localBranch(), head);
 });
@@ -269,7 +269,7 @@ test("local cleanup outside any git repo exits 1: it cannot list the worktrees",
 
   const run = await brokerAt(plain, "merge", REPO, "7");
   assert.equal(run.code, 1, JSON.stringify(run));
-  assert.match(run.stderr, /^broker: merged, but cannot list the local worktrees: /m);
+  assert.match(run.stderr, /^gh-broker: merged, but cannot list the local worktrees: /m);
 });
 
 test("local cleanup exits 1 and keeps the branch when git lists no main worktree", async () => {
@@ -282,7 +282,7 @@ test("local cleanup exits 1 and keeps the branch when git lists no main worktree
 
   const run = await client(work, { PATH: `${bin}:${process.env.PATH ?? ""}` }, "merge", REPO, "7");
   assert.equal(run.code, 1, JSON.stringify(run));
-  assert.match(run.stderr, /^broker: merged, but git lists no main worktree\n/m);
+  assert.match(run.stderr, /^gh-broker: merged, but git lists no main worktree\n/m);
   assert.equal(localBranch(), head);
 });
 
@@ -291,7 +291,7 @@ test("local cleanup without a local branch of the PR exits 0 and says so", async
 
   const run = await brokerAt(work, "merge", REPO, "7");
   assert.equal(run.code, 0, JSON.stringify(run));
-  assert.equal(run.stdout, `merged\nbroker: no local branch ${BRANCH}\n`);
+  assert.equal(run.stdout, `merged\ngh-broker: no local branch ${BRANCH}\n`);
 });
 
 test("local cleanup keeps the branch that the main worktree has checked out", async () => {
@@ -301,7 +301,7 @@ test("local cleanup keeps the branch that the main worktree has checked out", as
 
   const run = await brokerAt(work, "merge", REPO, "7");
   assert.equal(run.code, 0, JSON.stringify(run));
-  assert.match(run.stdout, new RegExp(`broker: kept local branch ${BRANCH}: the main worktree .* has it checked out\\n$`));
+  assert.match(run.stdout, new RegExp(`gh-broker: kept local branch ${BRANCH}: the main worktree .* has it checked out\\n$`));
   assert.equal(localBranch(), head);
   assert.equal(git(work, "symbolic-ref", "HEAD"), `refs/heads/${BRANCH}`);
 });
@@ -312,7 +312,7 @@ test("local cleanup deletes a merged branch that has no linked worktree", async 
 
   const run = await brokerAt(work, "merge", REPO, "7");
   assert.equal(run.code, 0, JSON.stringify(run));
-  assert.equal(run.stdout, `merged\nbroker: deleted local branch ${BRANCH}\n`);
+  assert.equal(run.stdout, `merged\ngh-broker: deleted local branch ${BRANCH}\n`);
   assert.equal(localBranch(), "");
 });
 
@@ -324,6 +324,6 @@ test("local cleanup exits 1 and keeps the branch when git cannot delete it", asy
 
   const run = await brokerAt(work, "merge", REPO, "7");
   assert.equal(run.code, 1, JSON.stringify(run));
-  assert.match(run.stderr, new RegExp(`^broker: merged, but cannot delete local branch ${BRANCH}: `, "m"));
+  assert.match(run.stderr, new RegExp(`^gh-broker: merged, but cannot delete local branch ${BRANCH}: `, "m"));
   assert.equal(localBranch(), head);
 });

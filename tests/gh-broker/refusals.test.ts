@@ -4,12 +4,12 @@ import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
-import { REVIEWER_ROLES } from "../../host/broker/protocol.ts";
-import type { Reply } from "../../host/broker/protocol.ts";
-import { readPushRecord, writePushRecord } from "../../host/broker/push-record.ts";
-import { appendReviewRecord } from "../../host/broker/review-records.ts";
-import { defaultConfig } from "../../host/broker/server.ts";
-import type { ServerConfig } from "../../host/broker/server.ts";
+import { REVIEWER_ROLES } from "../../host/gh-broker/protocol.ts";
+import type { Reply } from "../../host/gh-broker/protocol.ts";
+import { readPushRecord, writePushRecord } from "../../host/gh-broker/push-record.ts";
+import { appendReviewRecord } from "../../host/gh-broker/review-records.ts";
+import { defaultConfig } from "../../host/gh-broker/server.ts";
+import type { ServerConfig } from "../../host/gh-broker/server.ts";
 import { fakeTokens, tokenRemote } from "./fake-app.ts";
 import { handleAs } from "./session.ts";
 import type { Session } from "./session.ts";
@@ -102,7 +102,7 @@ beforeEach(async () => {
   root = await tempDir(join(tmpdir(), "ug-refusals-"));
   config = {
     ...defaultConfig(),
-    socketPath: join(root, "run", "broker.sock"),
+    socketPath: join(root, "run", "gh-broker.sock"),
     reposRoot: join(root, "bare"),
     reviewsDir: join(root, "reviews"),
     pushesDir: join(root, "pushes"),
@@ -221,7 +221,7 @@ test("an author's pr-create opens a PR from its agent branch with its title and 
   assert.equal(await readHome("created-body"), "Line one\nLine two\n");
 });
 
-test("a repo where the broker app is not installed gets no token, so no gh call, push, merge, or record happens", async () => {
+test("a repo where the gh-broker app is not installed gets no token, so no gh call, push, merge, or record happens", async () => {
   const head = await commit(BRANCH, "a.txt");
   const bundle = execFileSync(config.gitPath, ["bundle", "create", "-", `refs/heads/${BRANCH}`], { cwd: work, env: GIT_ENV }).toString("base64");
   const signal = new AbortController().signal;

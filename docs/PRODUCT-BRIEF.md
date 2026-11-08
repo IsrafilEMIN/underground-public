@@ -59,8 +59,8 @@ The threat model is to be checked again against these two ways (`THREAT-MODEL.md
 
 - **Arena:** omp's own `~/.omp` (config, sessions, caches, helpers) and the agent's repo clones, proposed at `work/<owner>/<repo>`. The arena is the agent's `HOME`.
 - **Owner zone:** the pinned omp binary, the pinned srt (still installed for the egress door's HTTP proxy, `host/egress/server.ts:27-29`), and `bin/omp`, a link to the box's launcher `ug-box` (`host/bin/ug-setup:185`). `bin/` is on `PATH`.
-- **Sockets:** the broker and egress sockets (`~/.ug/run`, `host/bin/ug-box:16-17`). The agent cannot write here, so it cannot plant a socket or a link.
-- **Host:** everything the agent gets nothing of: the GitHub App key, the auth broker's logins, the broker's records, the arena backup's password and settings (`SPEC.md`, B10), and the owner's hand-edited broker files, such as the addresses file (owner decision, 2026-11-03).
+- **Sockets:** the gh-broker and egress sockets (`~/.ug/run`, `host/bin/ug-box:16-17`). The agent cannot write here, so it cannot plant a socket or a link.
+- **Host:** everything the agent gets nothing of: the GitHub App key, the auth broker's logins, the gh-broker's records, the arena backup's password and settings (`SPEC.md`, B10), and the owner's hand-edited gh-broker files, such as the addresses file (owner decision, 2026-11-03).
 - **Owner's zone:** the owner's checkouts. underground runs from its checkout. The owner's agent config repo lives here too.
 
 To uninstall: delete `~/.ug` and the launchd files.
@@ -82,7 +82,7 @@ To uninstall: delete `~/.ug` and the launchd files.
 
 **Code out**
 
-- Agent → broker socket → GitHub, `agent/*` branches only → PR → CI → reviewers → merge gate.
+- Agent → gh-broker socket → GitHub, `agent/*` branches only → PR → CI → reviewers → merge gate.
 - Other repos: auto merge.
 - underground: the owner merges, because its code runs on the host.
 
@@ -121,7 +121,7 @@ Setup runs when underground's `main`, a pin, a host service, the config repo, or
 ## What stays
 
 - The auth gateway, the auth broker, and the usage broker.
-- The GitHub broker and its merge gate.
+- The gh-broker and its merge gate.
 - The macOS build pin.
 - The onboarding checks (`SPEC.md`), including: a merge to `main` has no effect that a revert cannot undo.
 - The reviewer roles. Their rules come as skills.

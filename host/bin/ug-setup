@@ -16,7 +16,7 @@ case $src/ in
 esac
 sys="$HOME/.ug/sys"
 node_bin=/opt/homebrew/bin/node
-labels="com.underground.broker com.underground.auth-broker com.underground.auth-gateway com.underground.usage-broker com.underground.backup"
+labels="com.underground.gh-broker com.underground.auth-broker com.underground.auth-gateway com.underground.usage-broker com.underground.backup"
 agents_dir="$HOME/Library/LaunchAgents"
 addresses_file="$HOME/.ug/host/addresses"
 host_zone="$HOME/.ug/host"
@@ -66,7 +66,7 @@ run_mac_only_tests() {
   cleanup+=("$tap")
   (cd "$src" && "$node_bin" --test --test-reporter=spec --test-reporter-destination=stdout \
     --test-reporter=tap --test-reporter-destination="$tap" --test-name-pattern='\[mac\]' \
-    tests/broker/*.test.ts tests/host/*.test.ts) || status=$?
+    tests/gh-broker/*.test.ts tests/host/*.test.ts) || status=$?
   if [[ $status -ne 0 ]] || ! grep -qx '# fail 0' "$tap" || ! grep -qx '# skipped 0' "$tap"; then
     grep -E '^# (tests|pass|fail|skipped) ' "$tap" >&2 || true
     die "a [mac] test, which only this mac can run, did not pass, so nothing is set up"
@@ -146,11 +146,23 @@ link() {
   ln -s "$target" "$at"
 }
 
+rename_broker() {
+  local label=com.underground.broker old="$host_zone/broker" new="$host_zone/gh-broker"
+  launchctl bootout "gui/$UID/$label" >/dev/null 2>&1 || true
+  rm -f "$agents_dir/$label.plist"
+  if [[ -e $old || -L $old ]]; then
+    [[ ! -e $new && ! -L $new ]] || die "both $old and $new exist; keep the one with the current records, then run setup again"
+    mv "$old" "$new"
+    printf 'gh-broker: moved the records from %s to %s\n' "$old" "$new"
+  fi
+  printf 'gh-broker: the old agent %s is booted out and deleted\n' "$label"
+}
+
 install_service_code() {
   local dir="$sys/services" f
   rm -rf "$dir"
-  install -d -m 700 "$dir" "$dir/host/bin" "$dir/host/lib" "$dir/host/broker"
-  for f in host/bin/ug-backup host/bin/ug-auth host/lib/backup-target.bash host/lib/ug.bash VERSIONS "$src"/host/broker/*.ts; do
+  install -d -m 700 "$dir" "$dir/host/bin" "$dir/host/lib" "$dir/host/gh-broker"
+  for f in host/bin/ug-backup host/bin/ug-auth host/lib/backup-target.bash host/lib/ug.bash VERSIONS "$src"/host/gh-broker/*.ts; do
     f=${f#"$src/"}
     put "$src/$f" "$dir/$f" 444
   done
@@ -209,8 +221,8 @@ restart_service() {
 }
 
 make_host_zone() {
-  install -d -m 700 "$host_zone" "$auth_root" "$auth_root/agent" "$host_zone/broker" "$host_zone/broker/repos" \
-    "$host_zone/broker/tmp" "$host_zone/broker/reviews" "$host_zone/broker/pushes"
+  install -d -m 700 "$host_zone" "$auth_root" "$auth_root/agent" "$host_zone/gh-broker" "$host_zone/gh-broker/repos" \
+    "$host_zone/gh-broker/tmp" "$host_zone/gh-broker/reviews" "$host_zone/gh-broker/pushes"
 }
 
 install_services() {
@@ -239,6 +251,7 @@ install_services() {
 
 install_omp
 install_restic
+rename_broker
 install_service_code
 setup_backup
 install_services

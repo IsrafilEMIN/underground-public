@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { tempDir } from "../temp.ts";
 
-const WIZARD = join(import.meta.dirname, "../../scripts/broker-github-app-wizard.sh");
+const WIZARD = join(import.meta.dirname, "../../scripts/gh-broker-app-wizard.sh");
 
 function git(checkout: string, ...args: string[]): void {
   const run = spawnSync("git", ["-C", checkout, ...args], { encoding: "utf8" });

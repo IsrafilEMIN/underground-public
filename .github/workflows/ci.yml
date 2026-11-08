@@ -42,11 +42,11 @@ jobs:
       - name: Launchd plist XML
         run: xmllint --noout host/launchd/*.plist host/agent/*.plist
         
-      - name: Broker tests
+      - name: gh-broker tests
         run: |
           set -euo pipefail
-          if [ -d tests/broker ]; then
-            node --test tests/broker/*.test.ts
+          if [ -d tests/gh-broker ]; then
+            node --test tests/gh-broker/*.test.ts
           fi
 
       - name: Host tests

@@ -5,14 +5,14 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
-import { cleanUpLocal } from "../../host/broker/client.ts";
-import { isMergeReply, REVIEWER_ROLES } from "../../host/broker/protocol.ts";
-import type { PushRecord, Reply } from "../../host/broker/protocol.ts";
-import { readPushRecord } from "../../host/broker/push-record.ts";
-import { appendReviewRecord, reviewRecordsPath } from "../../host/broker/review-records.ts";
-import { defaultConfig } from "../../host/broker/server.ts";
-import type { ServerConfig } from "../../host/broker/server.ts";
-import type { GithubTokens } from "../../host/broker/github-app.ts";
+import { cleanUpLocal } from "../../host/gh-broker/client.ts";
+import { isMergeReply, REVIEWER_ROLES } from "../../host/gh-broker/protocol.ts";
+import type { PushRecord, Reply } from "../../host/gh-broker/protocol.ts";
+import { readPushRecord } from "../../host/gh-broker/push-record.ts";
+import { appendReviewRecord, reviewRecordsPath } from "../../host/gh-broker/review-records.ts";
+import { defaultConfig } from "../../host/gh-broker/server.ts";
+import type { ServerConfig } from "../../host/gh-broker/server.ts";
+import type { GithubTokens } from "../../host/gh-broker/github-app.ts";
 import { FAKE_TOKEN, fakeTokens, tokenRemote } from "./fake-app.ts";
 import { handleAs } from "./session.ts";
 import type { Session } from "./session.ts";
@@ -109,7 +109,7 @@ beforeEach(async () => {
   root = await tempDir(join(tmpdir(), "ug-b5-"));
   config = {
     ...defaultConfig(),
-    socketPath: join(root, "run", "broker.sock"),
+    socketPath: join(root, "run", "gh-broker.sock"),
     reposRoot: join(root, "bare"),
     reviewsDir: join(root, "reviews"),
     pushesDir: join(root, "pushes"),
@@ -134,14 +134,14 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-test("after a merge the broker deletes the remote head branch and drops its push record", async () => {
+test("after a merge the gh-broker deletes the remote head branch and drops its push record", async () => {
   const head = await pushedAndReady();
   assert.equal(remoteBranch(), head);
 
   const reply = await brokerMerge();
   assert.equal(reply.exit, 0, JSON.stringify(reply));
   assert.equal(await merged(), `pr merge 7 --repo ${REPO} --merge --match-head-commit ${head}\n`);
-  assert.ok("stdout" in reply && reply.stdout.endsWith(`broker: deleted branch ${BRANCH}\n`), JSON.stringify(reply));
+  assert.ok("stdout" in reply && reply.stdout.endsWith(`gh-broker: deleted branch ${BRANCH}\n`), JSON.stringify(reply));
   assert.equal(remoteBranch(), "");
   assert.deepEqual(await record(), { kind: "none" });
   assert.ok(isMergeReply(reply), JSON.stringify(reply));
@@ -154,7 +154,7 @@ test("a head branch that is gone already counts as cleaned up", async () => {
 
   const reply = await brokerMerge();
   assert.equal(reply.exit, 0, JSON.stringify(reply));
-  assert.ok("stdout" in reply && reply.stdout.endsWith(`broker: branch ${BRANCH} is gone already\n`), JSON.stringify(reply));
+  assert.ok("stdout" in reply && reply.stdout.endsWith(`gh-broker: branch ${BRANCH} is gone already\n`), JSON.stringify(reply));
   assert.deepEqual(await record(), { kind: "none" });
 });
 
@@ -167,7 +167,7 @@ test("a head branch that moved after the merged commit stays, and the merge repl
   assert.equal(reply.exit, 0, JSON.stringify(reply));
   assert.equal(await merged(), `pr merge 7 --repo ${REPO} --merge --match-head-commit ${head}\n`);
   assert.ok(
-    "stdout" in reply && reply.stdout.endsWith(`broker: kept branch ${BRANCH}: it moved from the merged commit ${head} to ${moved}\n`),
+    "stdout" in reply && reply.stdout.endsWith(`gh-broker: kept branch ${BRANCH}: it moved from the merged commit ${head} to ${moved}\n`),
     JSON.stringify(reply),
   );
   assert.equal(remoteBranch(), moved);
@@ -180,7 +180,7 @@ test("a merge whose branch cleanup fails says that the PR merged", async () => {
 
   const reply = await brokerMerge();
   assert.equal(reply.exit, 1, JSON.stringify(reply));
-  assert.ok("stderr" in reply && reply.stderr.includes(`broker: merged, but cannot delete branch ${BRANCH}:`), JSON.stringify(reply));
+  assert.ok("stderr" in reply && reply.stderr.includes(`gh-broker: merged, but cannot delete branch ${BRANCH}:`), JSON.stringify(reply));
   assert.ok(isMergeReply(reply), "a merged PR names its branch and head, so the client still cleans up locally");
 });
 
@@ -236,7 +236,7 @@ test("a local worktree with uncommitted work stays, with its branch, and the cli
 
   const { exit, stderr } = await clientCleanUp(head, tree);
   assert.equal(exit, 1);
-  assert.ok(stderr.startsWith(`broker: merged, but kept worktree ${tree} and local branch ${BRANCH}: `), stderr);
+  assert.ok(stderr.startsWith(`gh-broker: merged, but kept worktree ${tree} and local branch ${BRANCH}: `), stderr);
   assert.match(stderr, /contains modified or untracked files/);
   assert.equal(existsSync(join(tree, "draft.txt")), true);
   assert.equal(localBranch(), head);

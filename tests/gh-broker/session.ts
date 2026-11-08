@@ -1,6 +1,6 @@
-import { handleRequest } from "../../host/broker/server.ts";
-import type { ServerConfig } from "../../host/broker/server.ts";
-import type { Reply } from "../../host/broker/protocol.ts";
+import { handleRequest } from "../../host/gh-broker/server.ts";
+import type { ServerConfig } from "../../host/gh-broker/server.ts";
+import type { Reply } from "../../host/gh-broker/protocol.ts";
 
 export type Session = { role: string };
 

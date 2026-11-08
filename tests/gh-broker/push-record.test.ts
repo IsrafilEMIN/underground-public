@@ -4,12 +4,12 @@ import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
-import { REVIEWER_ROLES, isReply } from "../../host/broker/protocol.ts";
-import type { Reply } from "../../host/broker/protocol.ts";
-import { dropPushRecord, pushRecordPath, readPushRecord, writePushRecord } from "../../host/broker/push-record.ts";
-import { appendReviewRecord, reviewRecordsPath } from "../../host/broker/review-records.ts";
-import { defaultConfig } from "../../host/broker/server.ts";
-import type { ServerConfig } from "../../host/broker/server.ts";
+import { REVIEWER_ROLES, isReply } from "../../host/gh-broker/protocol.ts";
+import type { Reply } from "../../host/gh-broker/protocol.ts";
+import { dropPushRecord, pushRecordPath, readPushRecord, writePushRecord } from "../../host/gh-broker/push-record.ts";
+import { appendReviewRecord, reviewRecordsPath } from "../../host/gh-broker/review-records.ts";
+import { defaultConfig } from "../../host/gh-broker/server.ts";
+import type { ServerConfig } from "../../host/gh-broker/server.ts";
 import { fakeTokens, tokenRemote } from "./fake-app.ts";
 import { handleAs } from "./session.ts";
 import type { Session } from "./session.ts";
@@ -110,7 +110,7 @@ beforeEach(async () => {
   root = await tempDir(join(tmpdir(), "ug-b4-"));
   config = {
     ...defaultConfig(),
-    socketPath: join(root, "run", "broker.sock"),
+    socketPath: join(root, "run", "gh-broker.sock"),
     reposRoot: join(root, "bare"),
     reviewsDir: join(root, "reviews"),
     pushesDir: join(root, "pushes"),
@@ -135,7 +135,7 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-test("a broker push records the commit for its repo and branch, and a later push replaces it", async () => {
+test("a gh-broker push records the commit for its repo and branch, and a later push replaces it", async () => {
   const first = await commit("a.txt");
   const one = await brokerPush(first);
   assert.equal(one.exit, 0, JSON.stringify(one));
@@ -174,7 +174,7 @@ test("merge of a PR whose head is the recorded commit goes on to the rest of the
   assert.equal(await merged(), `pr merge 7 --repo ${REPO} --merge --match-head-commit ${head}\n`);
 });
 
-test("merge of a PR whose head the broker did not push refuses and names the reason", async () => {
+test("merge of a PR whose head the gh-broker did not push refuses and names the reason", async () => {
   const pushed = await commit("a.txt");
   assert.equal((await brokerPush(pushed)).exit, 0);
   const foreign = await commit("foreign.txt");
@@ -185,7 +185,7 @@ test("merge of a PR whose head the broker did not push refuses and names the rea
   const reply = await brokerMerge();
   assert.deepEqual(reply, {
     exit: 2,
-    refused: `the broker did not push it: the last broker push to ${BRANCH} is ${pushed}`,
+    refused: `the gh-broker did not push it: the last gh-broker push to ${BRANCH} is ${pushed}`,
   });
   assert.equal(await merged(), "");
 });
@@ -197,7 +197,7 @@ test("merge of a PR with no push record refuses and names the reason", async () 
   await reviewerPass(head);
 
   const reply = await brokerMerge();
-  assert.deepEqual(reply, { exit: 2, refused: `the broker has no push record for ${BRANCH}` });
+  assert.deepEqual(reply, { exit: 2, refused: `the gh-broker has no push record for ${BRANCH}` });
   assert.equal(await merged(), "");
 });
 
@@ -253,7 +253,7 @@ test("a write that fails leaves no temp file in the record folder", async () => 
   assert.deepEqual(await readPushRecord(config.pushesDir, key), { kind: "unreadable" });
 });
 
-test("the record survives a broker restart", async () => {
+test("the record survives a gh-broker restart", async () => {
   const head = await commit("a.txt");
   const pushed = brokerProcess({ verb: "push", repo: REPO, branch: BRANCH, sha: head, bundle_b64: bundleB64() });
   assert.equal(pushed.exit, 0, JSON.stringify(pushed));

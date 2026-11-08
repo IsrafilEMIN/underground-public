@@ -58,8 +58,8 @@ So the two jobs go to two layers.
 - The state volume: a container volume, which is an ext4 disk image inside the VM (`docs/volumes.md`, 1.7.1), keeps SQLite's locks plain Linux locks; a folder shared from the mac is untested for them. The backup then needs a way to read the volume.
 - The config layer mechanism: rules and skills mounted read-only where omp reads them, and settings through omp's read-only settings layer (`PI_CONFIG_FILES`), which ranks above the global `config.yml` (omp `docs/settings.md`, "Layers", read 2026-11-07). `0011-one-agent-arena.md` rejected `PI_CONFIG_FILES` as a workaround for a shared home; using it here as omp's own read-only layer reverses that line of 0011 and needs the owner's decision.
 - The image: base image and which Linux omp build. v18.13.2 ships `omp-linux-arm64` and `omp-linux-musl-arm64` (release assets, read 2026-11-07); which libc the plain build needs is not confirmed. Also what the image carries for omp features such as the browser tool.
-- Whether the auth broker and the usage broker move to the tailscale address (`0013-agent-box.md`, "Host services on tailscale first"). The usage broker checks no caller token (`host/broker/usage-broker.ts:83`, `:38` to `:42`), so on the tailnet any device could read usage.
-- The broker door (deferred by the owner) and how a session starts. Where the host code runs from (N2) is decided in `0015-box-layout.md`.
+- Whether the auth broker and the usage broker move to the tailscale address (`0013-agent-box.md`, "Host services on tailscale first"). The usage broker checks no caller token (`host/gh-broker/usage-broker.ts:83`, `:38` to `:42`), so on the tailnet any device could read usage.
+- The gh-broker door (deferred by the owner) and how a session starts. Where the host code runs from (N2) is decided in `0015-box-layout.md`.
 
 ## Rejected
 

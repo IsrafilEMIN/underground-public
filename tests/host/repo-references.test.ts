@@ -21,12 +21,12 @@ test("release guard rejects fixed identities and accepts checkout placeholders",
   const check = join(root, "scripts/check-repo-references.mjs");
   await copyFile(CHECK, check);
   for (const args of [["init", "--quiet"], ["add", "AGENTS.md", "scripts/check-repo-references.mjs"]]) {
-    await writeFile(join(root, "AGENTS.md"), "broker sync <owner/repo>\n");
+    await writeFile(join(root, "AGENTS.md"), "gh-broker sync <owner/repo>\n");
     const run = spawnSync("git", ["-C", root, ...args], { encoding: "utf8" });
     assert.equal(run.status, 0, run.stderr);
   }
   for (const text of [
-    "broker sync Previous-Owner/previous-repo",
+    "gh-broker sync Previous-Owner/previous-repo",
     "REPO=Previous-Owner/previous-repo",
     "repo_url=git@github.com:Previous-Owner/previous-repo.git",
     "https://github.com/Previous-Owner/previous-repo",
@@ -37,7 +37,7 @@ test("release guard rejects fixed identities and accepts checkout placeholders",
     assert.equal(run.status, 1, text);
     assert.match(run.stderr, /AGENTS\.md:1: fixed repository identity/);
   }
-  await writeFile(join(root, "AGENTS.md"), "broker sync <owner/repo>\nhttps://github.com/settings/apps/new\n");
+  await writeFile(join(root, "AGENTS.md"), "gh-broker sync <owner/repo>\nhttps://github.com/settings/apps/new\n");
   const run = spawnSync(process.execPath, [check], { encoding: "utf8" });
   assert.equal(run.status, 0, run.stderr);
 });

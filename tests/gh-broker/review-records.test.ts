@@ -4,10 +4,10 @@ import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, test } from "node:test";
-import type { Reply, ReviewRecord } from "../../host/broker/protocol.ts";
-import { appendReviewRecord, readReviewRecords, reviewRecordsPath } from "../../host/broker/review-records.ts";
-import { defaultConfig } from "../../host/broker/server.ts";
-import type { ServerConfig } from "../../host/broker/server.ts";
+import type { Reply, ReviewRecord } from "../../host/gh-broker/protocol.ts";
+import { appendReviewRecord, readReviewRecords, reviewRecordsPath } from "../../host/gh-broker/review-records.ts";
+import { defaultConfig } from "../../host/gh-broker/server.ts";
+import type { ServerConfig } from "../../host/gh-broker/server.ts";
 import { fakeTokens, tokenRemote } from "./fake-app.ts";
 import { handleAs } from "./session.ts";
 import type { Session } from "./session.ts";
@@ -110,7 +110,7 @@ beforeEach(async () => {
   root = await tempDir(join(tmpdir(), "ug-b11-"));
   config = {
     ...defaultConfig(),
-    socketPath: join(root, "run", "broker.sock"),
+    socketPath: join(root, "run", "gh-broker.sock"),
     reposRoot: join(root, "bare"),
     reviewsDir: join(root, "reviews"),
     pushesDir: join(root, "pushes"),
@@ -131,7 +131,7 @@ beforeEach(async () => {
   execFileSync(config.gitPath, ["init", "--quiet", "-b", "main", work], { env: GIT_ENV });
 });
 
-test("broker review appends one line to the file of its PR, with the reviewer role it names", async () => {
+test("gh-broker review appends one line to the file of its PR, with the reviewer role it names", async () => {
   const head = await pushedPr("a.txt");
   const first = await review(CODE, head, "pass");
   assert.equal(first.exit, 0, JSON.stringify(first));

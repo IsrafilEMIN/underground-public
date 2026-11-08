@@ -19,7 +19,7 @@ Preflight checks:
 | macOS has the build that the install ran on, so its proof of the sandbox still holds | refuse |
 | each installed file has its hash and mode, is owned by the owner, and is not a symlink | refuse |
 | each folder that the install set a mode on still has it (`~/.agents/auth`, `~/.config/underground-broker`, `~/.ug`, run folders) | refuse |
-| the broker app key, if present, is a file with mode 600 | refuse |
+| the gh-broker app key, if present, is a file with mode 600 | refuse |
 | the pinned omp exists | refuse |
 | each launchd job of underground is running | warn, and say which work fails |
 

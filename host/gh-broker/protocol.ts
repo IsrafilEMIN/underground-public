@@ -221,9 +221,9 @@ export type MergeInputs = {
 function pushedRefusal(branch: string, head: string, pushed: PushRecord): string | undefined {
   switch (pushed.kind) {
     case "pushed":
-      return pushed.sha === head ? undefined : `the broker did not push it: the last broker push to ${branch} is ${pushed.sha}`;
+      return pushed.sha === head ? undefined : `the gh-broker did not push it: the last gh-broker push to ${branch} is ${pushed.sha}`;
     case "none":
-      return `the broker has no push record for ${branch}`;
+      return `the gh-broker has no push record for ${branch}`;
     case "unreadable":
       return `the push record of ${branch} cannot be read`;
     default: {

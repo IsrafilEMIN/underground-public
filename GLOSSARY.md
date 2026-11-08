@@ -23,7 +23,7 @@ The folder `~/.ug/sys`: the pinned omp binary, the pinned restic, and `bin/omp`,
 _Avoid_: install dir, owner part
 
 **Sockets folder**:
-The folder `~/.ug/run`: the egress socket `egress.sock` (`host/bin/ug-box:16-17`). The box can use only the two sockets it is given, and cannot write the folder, so it cannot plant a socket or a link here. The broker socket is not here; it is in `/Library/Underground/run`.
+The folder `~/.ug/run`: the egress socket `egress.sock` (`host/bin/ug-box:16-17`). The box can use only the two sockets it is given, and cannot write the folder, so it cannot plant a socket or a link here. The gh-broker socket is not here; it is in `/Library/Underground/run`.
 _Avoid_: run dir, socket dir
 
 **Agent user**:
@@ -31,7 +31,7 @@ The macOS user `ugagent`, standard and hidden, that runs omp for the sessions af
 _Avoid_: agent account, bot user
 
 **Host zone**:
-The folder `~/.ug/host`: everything the sandbox gets nothing of. The broker app's private key, the auth broker's own root with the model logins, the broker's records, and the owner's hand-edited broker files, such as the addresses file (owner decision, 2026-11-03). Setup moved them there from `~/.agents/broker`, `~/.config/underground-broker`, and `~/.omp` (`docs/SPEC.md`, B6 and B7).
+The folder `~/.ug/host`: everything the sandbox gets nothing of. The gh-broker app's private key, the auth broker's own root with the model logins, the gh-broker's records, and the owner's hand-edited gh-broker files, such as the addresses file (owner decision, 2026-11-03). Setup moved them there from `~/.agents/broker`, `~/.config/underground-broker`, and `~/.omp` (`docs/SPEC.md`, B6 and B7).
 _Avoid_: vault, keys dir
 
 **Owner's zone**:
@@ -63,7 +63,7 @@ The agent's own machine as built on 2026-11-07: one long-running Apple `containe
 _Avoid_: sandbox, arena, VM per session
 
 **Door** (removed, 2026-11-08):
-A unix socket that the host owned and mounted into the box: the egress door and the broker door. The box is removed; the broker socket is `/Library/Underground/run/broker.sock` (`host/broker/server.ts:73`) (`docs/adr/0013-agent-box.md`).
+A unix socket that the host owned and mounted into the box: the egress door and the gh-broker door. The box is removed; the gh-broker socket is `/Library/Underground/run/gh-broker.sock` (`host/gh-broker/server.ts:73`) (`docs/adr/0013-agent-box.md`).
 _Avoid_: hole, port, tunnel
 
 **Egress guard** (removed, 2026-11-08):
@@ -118,16 +118,16 @@ _Avoid_: domain list, egress list
 
 ### GitHub and the merge
 
-**Broker**:
-The host service that does GitHub operations for the sessions (launchd `com.underground.broker`). It holds the only GitHub credential that agents use. One socket, `/Library/Underground/run/broker.sock` (`host/broker/server.ts:73`), serves every session; the box reaches it at `/tmp/ug-broker.sock` (`box/broker`, `host/bin/ug-box:17`), and the agent user reaches it through `/Library/Underground/bin/broker`. The broker has no roles and no list of repos: it serves each repo where the broker app is installed (`docs/SPEC.md`, B7).
-_Avoid_: gh-broker, agent-gh, proxy
+**gh-broker**:
+The host service that does GitHub operations for the sessions (launchd `com.underground.gh-broker`). It holds the only GitHub credential that agents use. One socket, `/Library/Underground/run/gh-broker.sock` (`host/gh-broker/server.ts:73`), serves every session; the box reaches it at `/tmp/ug-gh-broker.sock` (`box/broker`, `host/bin/ug-box:17`), and the agent user reaches it through `/Library/Underground/bin/gh-broker`. The gh-broker has no roles and no list of repos: it serves each repo where the gh-broker app is installed (`docs/SPEC.md`, B7).
+_Avoid_: broker (alone), agent-gh, proxy
 
 **Reviewer role**:
-One of `code-review`, `security-review`, and `risk-review`. A reviewer is a skill from the config repo, not a separate session: any omp session can run it, with the arena and the trust level of every other session. It reads the PR with `broker sync <owner/repo> --pr <n>`, which fetches the head into the repo of the current folder, and writes its verdict with `broker review`, which names the role. It is a quality step, not a safety wall (`docs/adr/0011-one-agent-arena.md`).
+One of `code-review`, `security-review`, and `risk-review`. A reviewer is a skill from the config repo, not a separate session: any omp session can run it, with the arena and the trust level of every other session. It reads the PR with `gh-broker sync <owner/repo> --pr <n>`, which fetches the head into the repo of the current folder, and writes its verdict with `gh-broker review`, which names the role. It is a quality step, not a safety wall (`docs/adr/0011-one-agent-arena.md`).
 _Avoid_: reviewer session, review agent, bug bot, security bot
 
 **Review verdict**:
-A record that a reviewer writes with `broker review <owner/repo> <n> <sha> <role> <verdict> [reason]` for one PR and one full head sha: `pass`, `manual`, or `block`, with a reason for `manual` and `block`, and the reviewer role. The broker refuses a verdict that the role cannot give. `code-review` and `security-review` give `pass` or `block`; `risk-review` gives `pass` (auto) or `manual`. The broker appends each verdict as one line to the file of its PR in `~/.ug/host/broker/reviews` and keeps the file after the merge. A verdict from before reviewer roles has role `null`: its `block` and `manual` count, and its `pass` counts for no role. A record written before 2026-11-03 also holds `role_name`, the name from the old role table; the broker reads it and drops it.
+A record that a reviewer writes with `gh-broker review <owner/repo> <n> <sha> <role> <verdict> [reason]` for one PR and one full head sha: `pass`, `manual`, or `block`, with a reason for `manual` and `block`, and the reviewer role. The gh-broker refuses a verdict that the role cannot give. `code-review` and `security-review` give `pass` or `block`; `risk-review` gives `pass` (auto) or `manual`. The gh-broker appends each verdict as one line to the file of its PR in `~/.ug/host/gh-broker/reviews` and keeps the file after the merge. A verdict from before reviewer roles has role `null`: its `block` and `manual` count, and its `pass` counts for no role. A record written before 2026-11-03 also holds `role_name`, the name from the old role table; the gh-broker reads it and drops it.
 _Avoid_: reviewer result, finding, approval
 
 **Attempt**:
@@ -135,7 +135,7 @@ One head of a PR with a `block` from any reviewer role. Two roles that block one
 _Avoid_: round, try
 
 **Hold**:
-A state of a PR that makes `broker merge` refuse with a reason that says the owner merges this PR on GitHub. A `manual` on any head makes a hold, and so does each blocked head from the fourth attempt on; it holds every later head. A changed protected path on the head also makes a hold. Nothing in the broker ends a hold: the owner merges the PR on GitHub by hand.
+A state of a PR that makes `gh-broker merge` refuse with a reason that says the owner merges this PR on GitHub. A `manual` on any head makes a hold, and so does each blocked head from the fourth attempt on; it holds every later head. A changed protected path on the head also makes a hold. Nothing in the gh-broker ends a hold: the owner merges the PR on GitHub by hand.
 _Avoid_: lock, freeze
 
 **Protected path**:
@@ -143,23 +143,23 @@ A path that the auto merge never accepts: `.github/**`, every `CODEOWNERS` file,
 _Avoid_: manual path, sensitive path
 
 **Auto merge**:
-The only merge that `broker merge` does: green checks, a head that is the push record of its branch, no hold, no `block` on the head, and a latest verdict of `pass` on the head from each of `code-review`, `security-review`, and `risk-review`. The owner's approval plays no part. Every other PR is merged by the owner on GitHub. A repo whose code runs on the host, such as underground, gets no auto merge (onboarding check 6, `docs/SPEC.md`).
+The only merge that `gh-broker merge` does: green checks, a head that is the push record of its branch, no hold, no `block` on the head, and a latest verdict of `pass` on the head from each of `code-review`, `security-review`, and `risk-review`. The owner's approval plays no part. Every other PR is merged by the owner on GitHub. A repo whose code runs on the host, such as underground, gets no auto merge (onboarding check 6, `docs/SPEC.md`).
 _Avoid_: auto tier, bot merge, owner-approved merge
 
 **Push record**:
-The commit that the broker last pushed to one branch of one repo. A later push replaces it. The broker keeps it in `~/.ug/host/broker/pushes`, with the `/` in the branch name written as `%2F`.
+The commit that the gh-broker last pushed to one branch of one repo. A later push replaces it. The gh-broker keeps it in `~/.ug/host/gh-broker/pushes`, with the `/` in the branch name written as `%2F`.
 _Avoid_: push log, provenance record
 
-**Broker app**:
-The GitHub App that the broker acts as. The owner's personal account owns it, and it is installed only on the selected repos, with Contents and Pull requests read and write, Metadata, Checks, and Commit statuses read, and no Workflows or Administration permission. Its private key is `~/.ug/host/github-app.pem`, mode 600, beside `github-app.json` (`docs/SPEC.md`, B7). GitHub shows the broker's actions as `<app slug>[bot]` (`docs/adr/0007-broker-github-app.md`).
-_Avoid_: bot account, bot token, broker token, machine user, service account
+**gh-broker app**:
+The GitHub App that the gh-broker acts as. The owner's personal account owns it, and it is installed only on the selected repos, with Contents and Pull requests read and write, Metadata, Checks, and Commit statuses read, and no Workflows or Administration permission. Its private key is `~/.ug/host/github-app.pem`, mode 600, beside `github-app.json` (`docs/SPEC.md`, B7). GitHub shows the gh-broker's actions as `<app slug>[bot]` (`docs/adr/0007-gh-broker-github-app.md`).
+_Avoid_: bot account, bot token, gh-broker token, machine user, service account
 
 **Installation token**:
-A token of the broker app for one repo, which the broker gets with the app's private key. It lasts one hour, and only the broker holds it, in memory.
-_Avoid_: app token, broker token, PAT
+A token of the gh-broker app for one repo, which the gh-broker gets with the app's private key. It lasts one hour, and only the gh-broker holds it, in memory.
+_Avoid_: app token, gh-broker token, PAT
 
 **Onboarding checks**:
-The six checks in `docs/SPEC.md` that the owner makes on GitHub for each repo before agents merge alone in it. A repo is onboarded when the owner has made them and installed the broker app on it: the app's installation is the list.
+The six checks in `docs/SPEC.md` that the owner makes on GitHub for each repo before agents merge alone in it. A repo is onboarded when the owner has made them and installed the gh-broker app on it: the app's installation is the list.
 _Avoid_: onboarding list, repo setup
 
 ### Models
@@ -173,7 +173,7 @@ The host service `omp auth-gateway serve` (launchd `com.underground.auth-gateway
 _Avoid_: model proxy, LLM proxy
 
 **Usage broker**:
-The host service `host/broker/usage-broker.ts` (launchd `com.underground.usage-broker`). It speaks omp's broker protocol with no credentials and passes `/v1/usage` to the auth gateway, so omp's native `/usage` works. It listens on `127.0.0.1:18765` and stays there, because localhost stays on for omp's own features (`docs/SPEC.md`, B5 and B6).
+The host service `host/gh-broker/usage-broker.ts` (launchd `com.underground.usage-broker`). It speaks omp's broker protocol with no credentials and passes `/v1/usage` to the auth gateway, so omp's native `/usage` works. It listens on `127.0.0.1:18765` and stays there, because localhost stays on for omp's own features (`docs/SPEC.md`, B5 and B6).
 _Avoid_: usage proxy, fake broker
 
 **Gateway bearer**:

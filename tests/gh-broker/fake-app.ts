@@ -1,4 +1,4 @@
-import type { GithubTokens } from "../../host/broker/github-app.ts";
+import type { GithubTokens } from "../../host/gh-broker/github-app.ts";
 
 export const FAKE_TOKEN = `ghs_1234_${"eyJhbGciOiJSUzI1NiJ9.e30.c2ln-_".repeat(16)}`;
 

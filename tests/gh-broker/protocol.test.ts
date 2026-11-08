@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { failedPullRequestRuns, mergeRefusal, reviewHeadRefusal, validateRequest } from "../../host/broker/protocol.ts";
-import type { MergeInputs, ReviewRecord, ReviewerRole } from "../../host/broker/protocol.ts";
+import { failedPullRequestRuns, mergeRefusal, reviewHeadRefusal, validateRequest } from "../../host/gh-broker/protocol.ts";
+import type { MergeInputs, ReviewRecord, ReviewerRole } from "../../host/gh-broker/protocol.ts";
 
 const REPO = "o/r";
 const HEAD = "a".repeat(40);

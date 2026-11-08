@@ -8,15 +8,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, test } from "node:test";
-import { isSyncPrReply, validateRequest } from "../../host/broker/protocol.ts";
-import type { Reply } from "../../host/broker/protocol.ts";
-import { defaultConfig, handleRequest, serveConnection } from "../../host/broker/server.ts";
-import type { ServerConfig } from "../../host/broker/server.ts";
+import { isSyncPrReply, validateRequest } from "../../host/gh-broker/protocol.ts";
+import type { Reply } from "../../host/gh-broker/protocol.ts";
+import { defaultConfig, handleRequest, serveConnection } from "../../host/gh-broker/server.ts";
+import type { ServerConfig } from "../../host/gh-broker/server.ts";
 import { fakeTokens, tokenRemote } from "./fake-app.ts";
 import { tempDir } from "../temp.ts";
 
 const REPO = "o/r";
-const CLIENT = join(import.meta.dirname, "../../host/broker/client.ts");
+const CLIENT = join(import.meta.dirname, "../../host/gh-broker/client.ts");
 
 const NO_AUTO_MAINTENANCE = { GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "maintenance.auto", GIT_CONFIG_VALUE_0: "false" };
 const GIT_ENV = { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1", ...NO_AUTO_MAINTENANCE };
@@ -97,7 +97,7 @@ beforeEach(async () => {
   root = await tempDir(join(process.env.XDG_STATE_HOME ?? tmpdir(), "ug-b2b-"));
   config = {
     ...defaultConfig(),
-    socketPath: join(root, "run", "broker.sock"),
+    socketPath: join(root, "run", "gh-broker.sock"),
     reposRoot: join(root, "bare"),
     reviewsDir: join(root, "reviews"),
     pushesDir: join(root, "pushes"),
@@ -139,16 +139,16 @@ test("sync --pr makes origin/pr/<n> in the session's repo at headRefOid, and mov
   await openPr(head);
   const socket = await listen();
 
-  const run = await client(session, { UG_BROKER_SOCKET: socket }, "sync", REPO, "--pr", "7");
+  const run = await client(session, { UG_GH_BROKER_SOCKET: socket }, "sync", REPO, "--pr", "7");
   assert.equal(run.code, 0, run.stderr);
   assert.equal(run.stdout, `origin/pr/7 is now ${head}\n`);
   assert.equal(git(session, "rev-parse", "refs/remotes/origin/pr/7"), head);
   assert.equal(git(session, "for-each-ref", "--format=%(refname)"), "refs/remotes/origin/pr/7");
-  assert.equal(git(join(config.reposRoot, `${REPO}.git`), "for-each-ref", "refs/broker"), "");
+  assert.equal(git(join(config.reposRoot, `${REPO}.git`), "for-each-ref", "refs/gh-broker"), "");
 
   const next = await commit("b.txt");
   await openPr(next);
-  const again = await client(session, { UG_BROKER_SOCKET: socket }, "sync", REPO, "--pr", "7");
+  const again = await client(session, { UG_GH_BROKER_SOCKET: socket }, "sync", REPO, "--pr", "7");
   assert.equal(again.code, 0, again.stderr);
   assert.equal(git(session, "rev-parse", "refs/remotes/origin/pr/7"), next);
 });
@@ -160,13 +160,13 @@ test("sync --pr fails and leaves no origin/pr/<n> when the imported commit is no
   const socket = await listen((reply) => (isSyncPrReply(reply) ? { ...reply, head: other } : reply));
   git(work, "push", "--quiet", session, `${head}:refs/remotes/origin/pr/7`);
 
-  const run = await client(session, { UG_BROKER_SOCKET: socket }, "sync", REPO, "--pr", "7");
+  const run = await client(session, { UG_GH_BROKER_SOCKET: socket }, "sync", REPO, "--pr", "7");
   assert.equal(run.code, 1);
   assert.match(run.stderr, new RegExp(`the imported commit ${head} is not the PR head ${other}`));
   assert.equal(gitStatus(session, "rev-parse", "--verify", "--quiet", "refs/remotes/origin/pr/7"), 1);
 });
 
-test("the broker refuses a PR sync when GitHub sends a commit that is not headRefOid", async () => {
+test("the gh-broker refuses a PR sync when GitHub sends a commit that is not headRefOid", async () => {
   const head = await commit("a.txt");
   const stale = await commit("b.txt");
   await openPr(head, stale);
@@ -175,11 +175,11 @@ test("the broker refuses a PR sync when GitHub sends a commit that is not headRe
     exit: 2,
     refused: `PR 7 head moved during the sync: headRefOid is ${head}, GitHub sent ${stale}; run sync again`,
   });
-  assert.equal(git(join(config.reposRoot, `${REPO}.git`), "for-each-ref", "refs/broker"), "");
+  assert.equal(git(join(config.reposRoot, `${REPO}.git`), "for-each-ref", "refs/gh-broker"), "");
 });
 
 test("sync --pr without a PR number, or with a bad one, is a usage error", async () => {
-  const usage = await client(session, { UG_BROKER_SOCKET: join(root, "none.sock") }, "sync", REPO, "--pr");
+  const usage = await client(session, { UG_GH_BROKER_SOCKET: join(root, "none.sock") }, "sync", REPO, "--pr");
   assert.equal(usage.code, 64);
   assert.equal(validateRequest({ verb: "sync", repo: REPO, pr: 0 }).ok, false);
   assert.equal(validateRequest({ verb: "sync", repo: REPO, pr: "7" }).ok, false);
@@ -189,7 +189,7 @@ test("sync without --pr imports origin/<default> into the session's repo, and no
   const main = git(work, "rev-parse", "main");
   await commit("local.txt");
   const socket = await listen();
-  const run = await client(session, { UG_BROKER_SOCKET: socket }, "sync", REPO);
+  const run = await client(session, { UG_GH_BROKER_SOCKET: socket }, "sync", REPO);
   assert.equal(run.code, 0, run.stderr);
   assert.equal(run.stdout, `origin/main is now ${main}\n`);
   assert.equal(git(session, "for-each-ref", "--format=%(refname) %(objectname)"), `refs/remotes/origin/main ${main}`);
