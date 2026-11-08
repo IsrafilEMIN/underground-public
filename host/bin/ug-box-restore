@@ -37,15 +37,15 @@ trap 'rm -rf "$lock"' EXIT
 id=$("$restic_bin" -r "$repo" snapshots --tag ug-box --json "$snapshot" | "$node" -e '
   let d = "";
   process.stdin.on("data", (c) => (d += c)).on("end", () => {
-    const s = JSON.parse(d).find((x) => x.paths?.includes("/ug-box-home.tar"));
+    const s = JSON.parse(d).find((x) => x.paths?.includes("/ug-box-home.tar") && (x.summary?.total_bytes_processed ?? 0) > 0);
     if (s) console.log(s.id);
   });')
 [[ -n $id ]] || die "no box snapshot $snapshot in $repo holds ug-box-home.tar"
 
-tar_cmd=(tar -C /home/agent -c --exclude ./.tmp --exclude ./.cache --exclude ./.omp/agent/cache --exclude node_modules .)
+tar_sh='tar -C /home/agent -c --exclude ./.tmp --exclude ./.cache --exclude ./.omp/agent/cache --exclude node_modules . ; [ $? -le 1 ]'
 if container volume list --quiet | grep -qxF ug-box-home; then
-  container run --rm --network none --volume ug-box-home:/home/agent "$image" "${tar_cmd[@]}" |
-    "$restic_bin" -r "$repo" backup --quiet --tag ug-box-prerestore --stdin --stdin-filename ug-box-home.tar ||
+  "$restic_bin" -r "$repo" backup --quiet --tag ug-box-prerestore --stdin-filename ug-box-home.tar --stdin-from-command -- \
+    container run --rm --network none --volume ug-box-home:/home/agent "$image" sh -c "$tar_sh" ||
     die "the old box home did not reach $repo, so nothing was deleted"
   echo "ug-box-restore: the old box home is in $repo with tag ug-box-prerestore"
   container volume delete ug-box-home >/dev/null

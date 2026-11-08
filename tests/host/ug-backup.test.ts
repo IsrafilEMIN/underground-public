@@ -15,7 +15,7 @@ const RESTIC_PIN = /^restic=(.+)$/m.exec(versions)?.[1] ?? "";
 const FAKE_RESTIC = `#!/bin/sh
 line='RESTIC:'; for a in "$@"; do line="$line [$a]"; done; printf '%s\\nPW:%s\\n' "$line" "$RESTIC_PASSWORD_FILE" >>"$HOME/calls"
 case " $* " in *" backup "*) step=backup ;; *" init "*) step=init ;; *" cat config "*) step=cat ;; *) step=other ;; esac
-case " $* " in *" --stdin "*) cat >"$HOME/stdin" ;; esac
+case " $* " in *" --stdin-from-command "*) while [ "$1" != -- ]; do shift; done; shift; "$@" >"$HOME/stdin" || exit 1 ;; esac
 code=$(cat "$HOME/exit-$step" 2>/dev/null) || code=0
 exit "$code"
 `;
@@ -49,6 +49,7 @@ async function fakeHome({ awake = true, password = true, config = true } = {}) {
   await exe(join(home, "wake-rig"), FAKE_WAKE);
   await exe(join(home, "rig-sleep"), FAKE_SLEEP);
   await exe(join(bin, "container"), FAKE_CONTAINER);
+  await exe(join(bin, "tar"), FAKE_TAR);
   await writeFile(join(home, "no-volume"), "");
   await mkdir(join(home, ".ug/host/backup"), { recursive: true });
   await mkdir(join(home, ".ug/home"), { recursive: true });
@@ -99,8 +100,17 @@ line='CONTAINER:'; for a in "$@"; do line="$line [$a]"; done; printf '%s\\n' "$l
 case "$1 $2" in
   "volume list") [ ! -e "$HOME/no-volume" ] && echo ug-box-home ;;
   "list --quiet") [ -e "$HOME/box-running" ] && echo ug-box ;;
-  "exec ug-box"|"run --rm") echo TARDATA; [ ! -e "$HOME/tar-changed" ] || exit 1; [ ! -e "$HOME/tar-breaks" ] || exit 2 ;;
+  "exec ug-box") shift 2; exec "$@" ;;
+  "run --rm") while [ "$1" != ugbox:test ]; do shift; done; shift; exec "$@" ;;
 esac
+exit 0
+`;
+
+const FAKE_TAR = `#!/bin/sh
+if [ "$1" = -x ]; then cat >"$HOME/restored"; exit 0; fi
+echo TARDATA
+[ ! -e "$HOME/tar-changed" ] || exit 1
+[ ! -e "$HOME/tar-breaks" ] || exit 2
 exit 0
 `;
 
@@ -119,7 +129,7 @@ line='RESTIC:'; for a in "$@"; do line="$line [$a]"; done; printf '%s\\n' "$line
 case " $* " in
   *" cat config "*) [ ! -e "$HOME/repo-closed" ] ;;
   *" snapshots "*) cat "$HOME/snapshots.json" ;;
-  *" --stdin "*) cat >"$HOME/stdin"; [ ! -e "$HOME/prerestore-fails" ] ;;
+  *" --stdin-from-command "*) [ ! -e "$HOME/prerestore-fails" ] || exit 1; while [ "$1" != -- ]; do shift; done; shift; "$@" >"$HOME/stdin" || exit 1 ;;
   *" dump "*) echo DUMPDATA; [ ! -e "$HOME/dump-fails" ] ;;
 esac
 `;
@@ -129,8 +139,8 @@ async function restoreHome({ volume = true } = {}) {
   await withBox(home);
   await writeFile(join(home, ".ug/sys/box/VERSIONS"), `restic=${RESTIC_PIN}\n`);
   await exe(join(home, ".ug/sys/restic", RESTIC_PIN, "restic"), FAKE_RESTIC_RESTORE);
-  await writeFile(join(home, "snapshots.json"), JSON.stringify([{ id: "a".repeat(64), paths: ["/ug-box-home.tar"], tags: ["ug-box"] }]));
-  await exe(join(home, "fakebin/container"), FAKE_CONTAINER.replace('"volume list") [ ! -e "$HOME/no-volume" ] && echo ug-box-home ;;', '"volume list") [ ! -e "$HOME/no-volume" ] && echo ug-box-home ;;\n  "image list") echo docker.io/library/ugbox:test ;;\n  "run --rm") cat >"$HOME/restored" 2>/dev/null; echo TARDATA ;;'));
+  await writeFile(join(home, "snapshots.json"), JSON.stringify([{ id: "a".repeat(64), paths: ["/ug-box-home.tar"], tags: ["ug-box"], summary: { total_bytes_processed: 5 } }]));
+  await exe(join(home, "fakebin/container"), FAKE_CONTAINER.replace('"volume list") [ ! -e "$HOME/no-volume" ] && echo ug-box-home ;;', '"volume list") [ ! -e "$HOME/no-volume" ] && echo ug-box-home ;;\n  "image list") echo docker.io/library/ugbox:test ;;'));
   if (!volume) await writeFile(join(home, "no-volume"), "");
   return home;
 }
@@ -178,8 +188,12 @@ test("ug-box-restore deletes nothing when the old home does not reach the repo, 
 test("ug-box-restore refuses a snapshot that holds no box home, and a repo that does not open, before any change", async (t) => {
   const home = await restoreHome();
   t.after(() => rm(home, { recursive: true, force: true }));
-  await writeFile(join(home, "snapshots.json"), JSON.stringify([{ id: "b".repeat(64), paths: [join(home, ".ug/home")], tags: ["ug"] }]));
+  await writeFile(join(home, "snapshots.json"), JSON.stringify([{ id: "b".repeat(64), paths: [join(home, ".ug/home")], tags: ["ug"], summary: { total_bytes_processed: 5 } }]));
   let r = restore(home);
+  assert.notEqual(r.status, 0);
+  assert.match(r.stderr, /holds ug-box-home.tar/);
+  await writeFile(join(home, "snapshots.json"), JSON.stringify([{ id: "c".repeat(64), paths: ["/ug-box-home.tar"], tags: ["ug-box"], summary: { total_bytes_processed: 0 } }]));
+  r = restore(home);
   assert.notEqual(r.status, 0);
   assert.match(r.stderr, /holds ug-box-home.tar/);
   await writeFile(join(home, "repo-closed"), "");
@@ -196,12 +210,12 @@ test("ug-backup streams the box home out of a stopped box through the installed 
   assert.equal(r.status, 0, r.stderr);
   const all = await calls(home);
   const reader = all.find((c) => c.startsWith("CONTAINER: [run]"));
-  assert.ok(reader?.includes("[--rm] [--network] [none] [--volume] [ug-box-home:/home/agent] [ugbox:test] [tar] [-C] [/home/agent] [-c]"), reader);
+  assert.ok(reader?.includes("[--rm] [--network] [none] [--volume] [ug-box-home:/home/agent] [ugbox:test] [sh] [-c] [tar -C /home/agent -c"), reader);
   for (const left of ["./.tmp", "./.cache", "./.omp/agent/cache", "node_modules"]) {
-    assert.ok(reader?.includes(`[--exclude] [${left}]`), `${left} is not left out: ${reader}`);
+    assert.ok(reader?.includes(`--exclude ${left} `), `${left} is not left out: ${reader}`);
   }
   const [, box] = backups(all);
-  assert.ok(box.includes("[--tag] [ug-box] [--stdin] [--stdin-filename] [ug-box-home.tar]"), box);
+  assert.ok(box.includes("[--tag] [ug-box] [--stdin-filename] [ug-box-home.tar] [--stdin-from-command] [--] [container] [run]"), box);
   assert.equal(await readFile(join(home, "stdin"), "utf8"), "TARDATA\n");
   assert.ok(existsSync(lastFile(home)));
 });
@@ -213,7 +227,7 @@ test("ug-backup reads a running box in place and does not mount its volume twice
   const r = run(home);
   assert.equal(r.status, 0, r.stderr);
   const all = await calls(home);
-  assert.ok(all.some((c) => c.startsWith("CONTAINER: [exec] [ug-box] [tar]")), all.join("\n"));
+  assert.ok(all.some((c) => c.startsWith("CONTAINER: [exec] [ug-box] [sh] [-c] [tar ")), all.join("\n"));
   assert.ok(!all.some((c) => c.startsWith("CONTAINER: [run]")), all.join("\n"));
   assert.equal(await readFile(join(home, "stdin"), "utf8"), "TARDATA\n");
 });
@@ -256,14 +270,13 @@ test("ug-backup accepts a box read where files changed under tar, and fails on a
   await writeFile(join(home, "tar-changed"), "");
   let r = run(home);
   assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stderr, /changed while they were read/);
   assert.ok(existsSync(lastFile(home)));
   await rm(lastFile(home));
   await rm(join(home, "tar-changed"));
   await writeFile(join(home, "tar-breaks"), "");
   r = run(home);
   assert.notEqual(r.status, 0);
-  assert.match(r.stderr, /read of the box home failed \(exit 2\)/);
+  assert.match(r.stderr, /was not saved \(restic exit 1\); a failed read stores no snapshot/);
   assert.ok(!existsSync(lastFile(home)));
 });
 

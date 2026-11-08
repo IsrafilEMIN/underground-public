@@ -44,8 +44,8 @@ take_box_lock() {
 }
 
 backup_box() {
-  local tar_cmd reader locked=0 tar_status
-  tar_cmd=(tar -C /home/agent -c --exclude ./.tmp --exclude ./.cache --exclude ./.omp/agent/cache --exclude node_modules .)
+  local reader locked=0
+  local tar_sh='tar -C /home/agent -c --exclude ./.tmp --exclude ./.cache --exclude ./.omp/agent/cache --exclude node_modules . ; [ $? -le 1 ]'
   take_box_lock || { log "ug-box holds its lock, so the box home was not read"; status=1; return; }
   locked=1
   if container list --quiet | grep -qxF ug-box; then
@@ -60,17 +60,10 @@ backup_box() {
     status=1
     return
   fi
-  "${reader[@]}" "${tar_cmd[@]}" | "$restic_bin" -r "$repo" backup --quiet --tag ug-box --stdin --stdin-filename ug-box-home.tar
-  read -r tar_status status <<<"${PIPESTATUS[*]}"
+  "$restic_bin" -r "$repo" backup --quiet --tag ug-box --stdin-filename ug-box-home.tar --stdin-from-command -- "${reader[@]}" sh -c "$tar_sh"
+  status=$?
   [[ $locked -eq 0 ]] || rm -rf "$box_lock"
-  if [[ $status -ne 0 ]]; then
-    log "the backup of the box home to $repo failed with restic exit $status"
-  elif [[ $tar_status -eq 1 ]]; then
-    log "some box files changed while they were read (tar exit 1); the snapshot holds the rest"
-  elif [[ $tar_status -ne 0 ]]; then
-    log "the read of the box home failed (exit $tar_status), so its snapshot is incomplete"
-    status=1
-  fi
+  [[ $status -eq 0 ]] || log "the box home was not saved (restic exit $status); a failed read stores no snapshot"
 }
 
 [[ -n $restic_pin && -x $restic_bin ]] || die "the pinned restic $restic_bin is missing; run host/bin/ug-setup"
