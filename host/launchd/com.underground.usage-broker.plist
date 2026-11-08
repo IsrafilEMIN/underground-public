@@ -7,7 +7,7 @@
   <key>ProgramArguments</key>
   <array>
     <string>/opt/homebrew/bin/node</string>
-    <string>@SRC@/host/broker/usage-broker.ts</string>
+    <string>@SYS@/services/host/broker/usage-broker.ts</string>
   </array>
   <key>RunAtLoad</key>
   <true/>
