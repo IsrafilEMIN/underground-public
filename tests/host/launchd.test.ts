@@ -4,14 +4,14 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 const DIR = join(import.meta.dirname, "../../host/launchd");
-const FILLED = new Set(["@HOME@", "@OMP@", "@SRC@", "@SYS@", "@GATEWAY@", "@ENGINE@"]);
+const FILLED = new Set(["@HOME@", "@OMP@", "@SYS@", "@GATEWAY@", "@ENGINE@"]);
 
 const programArguments = (text: string): string[] => {
   const block = /<key>ProgramArguments<\/key>\s*<array>([\s\S]*?)<\/array>/.exec(text)?.[1] ?? "";
   return [...block.matchAll(/<string>([^<]*)<\/string>/g)].map((m) => m[1]);
 };
 
-test("every launchd template uses only the placeholders that setup fills", async () => {
+test("every launchd template uses only the placeholders that setup fills, so none can name the checkout", async () => {
   const files = (await readdir(DIR)).filter((n) => n.endsWith(".plist"));
   assert.equal(files.length, 6, files.join(" "));
   for (const file of files) {
@@ -29,15 +29,11 @@ test("the auth services run the pinned omp, and the brokers and the backup run s
   assert.deepEqual(await args("com.underground.broker"), ["/opt/homebrew/bin/node", "@SYS@/services/host/broker/server.ts"]);
   assert.deepEqual(await args("com.underground.usage-broker"), ["/opt/homebrew/bin/node", "@SYS@/services/host/broker/usage-broker.ts"]);
   assert.deepEqual(await args("com.underground.backup"), ["/bin/bash", "@SYS@/services/host/bin/ug-backup"]);
-  for (const label of ["broker", "usage-broker", "backup", "auth-broker", "auth-gateway"]) {
-    assert.doesNotMatch(await readFile(join(DIR, `com.underground.${label}.plist`), "utf8"), /@SRC@/, label);
-  }
 });
 
 test("the egress door runs from setup's copy in ~/.ug/sys, never from the checkout, and reads its pins and allowlist there", async () => {
   const text = await readFile(join(DIR, "com.underground.egress.plist"), "utf8");
   assert.deepEqual(programArguments(text), ["/opt/homebrew/bin/node", "@SYS@/egress/host/egress/server.ts", "@HOME@/.ug/run/egress.sock", "@SYS@/egress"]);
-  assert.doesNotMatch(text, /@SRC@/, "the door would run the checkout's code with the gateway bearer");
   assert.match(text, /<key>KeepAlive<\/key>\s*<true\/>/);
 });
 

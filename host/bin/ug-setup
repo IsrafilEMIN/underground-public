@@ -183,9 +183,8 @@ link() {
 
 install_links() {
   link "$sys/box/host/bin/ug-box" "$sys/bin/omp"
-  link "$src/host/bin/ug-auth" "$sys/bin/ug-auth"
   rm -rf "$sys/agent-bin" "$sys/libexec" "$sys/broker" "$sys/arena" "$sys/bin/omp-arena" "$sys/macos-build"
-  printf 'links: omp and ug-auth on PATH in %s\n' "$sys/bin"
+  printf 'links: omp on PATH in %s\n' "$sys/bin"
 }
 
 install_egress() {
@@ -201,12 +200,13 @@ install_service_code() {
   local dir="$sys/services" f
   rm -rf "$dir"
   install -d -m 700 "$dir" "$dir/host/bin" "$dir/host/lib" "$dir/host/broker"
-  for f in host/bin/ug-backup host/lib/backup-target.bash host/lib/ug.bash VERSIONS "$src"/host/broker/*.ts; do
+  for f in host/bin/ug-backup host/bin/ug-auth host/lib/backup-target.bash host/lib/ug.bash VERSIONS "$src"/host/broker/*.ts; do
     f=${f#"$src/"}
     put "$src/$f" "$dir/$f" 444
   done
-  chmod 555 "$dir/host/bin/ug-backup"
-  printf 'services: code installed in %s\n' "$dir"
+  chmod 555 "$dir/host/bin/ug-backup" "$dir/host/bin/ug-auth"
+  link "$dir/host/bin/ug-auth" "$sys/bin/ug-auth"
+  printf 'services: code installed in %s, ug-auth on PATH as %s\n' "$dir" "$sys/bin/ug-auth"
 }
 
 install_ug_box() {
@@ -292,7 +292,7 @@ install_services() {
   for label in $labels; do
     rendered=$(mktemp "$agents_dir/.$label.XXXXXX")
     cleanup+=("$rendered")
-    sed -e "s|@OMP@|$sys/omp/$omp_pin/omp|g" -e "s|@SRC@|$src|g" -e "s|@SYS@|$sys|g" -e "s|@HOME@|$HOME|g" \
+    sed -e "s|@OMP@|$sys/omp/$omp_pin/omp|g" -e "s|@SYS@|$sys|g" -e "s|@HOME@|$HOME|g" \
       -e "s|@GATEWAY@|$gateway|g" -e "s|@ENGINE@|$engine|g" "$src/host/launchd/$label.plist" >"$rendered"
     left=$(grep -o '@[A-Z_]*@' "$rendered" | head -1) || true
     [[ -z $left ]] || die "host/launchd/$label.plist has an unknown placeholder $left"

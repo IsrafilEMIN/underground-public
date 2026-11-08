@@ -1,17 +1,31 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { tempDir } from "../temp.ts";
 
-const UG_AUTH = join(import.meta.dirname, "../../host/bin/ug-auth");
-const PIN = /^omp=(.+)$/m.exec(await readFile(join(import.meta.dirname, "../../VERSIONS"), "utf8"))?.[1] ?? "";
+const SRC = join(import.meta.dirname, "../..");
+const PIN = /^omp=(.+)$/m.exec(await readFile(join(SRC, "VERSIONS"), "utf8"))?.[1] ?? "";
 
 async function fakeHome() {
   const home = await tempDir(join(tmpdir(), "ug-auth-"));
-  const dir = join(home, ".ug/sys/omp", PIN);
+  const checkout = join(home, "checkout");
+  for (const f of ["host/bin", "host/lib", "host/broker", "VERSIONS"]) await cp(join(SRC, f), join(checkout, f), { recursive: true });
+  const sys = join(home, ".ug/sys");
+  const install = spawnSync("bash", ["-c", `
+    set -euo pipefail
+    src=${JSON.stringify(checkout)}
+    sys=${JSON.stringify(sys)}
+    cleanup=()
+    install -d -m 700 "$sys" "$sys/bin"
+    eval "$(sed -n '/^put() {/,/^}/p;/^link() {/,/^}/p;/^install_service_code() {/,/^}/p' "$src/host/bin/ug-setup")"
+    install_service_code
+  `], { encoding: "utf8" });
+  assert.equal(install.status, 0, install.stderr);
+  await rm(checkout, { recursive: true, force: true });
+  const dir = join(sys, "omp", PIN);
   await mkdir(dir, { recursive: true });
   await writeFile(join(dir, "omp"), '#!/bin/sh\necho "RAN PI_CONFIG_DIR=$PI_CONFIG_DIR ARGS=$*"\n');
   await chmod(join(dir, "omp"), 0o755);
@@ -19,9 +33,9 @@ async function fakeHome() {
 }
 
 const run = (home: string, ...args: string[]) =>
-  spawnSync("bash", [UG_AUTH, ...args], { env: { HOME: home, PATH: "/usr/bin:/bin" }, encoding: "utf8" });
+  spawnSync(join(home, ".ug/sys/bin/ug-auth"), args, { env: { HOME: home, PATH: "/usr/bin:/bin" }, encoding: "utf8" });
 
-test("ug-auth runs the auth commands against ~/.ug/host/auth", async (t) => {
+test("the installed ug-auth runs the auth commands against ~/.ug/host/auth with the checkout gone", async (t) => {
   const home = await fakeHome();
   t.after(() => rm(home, { recursive: true, force: true }));
   for (const args of [["auth-broker", "login", "anthropic"], ["auth-gateway", "token", "--regenerate"]]) {
