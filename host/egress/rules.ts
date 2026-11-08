@@ -23,7 +23,7 @@ export function readRules(addresses: string, allowlist: string, gatewayToken: st
   const sites = allowlist
     .split("\n")
     .map((line) => line.replace(/#.*/, "").trim())
-    .filter((line) => line !== "" && line !== "@GATEWAY@");
+    .filter((line) => line !== "");
   const odd = sites.find((s) => !/^[a-z0-9.-]+$/.test(s) || /^[0-9.]+$/.test(s) || s.endsWith(".internal"));
   if (odd) throw new Error(`the allowlist entry ${odd} is not a plain site name`);
   return {

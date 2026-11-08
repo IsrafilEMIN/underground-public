@@ -106,12 +106,6 @@ async function prLines(pr = 7): Promise<unknown[]> {
     .map((line): unknown => JSON.parse(line));
 }
 
-async function writeOldRecord(head: string, verdict: string, reason: string): Promise<void> {
-  const line = { repo: REPO, pr: 7, role_name: null, role: null, head, verdict, reason, at: "2026-10-01T00:00:00.000Z" };
-  await mkdir(join(config.reviewsDir, REPO), { recursive: true });
-  await writeFile(reviewRecordsPath(config.reviewsDir, { repo: REPO, pr: 7 }), `${JSON.stringify(line)}\n`, { flag: "a" });
-}
-
 beforeEach(async () => {
   root = await tempDir(join(tmpdir(), "ug-b11-"));
   config = {
@@ -217,74 +211,18 @@ test("a record in the file of another PR makes that file unreadable", async () =
   assert.deepEqual(await readReviewRecords(config.reviewsDir, { repo: REPO, pr: 7 }), { kind: "unreadable" });
 });
 
-test("a record written before 2026-11-03 with role_name still reads, and the reader drops role_name", async () => {
-  const head = "a".repeat(40);
-  const at = "2026-11-01T00:00:00.000Z";
-  const lines = [
-    { repo: REPO, pr: 7, role_name: "sec-a", role: "security-review", head, verdict: "block", reason: "bug", at },
-    { repo: REPO, pr: 7, role_name: null, role: null, head, verdict: "pass", reason: "", at },
-  ];
-  await mkdir(join(config.reviewsDir, REPO), { recursive: true });
-  await writeFile(reviewRecordsPath(config.reviewsDir, { repo: REPO, pr: 7 }), lines.map((line) => `${JSON.stringify(line)}\n`).join(""));
-  assert.deepEqual(await readReviewRecords(config.reviewsDir, { repo: REPO, pr: 7 }), {
-    kind: "records",
-    records: [
-      { repo: REPO, pr: 7, role: "security-review", head, verdict: "block", reason: "bug", at },
-      { repo: REPO, pr: 7, role: null, head, verdict: "pass", reason: "", at },
-    ],
-  });
-});
-
-test("a record whose role_name does not fit its role makes the file unreadable", async () => {
+test("a record with no role, or a role that cannot review, makes the file unreadable", async () => {
   const head = "a".repeat(40);
   const at = "2026-11-01T00:00:00.000Z";
   for (const line of [
-    { repo: REPO, pr: 7, role_name: null, role: "code-review", head, verdict: "pass", reason: "", at },
-    { repo: REPO, pr: 7, role_name: "code-review", role: null, head, verdict: "pass", reason: "", at },
+    { repo: REPO, pr: 7, role: null, head, verdict: "pass", reason: "", at },
+    { repo: REPO, pr: 7, head, verdict: "pass", reason: "", at },
     { repo: REPO, pr: 7, role: "author", head, verdict: "pass", reason: "", at },
   ]) {
     await mkdir(join(config.reviewsDir, REPO), { recursive: true });
     await writeFile(reviewRecordsPath(config.reviewsDir, { repo: REPO, pr: 7 }), `${JSON.stringify(line)}\n`);
     assert.deepEqual(await readReviewRecords(config.reviewsDir, { repo: REPO, pr: 7 }), { kind: "unreadable" }, JSON.stringify(line));
   }
-});
-
-test("an old block with no role still refuses merge, even after a pass with a role on the head", async () => {
-  const head = await pushedPr("a.txt");
-  await writeOldRecord(head, "block", "bug");
-  await review(CODE, head, "pass");
-
-  const reply = await merge();
-  assert.deepEqual(reply, {
-    exit: 2,
-    refused: "an old record with no role blocks it: bug",
-  });
-  assert.equal(await merged(), "");
-});
-
-test("an old manual with no role on the head still refuses merge", async () => {
-  const head = await pushedPr("a.txt");
-  await writeOldRecord(head, "manual", "migration");
-  await review(CODE, head, "pass");
-
-  const reply = await merge();
-  assert.deepEqual(reply, {
-    exit: 2,
-    refused: `a hold refuses, so the owner merges this PR on GitHub: an old record with no role asked for manual review of ${head} at 2026-10-01T00:00:00.000Z: migration`,
-  });
-  assert.equal(await merged(), "");
-});
-
-test("an old pass with no role counts for no role", async () => {
-  const head = await pushedPr("a.txt");
-  await writeOldRecord(head, "pass", "");
-
-  const reply = await merge();
-  assert.deepEqual(reply, { exit: 2, refused: "code-review has no verdict on it" });
-
-  await passAll(head);
-  const ok = await merge();
-  assert.equal(ok.exit, 0, JSON.stringify(ok));
 });
 
 test("records of a merged PR stay in its file", async () => {

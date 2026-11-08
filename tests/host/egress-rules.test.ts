@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { addGatewayBearer, isAllowed, readRules } from "../../host/egress/rules.ts";
 
-const rules = readRules("gateway=100.64.0.1:4000\nengine=100.64.0.9:8081\n", "@GATEWAY@\ngithub.com\nregistry.npmjs.org # packages\n", "real-secret\n");
+const rules = readRules("gateway=100.64.0.1:4000\nengine=100.64.0.9:8081\n", "github.com\nregistry.npmjs.org # packages\n", "real-secret\n");
 
 test("the egress door lets through only the mapped host services on their own port and the listed sites on 443", () => {
   for (const [host, port] of [["gateway.internal", 4000], ["usage.internal", 18765], ["github.com", 443], ["registry.npmjs.org", 443]] as const) {

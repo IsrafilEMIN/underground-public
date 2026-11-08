@@ -7,7 +7,9 @@ if [[ $# -ne 0 ]]; then
 fi
 
 src=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)
-restic_pin=$(sed -n 's/^restic=//p' "$src/VERSIONS")
+# shellcheck source=host/lib/ug.bash disable=SC1091
+source "$src/host/lib/ug.bash"
+restic_pin=$(ug_pin "$src/VERSIONS" restic)
 restic_bin="$HOME/.ug/sys/restic/$restic_pin/restic"
 backup="$HOME/.ug/host/backup"
 config="$backup/config"
@@ -24,43 +26,29 @@ die() {
   exit 1
 }
 
-box_lock="${UG_BOX_STATE:-$HOME/.local/state/underground/box}/ug-box/lock"
+box_state="${UG_BOX_STATE:-$HOME/.local/state/underground/box}/ug-box"
 lock_wait=${UG_BOX_LOCK_WAIT:-30}
-take_box_lock() {
-  local waited=0 holder
-  mkdir -p "$(dirname "$box_lock")"
-  until mkdir "$box_lock" 2>/dev/null; do
-    holder=$(cat "$box_lock/pid" 2>/dev/null || true)
-    if [[ -n $holder ]] && ! kill -0 "$holder" 2>/dev/null; then
-      rm -rf "$box_lock"
-      continue
-    fi
-    (( waited++ < lock_wait * 10 )) || return 1
-    sleep 0.1
-  done
-  echo $$ >"$box_lock/pid"
-}
 
 backup_box() {
   local reader locked=0
   [[ -n ${BOX_HOME_TAR:-} ]] || { log "the box home is there but no box is installed to read it; run host/bin/ug-setup"; status=1; return; }
-  take_box_lock || { log "ug-box holds its lock, so the box home was not read"; status=1; return; }
+  ug_lock "$box_state" "$lock_wait" || { log "ug-box holds its lock, so the box home was not read"; status=1; return; }
   locked=1
   if container list --quiet | grep -qxF ug-box; then
     reader=(container exec ug-box)
-    rm -rf "$box_lock"
+    ug_unlock "$box_state"
     locked=0
   elif [[ -n $box_image ]]; then
     reader=(container run --rm --network none --volume ug-box-home:/home/agent "$box_image")
   else
-    rm -rf "$box_lock"
+    ug_unlock "$box_state"
     log "the box home is there but no box image is installed to read it; run host/bin/ug-setup"
     status=1
     return
   fi
   "$restic_bin" -r "$repo" backup --quiet --tag ug-box --stdin-filename ug-box-home.tar --stdin-from-command -- "${reader[@]}" sh -c "$BOX_HOME_TAR"
   status=$?
-  [[ $locked -eq 0 ]] || rm -rf "$box_lock"
+  [[ $locked -eq 0 ]] || ug_unlock "$box_state"
   [[ $status -eq 0 ]] || log "the box home was not saved (restic exit $status); a failed read stores no snapshot"
 }
 
@@ -87,29 +75,16 @@ if [[ $status -eq 10 ]]; then
 fi
 if [[ $status -ne 0 ]]; then
   log "the repo $repo does not open (restic exit $status)"
+elif ! command -v container >/dev/null 2>&1; then
+  log "the container CLI is not on PATH, so the box home cannot be read"
+  status=1
+elif ! volumes=$(container volume list --quiet); then
+  log "container volume list failed, so the box home cannot be read"
+  status=1
+elif ! grep -qxF ug-box-home <<<"$volumes"; then
+  log "there is no box home yet, so there is nothing to back up"
 else
-  "$restic_bin" -r "$repo" backup --quiet --tag ug --exclude-caches \
-    --exclude "$HOME/.ug/home/tmp" --exclude "$HOME/.ug/home/.omp/agent/cache" \
-    --exclude "$HOME/.ug/home/.cache" --exclude node_modules \
-    "$HOME/.ug/home"
-  status=$?
-  if [[ $status -eq 0 || $status -eq 3 ]]; then
-    [[ $status -eq 0 ]] || log "some files could not be read (restic exit 3); the snapshot holds the rest"
-    status=0
-  else
-    log "the backup to $repo failed with restic exit $status"
-  fi
-  if [[ $status -eq 0 ]]; then
-    if ! command -v container >/dev/null 2>&1; then
-      log "the container CLI is not on PATH, so the box home cannot be read"
-      status=1
-    elif ! volumes=$(container volume list --quiet); then
-      log "container volume list failed, so the box home cannot be read"
-      status=1
-    elif grep -qxF ug-box-home <<<"$volumes"; then
-      backup_box
-    fi
-  fi
+  backup_box
   [[ $status -ne 0 ]] || date +%s >"$backup/last"
 fi
 

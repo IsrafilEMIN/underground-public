@@ -149,7 +149,7 @@ function runChild(
   return promise;
 }
 
-export function refused(reason: string): Reply {
+function refused(reason: string): Reply {
   return { exit: 2, refused: reason };
 }
 

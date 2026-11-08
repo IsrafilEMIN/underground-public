@@ -15,9 +15,9 @@ import {
   isSyncReply,
   isRepo,
   parsePrNumber,
+  REVIEWER_ROLES,
   validateRequest,
 } from "./protocol.ts";
-import { REVIEWER_ROLES } from "./protocol.ts";
 import type { MergeReply, Reply, Request, SyncPrReply, SyncReply } from "./protocol.ts";
 
 export const SOCKET_ENV = "UG_BROKER_SOCKET";
@@ -211,7 +211,7 @@ async function importSync(reply: SyncReply): Promise<number> {
   }
 }
 
-export async function importPr(reply: SyncPrReply, cwd: string = process.cwd()): Promise<number> {
+async function importPr(reply: SyncPrReply, cwd: string = process.cwd()): Promise<number> {
   const git = async (args: string[]): Promise<string> => (await execFileAsync("git", args, { cwd, encoding: "utf8" })).stdout.trim();
   const ref = `refs/remotes/origin/pr/${reply.pr}`;
   const tempDir = await mkdtemp(join(tmpdir(), "broker-sync-"));
