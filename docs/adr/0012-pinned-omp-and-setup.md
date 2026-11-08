@@ -73,3 +73,6 @@ Owner decision, 2026-11-08 (in chat). The 2026-11-03 amendment guarded against a
 Decision: setup no longer writes `~/.omp/agent/config.yml`. `install_raw_config` in `host/bin/ug-setup` and `host/lib/raw-omp-config.bash` are removed. Nothing reads the config repo's `raw-omp/` now, so the owner can delete it. Setup leaves the owner's `~/.omp/agent/config.yml` and `config.yml.before-ug` as they are. This retires the 2026-11-03 amendment and the last sentence of the 2026-11-07 agent-box amendment.
 
 Cost: a raw omp that the owner starts by full path finds the keyless providers again, if `~/.omp/agent/config.yml` lacks the `disabledProviders` line: the owner edits it, or `~/.omp` is made fresh. A fresh `~/.omp` is how the `BREACH ... can call: apple/on-device` of 2026-11-03 happened (Setup, above). No check guards that file now.
+## Amendment 2026-11-08: one omp binary, owned by root
+
+Owner decision (`0017-one-omp-binary-and-no-ug-folder.md`): the pin is kept once, in `/Library/Underground/omp/<pin>/omp`, not in `~/.ug/sys/omp`. Setup downloads it as the owner and the root step installs it. The logins move from `~/.ug/host/auth` to omp's profile `~/.omp/profiles/ug-auth`, and the one `omp` on `PATH` is `~/.local/bin/omp`, the launcher.

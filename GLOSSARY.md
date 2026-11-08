@@ -18,28 +18,32 @@ _Avoid_: outside, plain terminal (as a place)
 The agent's one home under the srt design, `~/.ug/home`. Commit 54a418a1 removed it. The box's home was the volume `ug-box-home`, mounted as `/home/agent` (`host/bin/ug-box`, removed in step 4 of `docs/adr/0016-agent-user.md`).
 _Avoid_: workspace, sandbox dir, role home, write area
 
-**Owner zone**:
-The folder `~/.ug/sys`: the pinned omp binary, the pinned restic, and `bin/omp`, the link to `ug-agent` (`host/bin/ug-agent-setup`). `bin/` is on `PATH`. Only setup writes it.
-_Avoid_: install dir, owner part
+**Agent home omp binary**:
+The one omp binary on the mac, `/Library/Underground/omp/<pin>/omp`, root-owned, mode 555, with its pinned SHA-256 in `omp.sha256` beside it. Setup downloads it as the owner and `ug-agent-setup` installs it as root. It serves the agent sessions, which check its hash at each start (`host/agent/agent-start`), the auth services, `ug-auth`, and vanilla omp (`docs/adr/0017-one-omp-binary-and-no-ug-folder.md`).
+_Avoid_: omp copy, owner zone
 
-**Sockets folder**:
-The folder `~/.ug/run`, made by setup (`host/bin/ug-setup:78`). Its egress socket went with the box and the egress guard. The gh-broker socket is not here; it is in `/Library/Underground/run` (`host/gh-broker/server.ts:73`).
-_Avoid_: run dir, socket dir
+**omp launcher**:
+`host/bin/ug-agent`, linked as `~/.local/bin/omp`: typing `omp` logs in as the agent user and starts the agent home omp binary there. It is not omp.
+_Avoid_: wrapper, ug-agent command
 
 **Agent user**:
 The macOS user `ugagent`, standard and hidden, that runs omp for the sessions after the box is removed. Its home `/Users/ugagent` is its own, and its login is an sshd of its own on `127.0.0.1:2222` (`docs/adr/0016-agent-user.md`, `host/bin/ug-agent-setup`).
 _Avoid_: agent account, bot user
 
-**Host zone**:
-The folder `~/.ug/host`: everything the agent user gets nothing of. The gh-broker app's private key, the auth broker's own root with the model logins, the gh-broker's records, and the owner's hand-edited gh-broker files, such as the addresses file (owner decision, 2026-11-03). Setup moved them there from `~/.agents/broker`, `~/.config/underground-broker`, and `~/.omp` (`docs/SPEC.md`, B6 and B7).
-_Avoid_: vault, keys dir
+**Data folder**:
+The folder `~/.local/share/underground`, mode 700: the gh-broker app's key and config, the gh-broker's records, the protected-paths lists, the backup settings and password, the agent's ssh key, the addresses file, `config-repo`, the pinned restic, and setup's copy of the service code. Setup moved it there from `~/.ug/host` on 2026-11-08 (`docs/adr/0017-one-omp-binary-and-no-ug-folder.md`). The model logins are not here; they are in the ug-auth profile.
+_Avoid_: host zone, vault, keys dir
+
+**ug-auth profile**:
+The omp profile `~/.omp/profiles/ug-auth`, which holds the model logins, `auth-broker.token`, and `auth-gateway.token`. The auth services and `ug-auth` select it with `OMP_PROFILE=ug-auth`. Vanilla omp runs on the default profile and does not read it, unless it is started with `--profile ug-auth`.
+_Avoid_: auth root, host zone
 
 **Owner's zone**:
-Everything outside `~/.ug`: the owner's checkouts, the config repo, `~/.ssh`, `~/Library`, and the rest of the home. The agent user gets nothing here.
+The owner's home outside the data folder and the ug-auth profile: the owner's checkouts, the config repo, `~/.ssh`, `~/Library`, and the rest. The agent user cannot read the owner's home (mode 700).
 _Avoid_: host files, user space
 
 **Owner's checkout**:
-The owner's own Git checkout of a repo, in the owner's zone. Setup runs from underground's checkout and copies the code that the services need into `~/.ug/sys/services` (`install_service_code`, `host/bin/ug-setup:161-172`).
+The owner's own Git checkout of a repo, in the owner's zone. Setup runs from underground's checkout and copies the code that the services need into the data folder (`install_service_code`, `host/bin/ug-setup`).
 _Avoid_: repo folder, main checkout, primary checkout
 
 **Arena clone** (removed, #90):
@@ -55,7 +59,7 @@ omp's default root, `~/.omp`. For the agent user it is `/Users/ugagent/.omp`, an
 _Avoid_: role home, profile, owner part
 
 **Config repo**:
-The owner's private repo of agent configs, `~/Developer/Projects/agent-config` (moved from `~/Developer/agent-config`, owner in chat, 2026-11-08), in the owner's zone, named in `~/.ug/host/config-repo`: `AGENTS.md`, skills, hooks, `config.yml`, `models.yml` with the gateway markers, and other settings, laid out like omp's `~/.omp/agent`. It holds what the agent does inside the walls; underground holds the walls. It holds no secret: `ug-agent-setup` refuses to stage a link, a special file, or a token in it (`vet_item`, `host/bin/ug-agent-setup:138-145`). The owner's local folder is the source of truth; GitHub keeps a private backup. `ug-agent-setup` stages it at each setup (`stage_config`, `host/bin/ug-agent-setup:147-210`), and `host/agent/agent-start` copies its names into the agent user's `~/.omp/agent` at each start (`host/agent/agent-start:28-32`), so a change that the agent makes to its config lasts until the next start.
+The owner's private repo of agent configs, `~/Developer/Projects/agent-config` (moved from `~/Developer/agent-config`, owner in chat, 2026-11-08), in the owner's zone, named in `~/.local/share/underground/config-repo`: `AGENTS.md`, skills, hooks, `config.yml`, `models.yml` with the gateway markers, and other settings, laid out like omp's `~/.omp/agent`. It holds what the agent does inside the walls; underground holds the walls. It holds no secret: `ug-agent-setup` refuses to stage a link, a special file, or a token in it (`vet_item`, `host/bin/ug-agent-setup:138-145`). The owner's local folder is the source of truth; GitHub keeps a private backup. `ug-agent-setup` stages it at each setup (`stage_config`, `host/bin/ug-agent-setup:147-210`), and `host/agent/agent-start` copies its names into the agent user's `~/.omp/agent` at each start (`host/agent/agent-start:28-32`), so a change that the agent makes to its config lasts until the next start.
 _Avoid_: dotfiles, role config
 
 **Skill repo**:
@@ -92,20 +96,20 @@ _Avoid_: env filter, scrubbed env
 A version and a SHA-256 in `VERSIONS`. The omp pin names the release file `omp-darwin-arm64` from GitHub; setup downloads it, checks the hash, and keeps its own copy in the owner zone (`docs/adr/0012-pinned-omp-and-setup.md`).
 _Avoid_: lock, current version
 
-**Raw omp**:
-The pinned omp binary started by its full path, outside any session. Its home `~/.omp` holds no login and no token: its logins sit in `~/.ug/host/auth`. So it cannot call a model with a login. It still finds the keyless built-in providers (`apple`, and a local `lm-studio`, `ollama`, or `llama.cpp` server), unless `~/.omp/agent/config.yml` turns them off. Setup wrote that file from the config repo's `raw-omp/config.yml` until 2026-11-08, and now leaves it as it is (`docs/adr/0012-pinned-omp-and-setup.md`, amendment 2026-11-08). The agent user cannot start it, because the owner's home is mode 700 (`host/bin/ug-agent-setup:47`).
-_Avoid_: plain omp, unwrapped session
+**Vanilla omp**:
+The agent home omp binary started by the owner by its full path, as the owner, outside any session. Its default profile in `~/.omp` holds no login and no token: the logins sit in the ug-auth profile. So it cannot call a model with a login. It still finds the keyless built-in providers (`apple`, and a local `lm-studio`, `ollama`, or `llama.cpp` server), unless `~/.omp/agent/config.yml` turns them off. Setup wrote that file from the config repo's `raw-omp/config.yml` until 2026-11-08, and now leaves it as it is (`docs/adr/0012-pinned-omp-and-setup.md`, amendment 2026-11-08). The agent user cannot start it as the owner, because the owner's home is mode 700 (`host/bin/ug-agent-setup:47`).
+_Avoid_: raw omp, plain omp, unwrapped session
 
 **ug-auth**:
-The owner's command for the auth services: the pinned omp with its root in `~/.ug/host/auth`, limited to `auth-broker` and `auth-gateway`, for example `ug-auth auth-broker login anthropic` or `ug-auth auth-broker token --regenerate`. Setup links it as `~/.ug/sys/bin/ug-auth`.
-_Avoid_: raw omp, admin omp
+The owner's command for the auth services: the agent home omp binary in the ug-auth profile, limited to `auth-broker` and `auth-gateway`, for example `ug-auth auth-broker login anthropic` or `ug-auth auth-broker token --regenerate`. Setup links it as `~/.local/bin/ug-auth`.
+_Avoid_: vanilla omp, admin omp
 
 **Agent home backup** (was the arena backup):
-The daily restic snapshot of the agent home `/Users/ugagent`, minus `.cache` and `node_modules`, in one repo on the owner's other machine (launchd `com.underground.backup`, `host/bin/ug-backup`, settings in `~/.ug/host/backup/config`). The tar stream is read through the root helper `/Library/Underground/bin/agent-home-tar` (`host/agent/agent-home-tar`). It keeps every snapshot, so harm to the home can be undone (`docs/SPEC.md`, B10).
+The daily restic snapshot of the agent home `/Users/ugagent`, minus `.cache` and `node_modules`, in one repo on the owner's other machine (launchd `com.underground.backup`, `host/bin/ug-backup`, settings in `~/.local/share/underground/backup/config`). The tar stream is read through the root helper `/Library/Underground/bin/agent-home-tar` (`host/agent/agent-home-tar`). It keeps every snapshot, so harm to the home can be undone (`docs/SPEC.md`, B10).
 _Avoid_: archive, sync, Time Machine
 
 **Setup**:
-The host script that does what `git pull` cannot: install the pinned omp and restic, make the zones and their modes, make the backup password, and register and restart the launchd services. At its end it runs `sudo host/bin/ug-agent-setup`, which asks for the owner's password and installs the agent user, its omp link, and the backup helper. It runs the `[mac]` tests first (`host/bin/ug-setup:63`, called at line 75). It runs when a pin changes, a host service changes, or macOS updates. It replaces the install (`docs/adr/0012-pinned-omp-and-setup.md`).
+The host script that does what `git pull` cannot: download the pinned omp and restic, make the data folder and the ug-auth profile, make the backup password, run `sudo host/bin/ug-agent-setup` (which asks for the owner's password and installs the agent home omp binary, the agent user, the omp launcher, and the backup helper), then register and restart the launchd services. It runs the `[mac]` tests first. It runs when a pin changes, a host service changes, or macOS updates. It replaces the install (`docs/adr/0012-pinned-omp-and-setup.md`).
 _Avoid_: install, installer, bootstrap
 
 **Preflight** (removed, #90):
@@ -131,7 +135,7 @@ One of `code-review`, `security-review`, and `risk-review`. A reviewer is a skil
 _Avoid_: reviewer session, review agent, bug bot, security bot
 
 **Review verdict**:
-A record that a reviewer writes with `gh-broker review <owner/repo> <n> <sha> <role> <verdict> [reason]` for one PR and one full head sha: `pass`, `manual`, or `block`, with a reason for `manual` and `block`, and the reviewer role. The gh-broker refuses a verdict that the role cannot give. `code-review` and `security-review` give `pass` or `block`; `risk-review` gives `pass` (auto) or `manual`. The gh-broker appends each verdict as one line to the file of its PR in `~/.ug/host/gh-broker/reviews` and keeps the file after the merge. A verdict from before reviewer roles has role `null`: its `block` and `manual` count, and its `pass` counts for no role. A record written before 2026-11-03 also holds `role_name`, the name from the old role table; the gh-broker reads it and drops it.
+A record that a reviewer writes with `gh-broker review <owner/repo> <n> <sha> <role> <verdict> [reason]` for one PR and one full head sha: `pass`, `manual`, or `block`, with a reason for `manual` and `block`, and the reviewer role. The gh-broker refuses a verdict that the role cannot give. `code-review` and `security-review` give `pass` or `block`; `risk-review` gives `pass` (auto) or `manual`. The gh-broker appends each verdict as one line to the file of its PR in `~/.local/share/underground/gh-broker/reviews` and keeps the file after the merge. A verdict from before reviewer roles has role `null`: its `block` and `manual` count, and its `pass` counts for no role. A record written before 2026-11-03 also holds `role_name`, the name from the old role table; the gh-broker reads it and drops it.
 _Avoid_: reviewer result, finding, approval
 
 **Attempt**:
@@ -143,7 +147,7 @@ A state of a PR that makes `gh-broker merge` refuse with a reason that says the 
 _Avoid_: lock, freeze
 
 **Protected path**:
-A path that the auto merge never accepts: `.github/**`, every `CODEOWNERS` file, and each glob in the owner's protected-paths list of the repo, `~/.ug/host/protected-paths/<owner>/<repo>`. A rename counts its old path and its new path.
+A path that the auto merge never accepts: `.github/**`, every `CODEOWNERS` file, and each glob in the owner's protected-paths list of the repo, `~/.local/share/underground/protected-paths/<owner>/<repo>`. A rename counts its old path and its new path.
 _Avoid_: manual path, sensitive path
 
 **Auto merge**:
@@ -151,11 +155,11 @@ The only merge that `gh-broker merge` does: green checks, a head that is the pus
 _Avoid_: auto tier, bot merge, owner-approved merge
 
 **Push record**:
-The commit that the gh-broker last pushed to one branch of one repo. A later push replaces it. The gh-broker keeps it in `~/.ug/host/gh-broker/pushes`, with the `/` in the branch name written as `%2F`.
+The commit that the gh-broker last pushed to one branch of one repo. A later push replaces it. The gh-broker keeps it in `~/.local/share/underground/gh-broker/pushes`, with the `/` in the branch name written as `%2F`.
 _Avoid_: push log, provenance record
 
 **gh-broker app**:
-The GitHub App that the gh-broker acts as. The owner's personal account owns it, and it is installed only on the selected repos, with Contents and Pull requests read and write, Metadata, Checks, and Commit statuses read, and no Workflows or Administration permission. Its private key is `~/.ug/host/github-app.pem`, mode 600, beside `github-app.json` (`docs/SPEC.md`, B7). GitHub shows the gh-broker's actions as `<app slug>[bot]` (`docs/adr/0007-gh-broker-github-app.md`).
+The GitHub App that the gh-broker acts as. The owner's personal account owns it, and it is installed only on the selected repos, with Contents and Pull requests read and write, Metadata, Checks, and Commit statuses read, and no Workflows or Administration permission. Its private key is `~/.local/share/underground/github-app.pem`, mode 600, beside `github-app.json` (`docs/SPEC.md`, B7). GitHub shows the gh-broker's actions as `<app slug>[bot]` (`docs/adr/0007-gh-broker-github-app.md`).
 _Avoid_: bot account, bot token, gh-broker token, machine user, service account
 
 **Installation token**:
@@ -169,7 +173,7 @@ _Avoid_: onboarding list, repo setup
 ### Models
 
 **Auth broker**:
-The host service `omp auth-broker serve` (launchd `com.underground.auth-broker`, on `127.0.0.1:8765`). It holds the owner's model logins in its own root, `~/.ug/host/auth` (`PI_CONFIG_DIR=.ug/host/auth` in its plist), and does every OAuth refresh. The owner reaches it with `ug-auth`. Only the auth gateway talks to it; no session is a broker client, because a broker client receives access tokens and API keys.
+The host service `omp auth-broker serve` (launchd `com.underground.auth-broker`, on `127.0.0.1:8765`). It holds the owner's model logins in the ug-auth profile `~/.omp/profiles/ug-auth` (`OMP_PROFILE=ug-auth` in its plist), and does every OAuth refresh. The owner reaches it with `ug-auth`. Only the auth gateway talks to it; no session is a broker client, because a broker client receives access tokens and API keys.
 _Avoid_: credential store, vault
 
 **Auth gateway**:
@@ -193,7 +197,7 @@ The model server on `v100-server`, another box on the tailnet, at the `engine=` 
 _Avoid_: local model, llama
 
 **Addresses file**:
-The owner-only file with two lines: `gateway=<ip>:<port>`, the auth gateway on the tailscale address of this mac, and `engine=<ip>:<port>`, the inference engine. Setup writes it only when it is missing, from the first line of `tailscale ip -4` with port `4000`; the owner edits it later. It is `~/.ug/host/addresses`; setup moved it there once from `~/.config/underground-broker/addresses` (`docs/SPEC.md`, B7).
+The owner-only file with two lines: `gateway=<ip>:<port>`, the auth gateway on the tailscale address of this mac, and `engine=<ip>:<port>`, the inference engine. Setup writes it only when it is missing, from the first line of `tailscale ip -4` with port `4000`; the owner edits it later. It is `~/.local/share/underground/addresses`.
 _Avoid_: address config, hosts file
 
 ### Decisions

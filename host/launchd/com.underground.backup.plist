@@ -7,7 +7,7 @@
   <key>ProgramArguments</key>
   <array>
     <string>/bin/bash</string>
-    <string>@SYS@/services/host/bin/ug-backup</string>
+    <string>@DATA@/services/host/bin/ug-backup</string>
   </array>
   <key>StartCalendarInterval</key>
   <dict>
@@ -21,9 +21,9 @@
   <key>Nice</key>
   <integer>10</integer>
   <key>StandardOutPath</key>
-  <string>@HOME@/.ug/host/backup/backup.log</string>
+  <string>@DATA@/backup/backup.log</string>
   <key>StandardErrorPath</key>
-  <string>@HOME@/.ug/host/backup/backup.log</string>
+  <string>@DATA@/backup/backup.log</string>
   <key>EnvironmentVariables</key>
   <dict>
     <key>PATH</key>

@@ -150,9 +150,9 @@ test("a missing app config or a GitHub error is a clear failure", async () => {
   await assert.rejects(tokens.token(REPO, new AbortController().signal), /HTTP 401: A JSON web token could not be decoded/);
 });
 
-test("the gh-broker finds the app config and key in the host zone ~/.ug/host of its home", async () => {
+test("the gh-broker finds the app config and key in the data folder ~/.local/share/underground of its home", async () => {
   const home = join(root, "home");
-  const appDir = join(home, ".ug/host");
+  const appDir = join(home, ".local/share/underground");
   await mkdir(appDir, { recursive: true, mode: 0o700 });
   files = { configFile: join(appDir, "github-app.json"), keyFile: join(appDir, "github-app.pem") };
   await writeApp({ client_id: "Iv23liABC", installation_id: 42 });

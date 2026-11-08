@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -15,7 +16,7 @@ async function owner(t: { after: (fn: () => unknown) => void }) {
   const home = await tempDir(join(tmpdir(), "ug-agent-"));
   t.after(() => rm(home, { recursive: true, force: true }));
   await chmod(home, 0o700);
-  const agentSsh = join(home, ".ug/host/agent-ssh");
+  const agentSsh = join(home, ".local/share/underground/agent-ssh");
   await mkdir(agentSsh, { recursive: true });
   await writeFile(join(agentSsh, "id_ed25519"), "key\n");
   await writeFile(join(agentSsh, "known_hosts"), "[127.0.0.1]:2222 ssh-ed25519 AAAA\n");
@@ -80,7 +81,7 @@ test("ug-agent logs in as ugagent on port 2222 with the owner key, and sends UG_
   const argv = (await readFile(log, "utf8")).trim().split("\n");
   assert.ok(argv.includes("ugagent@127.0.0.1"), argv.join(" "));
   assert.deepEqual(argv.slice(argv.indexOf("-p"), argv.indexOf("-p") + 2), ["-p", "2222"]);
-  assert.ok(argv.includes(`${o.home}/.ug/host/agent-ssh/id_ed25519`), argv.join(" "));
+  assert.ok(argv.includes(`${o.home}/.local/share/underground/agent-ssh/id_ed25519`), argv.join(" "));
   assert.ok(argv.includes("StrictHostKeyChecking=yes"));
   assert.ok(argv.includes("SendEnv=UG_REPO"));
   assert.ok(argv.includes("UG_REPO=owner/app"), argv.join(" "));
@@ -114,6 +115,45 @@ test("ug-agent-setup refuses to run without root", async (t) => {
   assert.equal(r.status, 1, r.stderr);
   assert.match(r.stderr, /run it as root/);
 });
+
+test(
+  "[mac] agent-start refuses a session when the omp binary is missing its hash file or does not match it, and starts a matching one",
+  { skip: process.platform !== "darwin" && "needs macOS getconf DARWIN_USER_TEMP_DIR" },
+  async (t) => {
+    const dir = await tempDir(join(tmpdir(), "ug-start-"));
+    t.after(() => rm(dir, { recursive: true, force: true }));
+    const root = join(dir, "root");
+    const bin = join(root, "omp/1.0/omp");
+    await mkdir(join(root, "omp/1.0"), { recursive: true });
+    await mkdir(join(root, "bin"));
+    await writeFile(bin, '#!/bin/sh\necho "OMP_RAN $*"\n');
+    await chmod(bin, 0o755);
+    await symlink(bin, join(root, "bin/omp"));
+    await writeFile(join(root, "config-names"), "");
+    const text = (await readFile(join(ROOT, "host/agent/agent-start"), "utf8"))
+      .replace("root=/Library/Underground", `root=${root}`)
+      .replace("export HOME=/Users/ugagent", `export HOME=${join(dir, "agent-home")}`);
+    const start = join(dir, "agent-start");
+    await writeFile(start, text);
+    const run = () => spawnSync("bash", [start, "-p", "hi"], { env: { PATH: "/usr/bin:/bin" }, encoding: "utf8" });
+
+    const missing = run();
+    assert.equal(missing.status, 1);
+    assert.match(missing.stderr, /no .*omp\.sha256/);
+    assert.doesNotMatch(missing.stdout, /OMP_RAN/);
+
+    await writeFile(`${bin}.sha256`, `${createHash("sha256").update(await readFile(bin)).digest("hex")}\n`);
+    const good = run();
+    assert.equal(good.status, 0, good.stderr);
+    assert.equal(good.stdout.trim(), "OMP_RAN -p hi");
+
+    await writeFile(bin, '#!/bin/sh\necho "OMP_RAN changed $*"\n');
+    const changed = run();
+    assert.equal(changed.status, 1);
+    assert.match(changed.stderr, /does not match its pinned SHA-256/);
+    assert.doesNotMatch(changed.stdout, /OMP_RAN/);
+  },
+);
 
 test("the agent sshd config holds the contract lines", async () => {
   const conf = await readFile(join(ROOT, "host/agent/sshd_config"), "utf8");

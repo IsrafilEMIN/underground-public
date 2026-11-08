@@ -7,20 +7,24 @@ if [[ $# -ne 0 ]]; then
 fi
 
 src=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)
-ug_real=$(cd "$HOME/.ug" 2>/dev/null && pwd -P) || ug_real="$HOME/.ug"
-case $src/ in
-  "$HOME/.ug/"* | "$ug_real/"*)
-    printf 'ug-setup: %s is inside ~/.ug, which setup itself writes; run setup from your own checkout\n' "$src" >&2
-    exit 64
-    ;;
-esac
-sys="$HOME/.ug/sys"
+data="$HOME/.local/share/underground"
+old_ug="$HOME/.ug"
+for dir in "$data" "$old_ug"; do
+  real=$(cd "$dir" 2>/dev/null && pwd -P) || real=$dir
+  case $src/ in
+    "$dir/"* | "$real/"*)
+      printf 'ug-setup: %s is inside %s, which setup itself writes; run setup from your own checkout\n' "$src" "$dir" >&2
+      exit 64
+      ;;
+  esac
+done
+bin_dir="$HOME/.local/bin"
+root=/Library/Underground
 node_bin=/opt/homebrew/bin/node
 labels="com.underground.gh-broker com.underground.auth-broker com.underground.auth-gateway com.underground.usage-broker com.underground.backup"
 agents_dir="$HOME/Library/LaunchAgents"
-addresses_file="$HOME/.ug/host/addresses"
-host_zone="$HOME/.ug/host"
-auth_root="$host_zone/auth"
+addresses_file="$data/addresses"
+auth_root="$HOME/.omp/profiles/ug-auth"
 gateway_token_file="$auth_root/auth-gateway.token"
 engine_default=100.64.0.99:8081
 tailscale_app=/Applications/Tailscale.app/Contents/MacOS/Tailscale
@@ -56,6 +60,9 @@ restic_release=$(pin restic_release '^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-
 
 [[ $(uname -s) == Darwin && $(uname -m) == arm64 ]] || die "the omp pin names omp-darwin-arm64; this mac is $(uname -s) $(uname -m)"
 [[ -x $node_bin ]] || die "missing $node_bin"
+for name in omp ug-auth; do
+  [[ ! -e $bin_dir/$name || -L $bin_dir/$name ]] || die "$bin_dir/$name is a file, not setup's link; move it away, then run setup again"
+done
 
 cleanup=()
 trap '[[ ${#cleanup[@]} -eq 0 ]] || rm -rf "${cleanup[@]}"' EXIT
@@ -74,38 +81,82 @@ run_mac_only_tests() {
 }
 run_mac_only_tests
 
-[[ -d $HOME/.ug ]] || install -d -m 700 "$HOME/.ug"
-install -d -m 700 "$sys" "$sys/omp" "$sys/restic" "$sys/bin" "$HOME/.ug/run"
+stop_services() {
+  local label
+  for label in $labels; do
+    launchctl bootout "gui/$UID/$label" >/dev/null 2>&1 || true
+  done
+}
 
-install_omp() {
-  local dir="$sys/omp/$omp_pin" dest tmp have url
-  dest="$dir/omp"
+migrate_ug() {
+  [[ -e $old_ug || -L $old_ug ]] || return 0
+  [[ -d $old_ug && ! -L $old_ug ]] || die "$old_ug is not a folder; move it away, then run setup again"
+  if [[ -e $old_ug/host/auth || -L $old_ug/host/auth ]] && [[ -e $auth_root || -L $auth_root ]]; then
+    die "both $old_ug/host/auth and $auth_root exist; keep the one with your logins, then run setup again"
+  fi
+  if [[ -e $old_ug/host || -L $old_ug/host ]] && [[ -e $data || -L $data ]]; then
+    die "both $old_ug/host and $data exist; keep the one with the current records, then run setup again"
+  fi
+  stop_services
+  if [[ -e $old_ug/host/auth || -L $old_ug/host/auth ]]; then
+    [[ -d $HOME/.omp ]] || install -d -m 700 "$HOME/.omp"
+    [[ -d $HOME/.omp/profiles ]] || install -d -m 700 "$HOME/.omp/profiles"
+    mv "$old_ug/host/auth" "$auth_root"
+    printf 'moved: %s to %s\n' "$old_ug/host/auth" "$auth_root"
+  fi
+  if [[ -e $old_ug/host || -L $old_ug/host ]]; then
+    mkdir -p "$(dirname "$data")"
+    mv "$old_ug/host" "$data"
+    printf 'moved: %s to %s\n' "$old_ug/host" "$data"
+  fi
+  if [[ -d $old_ug/sys/restic && ! -e $data/restic ]]; then
+    mv "$old_ug/sys/restic" "$data/restic"
+  fi
+}
+
+remove_old_ug() {
+  local left
+  [[ -d $old_ug && ! -L $old_ug ]] || return 0
+  rm -rf "$old_ug/sys" "$old_ug/run"
+  if rmdir "$old_ug" 2>/dev/null; then
+    printf 'removed: %s\n' "$old_ug"
+  else
+    left=$(ls -A "$old_ug")
+    printf 'ug-setup: warning: %s still holds files that setup did not write: %s; delete them by hand when you no longer need them\n' "$old_ug" "${left//$'\n'/ }" >&2
+  fi
+}
+
+omp_stage=""
+stage_omp() {
+  local dest="$root/omp/$omp_pin/omp" have url
   if [[ -f $dest && ! -L $dest ]] && [[ $(sha256 "$dest") == "$omp_sha" ]]; then
-    printf 'omp %s: in place\n' "$omp_pin"
+    printf 'omp %s: in place in %s\n' "$omp_pin" "$dest"
     return 0
   fi
   url="$omp_release/v$omp_pin/omp-darwin-arm64"
-  tmp=$(mktemp "$sys/omp/.download.XXXXXX")
-  cleanup+=("$tmp")
-  curl -fsSL --proto '=https' --retry 3 -o "$tmp" "$url" || die "download of $url failed"
-  have=$(sha256 "$tmp")
+  omp_stage=$(mktemp "${TMPDIR:-/tmp}/ug-omp-download.XXXXXX")
+  cleanup+=("$omp_stage")
+  curl -fsSL --proto '=https' --retry 3 -o "$omp_stage" "$url" || die "download of $url failed"
+  have=$(sha256 "$omp_stage")
   [[ $have == "$omp_sha" ]] || die "omp $omp_pin from $url has SHA-256 $have, want $omp_sha; nothing changed"
-  chmod 555 "$tmp"
-  install -d -m 700 "$dir"
-  mv -f "$tmp" "$dest"
-  printf 'omp %s: installed in %s\n' "$omp_pin" "$dest"
+  printf 'omp %s: downloaded and checked; the root step installs it in %s\n' "$omp_pin" "$dest"
 }
 
+stage_omp
+migrate_ug
+install -d -m 700 "$data" "$data/restic"
+[[ -d $bin_dir ]] || install -d -m 755 "$bin_dir"
+
 install_restic() {
-  local dir="$sys/restic/$restic_pin" dest tmp bin have url
+  local dir="$data/restic/$restic_pin" dest tmp bin have url
   dest="$dir/restic"
   if [[ -f $dest && ! -L $dest ]] && [[ $(sha256 "$dest") == "$restic_sha" ]]; then
     printf 'restic %s: in place\n' "$restic_pin"
     return 0
   fi
   url="$restic_release/v$restic_pin/restic_${restic_pin}_darwin_arm64.bz2"
-  tmp=$(mktemp "$sys/restic/.download.XXXXXX")
-  bin=$(mktemp "$sys/restic/.binary.XXXXXX")
+  tmp=$(mktemp "$data/restic/.download.XXXXXX")
+  bin=$(mktemp "$data/restic/.binary.XXXXXX")
   cleanup+=("$tmp" "$bin")
   curl -fsSL --proto '=https' --retry 3 -o "$tmp" "$url" || die "download of $url failed"
   have=$(sha256 "$tmp")
@@ -120,7 +171,7 @@ install_restic() {
 }
 
 setup_backup() {
-  local backup="$host_zone/backup"
+  local backup="$data/backup"
   install -d -m 700 "$backup"
   if [[ ! -s $backup/password ]]; then
     (umask 077 && openssl rand -base64 32 >"$backup/password") || die "cannot write $backup/password"
@@ -147,7 +198,7 @@ link() {
 }
 
 rename_broker() {
-  local label=com.underground.broker old="$host_zone/broker" new="$host_zone/gh-broker"
+  local label=com.underground.broker old="$data/broker" new="$data/gh-broker"
   launchctl bootout "gui/$UID/$label" >/dev/null 2>&1 || true
   rm -f "$agents_dir/$label.plist"
   if [[ -e $old || -L $old ]]; then
@@ -159,7 +210,7 @@ rename_broker() {
 }
 
 install_service_code() {
-  local dir="$sys/services" f
+  local dir="$data/services" f
   rm -rf "$dir"
   install -d -m 700 "$dir" "$dir/host/bin" "$dir/host/lib" "$dir/host/gh-broker"
   for f in host/bin/ug-backup host/bin/ug-auth host/lib/backup-target.bash host/lib/ug.bash VERSIONS "$src"/host/gh-broker/*.ts; do
@@ -167,8 +218,8 @@ install_service_code() {
     put "$src/$f" "$dir/$f" 444
   done
   chmod 555 "$dir/host/bin/ug-backup" "$dir/host/bin/ug-auth"
-  link "$dir/host/bin/ug-auth" "$sys/bin/ug-auth"
-  printf 'services: code installed in %s, ug-auth on PATH as %s\n' "$dir" "$sys/bin/ug-auth"
+  link "$dir/host/bin/ug-auth" "$bin_dir/ug-auth"
+  printf 'services: code installed in %s, ug-auth on PATH as %s\n' "$dir" "$bin_dir/ug-auth"
 }
 
 write_addresses() {
@@ -206,26 +257,27 @@ restart_service() {
   die "launchctl bootstrap of $label failed: $err"
 }
 
-make_host_zone() {
-  install -d -m 700 "$host_zone" "$auth_root" "$auth_root/agent" "$host_zone/gh-broker" "$host_zone/gh-broker/repos" \
-    "$host_zone/gh-broker/tmp" "$host_zone/gh-broker/reviews" "$host_zone/gh-broker/pushes"
-}
-
-install_services() {
-  local gateway engine label rendered left
-  make_host_zone
-  install -d "$agents_dir"
+prepare_services() {
+  [[ -d $HOME/.omp ]] || install -d -m 700 "$HOME/.omp"
+  [[ -d $HOME/.omp/profiles ]] || install -d -m 700 "$HOME/.omp/profiles"
+  install -d -m 700 "$auth_root" "$auth_root/agent" "$data/gh-broker" "$data/gh-broker/repos" \
+    "$data/gh-broker/tmp" "$data/gh-broker/reviews" "$data/gh-broker/pushes"
   write_addresses
-  gateway=$(sed -n 's/^gateway=//p' "$addresses_file")
-  engine=$(sed -n 's/^engine=//p' "$addresses_file")
-  [[ -n $gateway && -n $engine ]] || die "$addresses_file needs a gateway= and an engine= line"
   if [[ ! -s $gateway_token_file ]]; then
     (umask 077 && openssl rand -hex 32 >"$gateway_token_file") || die "cannot write $gateway_token_file"
   fi
+}
+
+start_services() {
+  local gateway engine label rendered left
+  install -d "$agents_dir"
+  gateway=$(sed -n 's/^gateway=//p' "$addresses_file")
+  engine=$(sed -n 's/^engine=//p' "$addresses_file")
+  [[ -n $gateway && -n $engine ]] || die "$addresses_file needs a gateway= and an engine= line"
   for label in $labels; do
     rendered=$(mktemp "$agents_dir/.$label.XXXXXX")
     cleanup+=("$rendered")
-    sed -e "s|@OMP@|$sys/omp/$omp_pin/omp|g" -e "s|@SYS@|$sys|g" -e "s|@HOME@|$HOME|g" \
+    sed -e "s|@OMP@|$root/omp/$omp_pin/omp|g" -e "s|@DATA@|$data|g" -e "s|@HOME@|$HOME|g" \
       -e "s|@GATEWAY@|$gateway|g" -e "s|@ENGINE@|$engine|g" "$src/host/launchd/$label.plist" >"$rendered"
     left=$(grep -o '@[A-Z_]*@' "$rendered" | head -1) || true
     [[ -z $left ]] || die "host/launchd/$label.plist has an unknown placeholder $left"
@@ -235,11 +287,29 @@ install_services() {
   printf 'services: %s restarted\n' "$labels"
 }
 
-install_omp
+check_path() {
+  local dirs dir found=()
+  IFS=: read -r -a dirs <<<"$PATH"
+  for dir in "${dirs[@]}"; do
+    [[ -n $dir && -x $dir/omp && ! -d $dir/omp ]] && found+=("$dir/omp")
+  done
+  if [[ ${#found[@]} -eq 0 || ${found[0]} != "$bin_dir/omp" ]]; then
+    printf 'ug-setup: warning: the first omp on PATH is not %s, the agent launcher; put %s on PATH before %s\n' "$bin_dir/omp" "$bin_dir" "${found[0]:-nothing}" >&2
+  elif [[ ${#found[@]} -gt 1 ]]; then
+    printf 'ug-setup: warning: more than one omp is on PATH: %s; only %s should be, so remove the others\n' "${found[*]}" "$bin_dir/omp" >&2
+  fi
+  case :$PATH: in
+    *":$old_ug/"*) printf 'ug-setup: warning: PATH still names %s; remove that line from your zsh files\n' "$old_ug/sys/bin" >&2 ;;
+  esac
+}
+
 install_restic
 rename_broker
 install_service_code
 setup_backup
-install_services
+prepare_services
 printf 'agent user: running sudo host/bin/ug-agent-setup, which asks for your password\n'
-sudo "$src/host/bin/ug-agent-setup" || die "ug-agent-setup failed, so the agent user is not up to date; fix its error and run host/bin/ug-setup again"
+sudo "$src/host/bin/ug-agent-setup" ${omp_stage:+"$omp_stage"} || die "ug-agent-setup failed, so the agent user is not up to date; fix its error and run host/bin/ug-setup again"
+start_services
+remove_old_ug
+check_path

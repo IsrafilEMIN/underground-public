@@ -13,35 +13,39 @@ async function fakeHome() {
   const home = await tempDir(join(tmpdir(), "ug-auth-"));
   const checkout = join(home, "checkout");
   for (const f of ["host/bin", "host/lib", "host/gh-broker", "VERSIONS"]) await cp(join(SRC, f), join(checkout, f), { recursive: true });
-  const sys = join(home, ".ug/sys");
+  const data = join(home, ".local/share/underground");
   const install = spawnSync("bash", ["-c", `
     set -euo pipefail
     src=${JSON.stringify(checkout)}
-    sys=${JSON.stringify(sys)}
+    data=${JSON.stringify(data)}
+    bin_dir=${JSON.stringify(join(home, ".local/bin"))}
     cleanup=()
-    install -d -m 700 "$sys" "$sys/bin"
+    install -d -m 700 "$data" "$bin_dir"
     eval "$(sed -n '/^put() {/,/^}/p;/^link() {/,/^}/p;/^install_service_code() {/,/^}/p' "$src/host/bin/ug-setup")"
     install_service_code
   `], { encoding: "utf8" });
   assert.equal(install.status, 0, install.stderr);
   await rm(checkout, { recursive: true, force: true });
-  const dir = join(sys, "omp", PIN);
+  const dir = join(home, "root/omp", PIN);
   await mkdir(dir, { recursive: true });
-  await writeFile(join(dir, "omp"), '#!/bin/sh\necho "RAN PI_CONFIG_DIR=$PI_CONFIG_DIR ARGS=$*"\n');
+  await writeFile(join(dir, "omp"), '#!/bin/sh\necho "RAN PROFILE=$OMP_PROFILE CONFIG_DIR=${PI_CONFIG_DIR-unset} ARGS=$*"\n');
   await chmod(join(dir, "omp"), 0o755);
   return home;
 }
 
 const run = (home: string, ...args: string[]) =>
-  spawnSync(join(home, ".ug/sys/bin/ug-auth"), args, { env: { HOME: home, PATH: "/usr/bin:/bin" }, encoding: "utf8" });
+  spawnSync(join(home, ".local/bin/ug-auth"), args, {
+    env: { HOME: home, PATH: "/usr/bin:/bin", UG_ROOT: join(home, "root"), PI_CONFIG_DIR: ".elsewhere" },
+    encoding: "utf8",
+  });
 
-test("the installed ug-auth runs the auth commands against ~/.ug/host/auth with the checkout gone", async (t) => {
+test("the installed ug-auth runs the pinned omp in the profile ug-auth, with the checkout gone", async (t) => {
   const home = await fakeHome();
   t.after(() => rm(home, { recursive: true, force: true }));
   for (const args of [["auth-broker", "login", "anthropic"], ["auth-gateway", "token", "--regenerate"]]) {
     const r = run(home, ...args);
     assert.equal(r.status, 0, r.stderr);
-    assert.equal(r.stdout.trim(), `RAN PI_CONFIG_DIR=.ug/host/auth ARGS=${args.join(" ")}`);
+    assert.equal(r.stdout.trim(), `RAN PROFILE=ug-auth CONFIG_DIR=unset ARGS=${args.join(" ")}`);
   }
 });
 

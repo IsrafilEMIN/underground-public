@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# -ne 0 ]]; then
-  printf 'usage: sudo host/bin/ug-agent-setup\n' >&2
+if [[ $# -gt 1 ]]; then
+  printf 'usage: sudo host/bin/ug-agent-setup [<downloaded omp>]\n' >&2
   exit 64
 fi
+staged=${1:-}
 
 die() {
   printf 'ug-agent-setup: %s\n' "$*" >&2
@@ -25,9 +26,10 @@ source "$src/host/lib/ug.bash"
 ug_check_checkout "$src" ug-agent-setup || exit 1
 
 root=/Library/Underground
-host_zone=$owner_home/.ug/host
-sys=$owner_home/.ug/sys
-key_dir=$host_zone/agent-ssh
+data=$owner_home/.local/share/underground
+auth_root=$owner_home/.omp/profiles/ug-auth
+bin_dir=$owner_home/.local/bin
+key_dir=$data/agent-ssh
 owner_key=$key_dir/id_ed25519
 known_hosts=$key_dir/known_hosts
 omp_pin=$(ug_pin "$src/VERSIONS" omp)
@@ -82,13 +84,28 @@ install -d -m 755 -o root -g wheel /Users/ugagent/.ssh
 install -m 444 -o root -g wheel /dev/null /Users/ugagent/.ssh/authorized_keys
 step "/Users/ugagent/.ssh: root-owned, empty authorized_keys"
 
-[[ -f $sys/omp/$omp_pin/omp && ! -L $sys/omp/$omp_pin/omp ]] || die "no omp $omp_pin under $sys; run host/bin/ug-setup first"
-[[ $(sha256 "$sys/omp/$omp_pin/omp") == "$omp_sha" ]] || die "the omp under $sys does not have the pinned SHA-256; run host/bin/ug-setup first"
-
-install -d -m 755 -o root -g wheel "$root" "$root/omp" "$root/omp/$omp_pin" "$root/bin" "$root/gh-broker" "$root/authorized_keys"
-install -m 555 -o root -g wheel "$sys/omp/$omp_pin/omp" "$root/omp/$omp_pin/omp"
-[[ $(sha256 "$root/omp/$omp_pin/omp") == "$omp_sha" ]] || die "the copy of omp in $root does not have the pinned SHA-256"
-ln -sfn "$root/omp/$omp_pin/omp" "$root/bin/omp"
+omp_dir=$root/omp/$omp_pin
+omp_bin=$omp_dir/omp
+install -d -m 755 -o root -g wheel "$root" "$root/omp" "$omp_dir" "$root/bin" "$root/gh-broker" "$root/authorized_keys"
+if [[ -n $staged ]]; then
+  [[ -f $staged && ! -L $staged ]] || die "the downloaded omp $staged is not a file"
+  omp_tmp=$(mktemp "$omp_dir/.omp.XXXXXX")
+  cleanup+=("$omp_tmp")
+  cat "$staged" >"$omp_tmp"
+  [[ $(sha256 "$omp_tmp") == "$omp_sha" ]] || die "the downloaded omp does not have the pinned SHA-256; nothing changed"
+  chown root:wheel "$omp_tmp"
+  chmod 555 "$omp_tmp"
+  mv -f "$omp_tmp" "$omp_bin"
+fi
+[[ -f $omp_bin && ! -L $omp_bin ]] || die "no omp $omp_pin in $omp_dir; run host/bin/ug-setup, which downloads it"
+[[ $(sha256 "$omp_bin") == "$omp_sha" ]] || die "$omp_bin does not have the pinned SHA-256; run host/bin/ug-setup, which downloads it again"
+printf '%s\n' "$omp_sha" >"$omp_dir/.omp.sha256.tmp"
+install -m 444 -o root -g wheel "$omp_dir/.omp.sha256.tmp" "$omp_bin.sha256"
+rm -f "$omp_dir/.omp.sha256.tmp"
+ln -sfn "$omp_bin" "$root/bin/omp"
+for old in "$root"/omp/*; do
+  [[ $old == "$omp_dir" ]] || rm -rf "$old"
+done
 cat >"$root/bin/gh-broker.tmp" <<EOF
 #!/bin/sh
 BUN_BE_BUN=1 UG_GH_BROKER_SOCKET=$root/run/gh-broker.sock exec $root/omp/$omp_pin/omp $root/gh-broker/client.ts "\$@"
@@ -104,7 +121,7 @@ install -m 555 -o root -g wheel "$src/host/agent/agent-session" "$root/agent-ses
 install -m 555 -o root -g wheel "$src/host/agent/agent-start" "$root/agent-start"
 install -m 444 -o root -g wheel "$src/host/agent/sshd_config" "$root/sshd_config"
 install -m 444 -o root -g wheel "$src/host/agent/config-names" "$root/config-names"
-step "$root: omp $omp_pin, pin.sb, bin/, gh-broker, agent-session, agent-start, sshd_config installed"
+step "$root: omp $omp_pin (old versions removed), pin.sb, bin/, gh-broker, agent-session, agent-start, sshd_config installed"
 
 install -d -m 711 -o "$owner" -g wheel "$root/run"
 
@@ -116,7 +133,7 @@ chmod 600 "$root/ssh_host_ed25519_key"
 chmod 644 "$root/ssh_host_ed25519_key.pub"
 step "agent sshd host key: $root/ssh_host_ed25519_key"
 
-[[ -d $host_zone ]] || die "$host_zone does not exist; run host/bin/ug-setup first"
+[[ -d $data ]] || die "$data does not exist; run host/bin/ug-setup first"
 install -d -m 700 -o "$owner" -g staff "$key_dir"
 if [[ ! -f $owner_key ]]; then
   ssh-keygen -q -t ed25519 -N '' -C ug-agent -f "$owner_key"
@@ -146,21 +163,21 @@ vet_item() {
 
 stage_config() {
   local cfg gateway gateway_token stage name item secrets value token_file repo base n found
-  cfg=$(sed -n '1p' "$host_zone/config-repo" 2>/dev/null) || true
-  [[ -n $cfg ]] || die "no config repo: $host_zone/config-repo names none"
+  cfg=$(sed -n '1p' "$data/config-repo" 2>/dev/null) || true
+  [[ -n $cfg ]] || die "no config repo: $data/config-repo names none"
   cfg=${cfg/#\~/$owner_home}
   [[ -d $cfg && ! -L $cfg ]] || die "the config repo $cfg is not a folder"
-  gateway=$(sed -n 's/^gateway=//p' "$host_zone/addresses" 2>/dev/null) || true
-  [[ $gateway == *:* ]] || die "the addresses file $host_zone/addresses has no gateway=<address>:<port> line"
-  gateway_token=$({ tr -d '[:space:]' <"$host_zone/auth/auth-gateway.token"; } 2>/dev/null) || gateway_token=""
-  [[ $gateway_token =~ ^[A-Za-z0-9._~+=-]{12,}$ ]] || die "$host_zone/auth/auth-gateway.token is missing or has characters the config cannot hold"
+  gateway=$(sed -n 's/^gateway=//p' "$data/addresses" 2>/dev/null) || true
+  [[ $gateway == *:* ]] || die "the addresses file $data/addresses has no gateway=<address>:<port> line"
+  gateway_token=$({ tr -d '[:space:]' <"$auth_root/auth-gateway.token"; } 2>/dev/null) || gateway_token=""
+  [[ $gateway_token =~ ^[A-Za-z0-9._~+=-]{12,}$ ]] || die "$auth_root/auth-gateway.token is missing or has characters the config cannot hold"
   stage=$(mktemp -d) || die "cannot make a temp folder for the config"
   cleanup+=("$stage")
   mkdir "$stage/repo" "$stage/out"
   git -c "safe.directory=$cfg" -C "$cfg" archive --format=tar HEAD | tar -x -C "$stage/repo" || die "cannot read the last commit of the config repo $cfg"
   secrets=$stage/secrets
   : >"$secrets"
-  for token_file in "$host_zone/auth/auth-broker.token" "$host_zone/auth/auth-gateway.token"; do
+  for token_file in "$auth_root/auth-broker.token" "$auth_root/auth-gateway.token"; do
     value=$({ tr -d '[:space:]' <"$token_file"; } 2>/dev/null) || value=""
     [[ ${#value} -lt 12 ]] || printf '%s\n' "$value" >>"$secrets"
   done
@@ -220,17 +237,15 @@ launchctl bootout system/com.underground.agent-sshd >/dev/null 2>&1 || true
 launchctl bootstrap system "$plist" || die "launchctl could not load $plist"
 step "agent sshd: 127.0.0.1:2222, loaded from $plist"
 
-agent_dir=$sys/agent
-install -d -m 700 -o "$owner" -g staff "$agent_dir" "$agent_dir/bin" "$agent_dir/lib" "$sys/bin"
+agent_dir=$data/agent
+install -d -m 700 -o "$owner" -g staff "$agent_dir" "$agent_dir/bin" "$agent_dir/lib"
+[[ -d $bin_dir ]] || install -d -m 755 -o "$owner" -g staff "$bin_dir"
 install -m 555 -o "$owner" -g staff "$src/host/bin/ug-agent" "$agent_dir/bin/ug-agent"
 install -m 444 -o "$owner" -g staff "$src/host/lib/ug.bash" "$agent_dir/lib/ug.bash"
-ln -sfn "$agent_dir/bin/ug-agent" "$sys/bin/ug-agent"
-chown -h "$owner" "$sys/bin/ug-agent"
-step "ug-agent: on PATH as $sys/bin/ug-agent"
-
-ln -sfn "$agent_dir/bin/ug-agent" "$sys/bin/omp"
-chown -h "$owner" "$sys/bin/omp"
-step "omp on PATH: $sys/bin/omp, the agent's launcher"
+[[ ! -e $bin_dir/omp || -L $bin_dir/omp ]] || die "$bin_dir/omp is a file, not setup's link; move it away, then run setup again"
+ln -sfn "$agent_dir/bin/ug-agent" "$bin_dir/omp"
+chown -h "$owner" "$bin_dir/omp"
+step "omp on PATH: $bin_dir/omp, the agent's launcher"
 
 install -m 555 -o root -g wheel "$src/host/agent/agent-home-tar" "$root/bin/agent-home-tar"
 sudoers_tmp=$(mktemp) || die "cannot make a temp file for the backup sudoers rule"

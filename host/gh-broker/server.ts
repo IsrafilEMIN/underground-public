@@ -68,7 +68,7 @@ function defaultGitPath(): string {
 }
 
 export function defaultConfig(): ServerConfig {
-  const host = join(HOME, ".ug/host");
+  const host = join(HOME, ".local/share/underground");
   return {
     socketPath: "/Library/Underground/run/gh-broker.sock",
     reposRoot: join(host, "gh-broker/repos"),

@@ -22,8 +22,8 @@ export type UsageReply = { status: number; etag?: string; body?: string };
 
 export function defaultConfig(): UsageBrokerConfig {
   return {
-    addressesFile: join(homedir(), ".ug/host/addresses"),
-    gatewayTokenFile: join(homedir(), ".ug/host/auth/auth-gateway.token"),
+    addressesFile: join(homedir(), ".local/share/underground/addresses"),
+    gatewayTokenFile: join(homedir(), ".omp/profiles/ug-auth/auth-gateway.token"),
     fetchImpl: fetch,
   };
 }

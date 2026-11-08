@@ -7,16 +7,16 @@
   <key>ProgramArguments</key>
   <array>
     <string>/opt/homebrew/bin/node</string>
-    <string>@SYS@/services/host/gh-broker/server.ts</string>
+    <string>@DATA@/services/host/gh-broker/server.ts</string>
   </array>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
   <true/>
   <key>StandardOutPath</key>
-  <string>@HOME@/.ug/host/gh-broker/gh-broker.log</string>
+  <string>@DATA@/gh-broker/gh-broker.log</string>
   <key>StandardErrorPath</key>
-  <string>@HOME@/.ug/host/gh-broker/gh-broker.log</string>
+  <string>@DATA@/gh-broker/gh-broker.log</string>
   <key>EnvironmentVariables</key>
   <dict>
     <key>PATH</key>
