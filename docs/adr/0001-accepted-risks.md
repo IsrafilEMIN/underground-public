@@ -2,11 +2,11 @@
 
 Date: 2026-10-30. Owner decision.
 
-Holds under the redesign (2026-11-02, `../PRODUCT-BRIEF.md`). Every session uses one allowlist, `host/network-allowlist` in the owner's checkout (until 2026-11-03 it sat at `host/roles/network-allowlist`). Roles no longer differ in reach (`0011-one-agent-arena.md`). A per-repo allowlist is deferred.
+Holds under the redesign (2026-11-02, `../PRODUCT-BRIEF.md`). Every session used one allowlist, `host/network-allowlist` in the owner's checkout; step 4 of `0016-agent-user.md` removed it (2026-11-08, `0016-agent-user.md:75`). Until 2026-11-03 it sat at `host/roles/network-allowlist`. Roles no longer differ in reach (`0011-one-agent-arena.md`). A per-repo allowlist is deferred.
 
 We accept one irreversible risk: U14, the agent can send data that it can read to a destination on the srt allowlist. Every role uses one allowlist (amendment below), and we keep a destination only when a step of some role needs it. A second came on 2026-11-03: the host runs underground from the live checkout (amendment "the live checkout").
 
-- The gh-broker flow needs no allowlist entry: the client talks to the gh-broker over a Unix socket and imports a bundle (`send` and `importSync`, `host/gh-broker/client.ts:103` to `:136`); the host fetches from GitHub (`handleSync`, `host/gh-broker/server.ts:231`).
+- The gh-broker flow needs no allowlist entry: the client talks to the gh-broker over a Unix socket and imports a bundle (`send` and `importSync`, `host/gh-broker/client.ts:179` and `:199`); the host fetches from GitHub (`handleSync`, `host/gh-broker/server.ts:226`).
 - After B9, model calls go to the auth gateway, so the model provider domains leave the list.
 - Kept by the owner for every role: the tailscale entry of the auth gateway (B6), `github.com` (reading public code), web search (`html.duckduckgo.com`, `www.perplexity.ai`, `api.perplexity.ai`), and `registry.npmjs.org` (package installs). The inference engine left the list on 2026-11-01; roles reach it through the gateway (`0005-model-auth-gateway.md`). Any request to these destinations can carry data to the service. With a token, a push to an attacker repo or a package publish can carry data to an attacker. Rejected: no web search for reviewers; a reviewer then cannot look up a CVE or an API change.
 
@@ -34,4 +34,4 @@ Rejected: setup copies the host code at a commit into the owner zone and points 
 
 Owner decision, 2026-11-07. Once the box is built, the mac runs underground from a copy that setup installs from a merged `main` commit into a folder that only setup writes, not from the owner's checkout (`0015-box-layout.md`). The "live checkout" acceptance then ends: a checkout of an agent branch in the owner's folder runs nothing on the mac. An update is `git pull`, then setup.
 
-2026-11-07: built. Setup installs the copy (`install_ug_box`, `install_service_code`, `host/bin/ug-setup:199-225`); `ug-auth` joined it last, in PR #92 (commit 5338e47).
+2026-11-07: built. Setup installs the copy (`install_service_code`, `host/bin/ug-setup:161`); `ug-auth` joined it last, in PR #92 (commit 5338e47).

@@ -37,7 +37,7 @@ Keep it as simple as possible, as complicated as needed.
 
 Read `origin` with `git remote get-url origin`. Extract `<owner/repo>` from its GitHub SSH or HTTPS URL, without `.git`. Use that value in every command below. Do not copy a repo name from another checkout.
 
-Each session starts in its own worktree on a `wt/<timestamp>` branch, which omp made from the arena clone's `origin/main` at start and removes at exit when nothing is in it. Read the branch with `git branch --show-current`. If the cwd is the arena clone and not a `wt/*` worktree, stop and tell the owner: `/wt` moves the session into one. Never check out, commit, or edit in the clone, and do not touch the worktrees of other sessions.
+Each session starts in its own worktree on a `wt/<timestamp>` branch, which omp made from the clone's `origin/main` at start and removes at exit when nothing is in it. The clone is the agent user's `~/work/<owner>/<repo>` (`host/agent/agent-start`). Read the branch with `git branch --show-current`. If the cwd is the clone and not a `wt/*` worktree, stop and tell the owner: `/wt` moves the session into one. Never check out, commit, or edit in the clone, and do not touch the worktrees of other sessions.
 
 1. Commit in your worktree.
 2. Push: `gh-broker push <owner/repo> wt/<name>`.
@@ -57,4 +57,4 @@ Mark each claim in a doc, a commit message, a PR body, or a review reason with a
 
 Give host commands one per line, without `#` comments.
 
-The owner never runs host tools (git, editors, direnv) in the arena `~/.ug/home`: agents write all of it, and the arena wrapper refuses to start there. Agent work reaches the owner only through GitHub.
+The owner never runs host tools (git, editors, direnv) in the agent user's home `/Users/ugagent`: agents write all of it. Agent work reaches the owner only through GitHub.

@@ -277,13 +277,13 @@ stage "Install the gh-broker and check it"
 say "Setup installs the gh-broker from this checkout, $SCRIPT_CHECKOUT, and restarts it."
 confirm "Run setup now?" || { SKIPPED+=("Run: $SCRIPT_CHECKOUT/host/bin/ug-setup, then in an omp session: gh-broker sync $REPO"); finish; exit 1; }
 "$SCRIPT_CHECKOUT/host/bin/ug-setup"
-GH_BROKER_SOCKET="$HOME/.ug/run/gh-broker.sock"
+GH_BROKER_SOCKET=/Library/Underground/run/gh-broker.sock
 if [[ ! -S $GH_BROKER_SOCKET ]]; then
-  SKIPPED+=("The gh-broker socket $GH_BROKER_SOCKET is missing; check the launchd job com.underground.gh-broker, then run in your checkout: UG_GH_BROKER_SOCKET=$GH_BROKER_SOCKET ~/.ug/sys/agent-bin/gh-broker sync $REPO")
+  SKIPPED+=("The gh-broker socket $GH_BROKER_SOCKET is missing; check the launchd job com.underground.gh-broker, then run in your checkout: /Library/Underground/bin/gh-broker sync $REPO")
   finish
   exit 1
 fi
-(cd "$CHECKOUT" && UG_GH_BROKER_SOCKET="$GH_BROKER_SOCKET" "$HOME/.ug/sys/agent-bin/gh-broker" sync "$REPO")
+(cd "$CHECKOUT" && /Library/Underground/bin/gh-broker sync "$REPO")
 say "A pass: the sync above prints 'origin/main is now <commit>', so the gh-broker got an app token for $REPO."
 SKIPPED+=("Onboarding check 4: open https://github.com/settings/apps/$APP_SLUG/permissions and https://github.com/settings/installations, and confirm the app's permissions and repos")
 

@@ -1,21 +1,21 @@
 # underground
 
-A safe environment for the omp coding agent on one macOS laptop: the owner designs with it, and it implements ready tickets on its own, up to the merge. The design is in `docs/PRODUCT-BRIEF.md`. Where a term names a place that a build item in `docs/SPEC.md` moves, the term gives the new place and the build id. The architecture is being redesigned (`AGENTS.md`, "Redesign phase"). Terms marked (removed, #90) named the srt design, which commit 54a418a1 removed on 2026-11-07. Terms marked (removed) named the box, which step 4 of `docs/adr/0016-agent-user.md` removed on 2026-11-08. Sessions run as the agent user (`docs/adr/0016-agent-user.md`).
+A safe environment for the omp coding agent on one macOS laptop: the owner designs with it, and it implements ready tickets on its own, up to the merge. The design is in `docs/PRODUCT-BRIEF.md`. Where a term names a place that a build item in `docs/SPEC.md` moves, the term gives the new place and the build id. The architecture is being redesigned (`AGENTS.md`, "Redesign phase"). Terms marked (removed, #90) named parts of the srt design, which commit 54a418a1 removed on 2026-11-07. Terms marked (removed) named the box, which step 4 of `docs/adr/0016-agent-user.md` removed on 2026-11-08. Sessions run as the agent user (`docs/adr/0016-agent-user.md`).
 
 ## Language
 
 ### Places
 
 **Sandbox** (removed, #90):
-The single boundary that srt drew around the omp process. Commit 54a418a1 removed it; the box replaces it (`Box`).
+The single boundary that srt drew around the omp process. Commit 54a418a1 removed it; the box replaced it (`Box`, removed in step 4 of `docs/adr/0016-agent-user.md`).
 _Avoid_: jail, container, lock
 
 **Host**:
-The owner's macOS user session outside the sandbox. Only the owner runs commands on the host.
+The owner's macOS user session, apart from the agent user. Only the owner runs commands on the host.
 _Avoid_: outside, plain terminal (as a place)
 
 **Arena** (removed, #90):
-The agent's one home under the srt design, `~/.ug/home`. Commit 54a418a1 removed it. The box's home is the volume `ug-box-home`, mounted as `/home/agent` (`host/bin/ug-box`).
+The agent's one home under the srt design, `~/.ug/home`. Commit 54a418a1 removed it. The box's home was the volume `ug-box-home`, mounted as `/home/agent` (`host/bin/ug-box`, removed in step 4 of `docs/adr/0016-agent-user.md`).
 _Avoid_: workspace, sandbox dir, role home, write area
 
 **Owner zone**:
@@ -23,7 +23,7 @@ The folder `~/.ug/sys`: the pinned omp binary, the pinned restic, and `bin/omp`,
 _Avoid_: install dir, owner part
 
 **Sockets folder**:
-The folder `~/.ug/run`: the egress socket `egress.sock` (`host/bin/ug-box:16-17`). The box can use only the two sockets it is given, and cannot write the folder, so it cannot plant a socket or a link here. The gh-broker socket is not here; it is in `/Library/Underground/run`.
+The folder `~/.ug/run`, made by setup (`host/bin/ug-setup:78`). Its egress socket went with the box and the egress guard. The gh-broker socket is not here; it is in `/Library/Underground/run` (`host/gh-broker/server.ts:73`).
 _Avoid_: run dir, socket dir
 
 **Agent user**:
@@ -31,31 +31,31 @@ The macOS user `ugagent`, standard and hidden, that runs omp for the sessions af
 _Avoid_: agent account, bot user
 
 **Host zone**:
-The folder `~/.ug/host`: everything the sandbox gets nothing of. The gh-broker app's private key, the auth broker's own root with the model logins, the gh-broker's records, and the owner's hand-edited gh-broker files, such as the addresses file (owner decision, 2026-11-03). Setup moved them there from `~/.agents/broker`, `~/.config/underground-broker`, and `~/.omp` (`docs/SPEC.md`, B6 and B7).
+The folder `~/.ug/host`: everything the agent user gets nothing of. The gh-broker app's private key, the auth broker's own root with the model logins, the gh-broker's records, and the owner's hand-edited gh-broker files, such as the addresses file (owner decision, 2026-11-03). Setup moved them there from `~/.agents/broker`, `~/.config/underground-broker`, and `~/.omp` (`docs/SPEC.md`, B6 and B7).
 _Avoid_: vault, keys dir
 
 **Owner's zone**:
-Everything outside `~/.ug`: the owner's checkouts, the config repo, `~/.ssh`, `~/Library`, and the rest of the home. The sandbox gets nothing here.
+Everything outside `~/.ug`: the owner's checkouts, the config repo, `~/.ssh`, `~/Library`, and the rest of the home. The agent user gets nothing here.
 _Avoid_: host files, user space
 
 **Owner's checkout**:
-The owner's own Git checkout of a repo, in the owner's zone. The box never mounts it. Setup runs from underground's checkout and copies the code that the services and the box need into `~/.ug/sys` (`install_ug_box`, `install_service_code`, `host/bin/ug-setup:199-225`).
+The owner's own Git checkout of a repo, in the owner's zone. Setup runs from underground's checkout and copies the code that the services need into `~/.ug/sys/services` (`install_service_code`, `host/bin/ug-setup:161-172`).
 _Avoid_: repo folder, main checkout, primary checkout
 
 **Arena clone** (removed, #90):
-The agent's clone of one repo in the removed arena, `~/.ug/home/work/<owner>/<repo>` (commit 54a418a1). In the box, `box/ug-session` clones the repo into `~/work/<owner>/<repo>` (`clone=$HOME/work/$UG_REPO`, `box/ug-session:11`).
+The agent's clone of one repo in the removed arena, `~/.ug/home/work/<owner>/<repo>` (commit 54a418a1). The agent user clones the repo into `$HOME/work/$UG_REPO` (`host/agent/agent-start:41`).
 _Avoid_: task clone, copy, mirror
 
 **Agent worktree**:
-A Git worktree that a session makes for itself from its clone, on its own `wt/<timestamp>` branch, under omp's default worktree folder `~/.omp/wt` in the box home (`AGENTS.md`, "Work a change"; this session's cwd, `/home/agent/.omp/wt/wt-20261107-214617-1388904`, 2026-11-07). Everything in it is agent-written. Other sessions can write it too.
+A Git worktree that a session makes for itself from its clone, on its own `wt/<timestamp>` branch, under omp's default worktree folder `~/.omp/wt` [inference] in the agent user's home `/Users/ugagent` (`AGENTS.md`, "Work a change"). Everything in it is agent-written. Other sessions can write it too.
 _Avoid_: ticket worktree, workspace
 
 **Omp root**:
-omp's default root, `~/.omp`. In the box it sits in the home volume at `/home/agent/.omp`, and `box/ug-config` swaps the config names into `~/.omp/agent` at each start (`host/bin/ug-box`, `box/ug-config`). omp runs on it unchanged, on its default profile.
+omp's default root, `~/.omp`. For the agent user it is `/Users/ugagent/.omp`, and `host/agent/agent-start:28-32` copies the config names from `/Library/Underground/config` into `~/.omp/agent` at each start. omp runs on it unchanged, on its default profile.
 _Avoid_: role home, profile, owner part
 
 **Config repo**:
-The owner's private repo of agent configs, `~/Developer/Projects/agent-config` (moved from `~/Developer/agent-config`, owner in chat, 2026-11-08), in the owner's zone, named in `~/.ug/host/config-repo`: `AGENTS.md`, skills, hooks, `config.yml`, `models.yml` with the gateway markers, and other settings, laid out like omp's `~/.omp/agent`. It holds what the agent does inside the walls; underground holds the walls, such as the network allowlist. It holds no secret: `ug-box` refuses to start on a link, a special file, or a token in it (`host/bin/ug-box`, `box_config`). The owner's local folder is the source of truth; GitHub keeps a private backup. `ug-box` takes its last commit at each start, and `box/ug-config` swaps its names into the box's `~/.omp/agent`, so a change that the agent makes to its config lasts until the next start (`docs/SPEC.md`, B3).
+The owner's private repo of agent configs, `~/Developer/Projects/agent-config` (moved from `~/Developer/agent-config`, owner in chat, 2026-11-08), in the owner's zone, named in `~/.ug/host/config-repo`: `AGENTS.md`, skills, hooks, `config.yml`, `models.yml` with the gateway markers, and other settings, laid out like omp's `~/.omp/agent`. It holds what the agent does inside the walls; underground holds the walls. It holds no secret: `ug-agent-setup` refuses to stage a link, a special file, or a token in it (`vet_item`, `host/bin/ug-agent-setup:138-145`). The owner's local folder is the source of truth; GitHub keeps a private backup. `ug-agent-setup` stages it at each setup (`stage_config`, `host/bin/ug-agent-setup:147-210`), and `host/agent/agent-start` copies its names into the agent user's `~/.omp/agent` at each start (`host/agent/agent-start:28-32`), so a change that the agent makes to its config lasts until the next start.
 _Avoid_: dotfiles, role config
 
 **Skill repo**:
@@ -81,7 +81,7 @@ _Avoid_: reset, wipe, reinstall
 ### Running omp
 
 **Wrapper** (removed, #90):
-The `omp` command of the srt design, which commit 54a418a1 removed. `ug-box` is now the `omp` on `PATH` (`host/bin/ug-setup:185`).
+The `omp` command of the srt design, which commit 54a418a1 removed. The agent's `omp` is now `~/.ug/sys/bin/omp`, a link to `ug-agent` (`host/bin/ug-agent-setup:228-229`).
 _Avoid_: launcher, omp-srt
 
 **Clean environment** (removed, #90):
@@ -93,19 +93,19 @@ A version and a SHA-256 in `VERSIONS`. The omp pin names the release file `omp-d
 _Avoid_: lock, current version
 
 **Raw omp**:
-The pinned omp binary started by its full path, outside the box. Its home `~/.omp` holds no login and no token. Setup writes its `~/.omp/agent/config.yml` from the config repo's `raw-omp/config.yml`, whose `disabledProviders` line turns off the keyless built-in providers (`install_raw_config`, `host/bin/ug-setup:227-239`). The removed wrapper also rewrote that file at each start (commit 54a418a1). Its logins sit in `~/.ug/host/auth`, not in `~/.omp`. So it cannot call a model. The removed probe asked it for every model that it could call (`scripts/probe-arena.sh`, commit 54a418a1); nothing runs that check now.
+The pinned omp binary started by its full path, outside any session. Its home `~/.omp` holds no login and no token. Setup writes its `~/.omp/agent/config.yml` from the config repo's `raw-omp/config.yml`, whose `disabledProviders` line turns off the keyless built-in providers (`install_raw_config`, `host/bin/ug-setup:174-186`). The removed wrapper also rewrote that file at each start (commit 54a418a1). Its logins sit in `~/.ug/host/auth`, not in `~/.omp`. So it cannot call a model. The removed probe asked it for every model that it could call (`scripts/probe-arena.sh`, commit 54a418a1); nothing runs that check now.
 _Avoid_: plain omp, unwrapped session
 
 **ug-auth**:
 The owner's command for the auth services: the pinned omp with its root in `~/.ug/host/auth`, limited to `auth-broker` and `auth-gateway`, for example `ug-auth auth-broker login anthropic` or `ug-auth auth-broker token --regenerate`. Setup links it as `~/.ug/sys/bin/ug-auth`.
 _Avoid_: raw omp, admin omp
 
-**Arena backup** (now the agent home backup):
+**Agent home backup** (was the arena backup):
 The daily restic snapshot of the agent home `/Users/ugagent`, minus `.cache` and `node_modules`, in one repo on the owner's other machine (launchd `com.underground.backup`, `host/bin/ug-backup`, settings in `~/.ug/host/backup/config`). The tar stream is read through the root helper `/Library/Underground/bin/agent-home-tar` (`host/agent/agent-home-tar`). It keeps every snapshot, so harm to the home can be undone (`docs/SPEC.md`, B10).
 _Avoid_: archive, sync, Time Machine
 
 **Setup**:
-The host script that does what `git pull` cannot: install the pinned omp and restic, make the zones and their modes, make the backup password, register and restart the launchd services, and write the raw omp's config. At its end it runs `sudo host/bin/ug-agent-setup`, which asks for the owner's password and installs the agent user, its omp link, and the backup helper. It runs the `[mac]` tests first (`host/bin/ug-setup:82-86`). It runs when a pin changes, a host service changes, or macOS updates. It replaces the install (`docs/adr/0012-pinned-omp-and-setup.md`).
+The host script that does what `git pull` cannot: install the pinned omp and restic, make the zones and their modes, make the backup password, register and restart the launchd services, and write the raw omp's config. At its end it runs `sudo host/bin/ug-agent-setup`, which asks for the owner's password and installs the agent user, its omp link, and the backup helper. It runs the `[mac]` tests first (`host/bin/ug-setup:63`, called at line 75). It runs when a pin changes, a host service changes, or macOS updates. It replaces the install (`docs/adr/0012-pinned-omp-and-setup.md`).
 _Avoid_: install, installer, bootstrap
 
 **Preflight** (removed, #90):
@@ -113,11 +113,11 @@ The macOS build check of the removed wrapper: at each start, the build must be t
 _Avoid_: health check, doctor, self-test
 
 **Crossing**:
-A way into or out of the box: code out, model calls, `/usage`, web out, config in, repos in, unix sockets, localhost, and merge effects. Each crossing has one control (`docs/PRODUCT-BRIEF.md`, principle 4).
+A way into or out of the agent's sessions: code out, model calls, `/usage`, web out, config in, repos in, unix sockets, localhost, and merge effects. Each crossing has one control (`docs/PRODUCT-BRIEF.md`, principle 4).
 _Avoid_: hole, exception, bypass
 
-**Network allowlist**:
-The network destinations of every session, one per line in `host/network-allowlist` in the owner's checkout of underground. Setup copies the file to `~/.ug/sys/egress` (`install_egress`, `host/bin/ug-setup:193`), and the egress door allows a site by its name on 443 and the `.internal` names on their ports (`host/egress/rules.ts`). A tailscale entry names the address and the port of one service, never the bare address. The template names the auth gateway as `@GATEWAY@`; the egress door maps the name `gateway.internal` to the gateway's port (`host/egress/rules.ts:15-17`). Its entries: the auth gateway, `github.com`, the web search domains, and `registry.npmjs.org`.
+**Network allowlist** (removed):
+The list of network sites that sessions could reach, in `host/network-allowlist`. The file is gone (removed in step 4, `docs/adr/0016-agent-user.md:75`), and there is no network wall now, by owner decision (`docs/THREAT-MODEL.md:37`).
 _Avoid_: domain list, egress list
 
 ### GitHub and the merge
@@ -127,7 +127,7 @@ The host service that does GitHub operations for the sessions (launchd `com.unde
 _Avoid_: broker (alone), agent-gh, proxy
 
 **Reviewer role**:
-One of `code-review`, `security-review`, and `risk-review`. A reviewer is a skill from the config repo, not a separate session: any omp session can run it, with the arena and the trust level of every other session. It reads the PR with `gh-broker sync <owner/repo> --pr <n>`, which fetches the head into the repo of the current folder, and writes its verdict with `gh-broker review`, which names the role. It is a quality step, not a safety wall (`docs/adr/0011-one-agent-arena.md`).
+One of `code-review`, `security-review`, and `risk-review`. A reviewer is a skill from the config repo, not a separate session: any omp session can run it, with the same home and trust level as every other session. It reads the PR with `gh-broker sync <owner/repo> --pr <n>`, which fetches the head into the repo of the current folder, and writes its verdict with `gh-broker review`, which names the role. It is a quality step, not a safety wall (`docs/adr/0011-one-agent-arena.md`).
 _Avoid_: reviewer session, review agent, bug bot, security bot
 
 **Review verdict**:
@@ -173,7 +173,7 @@ The host service `omp auth-broker serve` (launchd `com.underground.auth-broker`,
 _Avoid_: credential store, vault
 
 **Auth gateway**:
-The host service `omp auth-gateway serve` (launchd `com.underground.auth-gateway`) on the tailscale address of this mac, the `gateway=` line of the addresses file. It makes model calls for the sandbox with the logins of the auth broker. Every call needs the gateway bearer.
+The host service `omp auth-gateway serve` (launchd `com.underground.auth-gateway`) on the tailscale address of this mac, the `gateway=` line of the addresses file. It makes model calls for the sessions with the logins of the auth broker. Every call needs the gateway bearer.
 _Avoid_: model proxy, LLM proxy
 
 **Usage broker**:
@@ -185,7 +185,7 @@ The shared token that lets a session use the auth gateway. It authorizes every s
 _Avoid_: client token, API key, gateway key
 
 **Gateway provider**:
-A provider in a session's `models.yml`, with `transport: pi-native`, `baseUrl` the auth gateway, and `apiKey` the gateway bearer. In the box, `ug-box` writes the placeholder `ug-placeholder` as the key (`host/bin/ug-box:84`), and the egress door adds the bearer. Each model setting of a session names a model of a gateway provider.
+A provider in a session's `models.yml`, with `transport: pi-native`, `baseUrl` the auth gateway, and `apiKey` the gateway bearer. Setup fills `@GATEWAY@` and `@GATEWAY_TOKEN@` into the staged `models.yml` (`host/bin/ug-agent-setup:202`). Each model setting of a session names a model of a gateway provider.
 _Avoid_: proxy provider
 
 **Inference engine**:
@@ -199,11 +199,11 @@ _Avoid_: address config, hosts file
 ### Decisions
 
 **Agent-written**:
-Describes any file, branch, or setting that the agent could change: everything in its home, the box's `ug-box-home` volume. Treat it as untrusted until the owner reviews it on GitHub.
+Describes any file, branch, or setting that the agent could change: everything in its home, `/Users/ugagent`. Treat it as untrusted until the owner reviews it on GitHub.
 _Avoid_: local work, dirty
 
 **One trust level**:
-Every role shares the arena and can change what another role loads. The reviewers improve quality; they are not a safety wall. The onboarding checks keep a merge reversible instead (`docs/adr/0011-one-agent-arena.md`).
+Every role shares the agent user's home and can change what another role loads. The reviewers improve quality; they are not a safety wall. The onboarding checks keep a merge reversible instead (`docs/adr/0011-one-agent-arena.md`).
 _Avoid_: role isolation, shared trust
 
 **Accepted risk**:
@@ -231,10 +231,10 @@ _Avoid_: later, backlog, v1
 These terms name parts of the first design. The ADRs from before 2026-11-02 use them.
 
 - **Repo folder**: now the owner's checkout. The agent no longer works in it.
-- **Repo id**, **worktree folder**, **session folder**, **cache root**: omp's default paths in the arena replace them.
-- **Write area**: now the arena.
+- **Repo id**, **worktree folder**, **session folder**, **cache root**: omp's default paths in the arena (removed, #90) replaced them.
+- **Write area**: was the arena, removed in #90.
 - **Owner part**, **role policy**: omp runs unchanged on its default root, with no pins (`docs/adr/0002-role-homes.md`, superseded).
 - **Role rules**: now a skill in the config repo.
-- **Reviewer store**: reviewers read the PR in the arena clone.
+- **Reviewer store**: reviewers read the PR in the arena clone (removed, #90).
 - **Install record**: setup replaces the install, and `git status` shows a changed file (`docs/adr/0012-pinned-omp-and-setup.md`).
-- **Session container**, **state layer**: one home in the box, with no container per session (`docs/adr/0015-box-layout.md`).
+- **Session container**, **state layer**: one home in the box (removed 2026-11-08), with no container per session (`docs/adr/0015-box-layout.md`).
