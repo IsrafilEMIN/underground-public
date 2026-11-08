@@ -27,6 +27,7 @@ async function owner(t: { after: (fn: () => unknown) => void }) {
   spawnSync("git", ["-C", repo, "remote", "add", "origin", "https://github.com/owner/app.git"]);
   const bin = join(home, "stubs");
   await mkdir(bin);
+  await stub(bin, "nc", "exit 0");
   return { home, repo, bin };
 }
 
@@ -61,6 +62,17 @@ test("ug-agent refuses when the owner home is not mode 700", async (t) => {
   const r = runAgent(o, ["ls"]);
   assert.equal(r.status, 1, r.stderr);
   assert.match(r.stderr, /not mode 700/);
+});
+
+test("ug-agent says the agent sshd does not answer, and runs no ssh, when nothing listens on port 2222", async (t) => {
+  const o = await owner(t);
+  await stub(o.bin, "launchctl", "exit 1");
+  await stub(o.bin, "nc", "exit 1");
+  await stub(o.bin, "ssh", `echo ran > ${join(o.home, "ssh-ran")}`);
+  const r = runAgent(o, ["ls"]);
+  assert.equal(r.status, 1, r.stderr);
+  assert.match(r.stderr, /agent sshd on 127\.0\.0\.1:2222 does not answer/);
+  await assert.rejects(readFile(join(o.home, "ssh-ran")));
 });
 
 const noSshd = !existsSync("/usr/sbin/sshd") && "needs /usr/sbin/sshd";
@@ -226,8 +238,14 @@ test(
     await writeFile(`${bin}.sha256`, `${createHash("sha256").update(await readFile(bin)).digest("hex")}\n`);
     const syncFailed = run(inRepo);
     assert.equal(syncFailed.status, 69);
-    assert.match(syncFailed.stderr, /gh-broker sync owner\/repo failed/);
+    assert.match(syncFailed.stderr, /gh-broker sync owner\/repo failed: is the gh-broker app installed/);
     assert.doesNotMatch(syncFailed.stdout, /OMP_RAN/);
+
+    await writeFile(join(root, "bin/gh-broker"), "#!/bin/sh\nexit 69\n");
+    const brokerDown = run(inRepo);
+    assert.equal(brokerDown.status, 69);
+    assert.match(brokerDown.stderr, /gh-broker sync owner\/repo failed: the gh-broker does not answer/);
+    assert.doesNotMatch(brokerDown.stdout, /OMP_RAN/);
 
     await mkdir(join(root, "config"));
     await writeFile(join(root, "config/models.yml"), "x\n");

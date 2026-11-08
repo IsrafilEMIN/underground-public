@@ -21,6 +21,14 @@ die() {
   exit 1
 }
 
+restic_hint() {
+  case $1 in
+    11) printf ', which can mean the repo is locked by another restic or a stale lock' ;;
+    12) printf ', which can mean a wrong password' ;;
+    130) printf ', which means it was cancelled' ;;
+  esac
+}
+
 [[ -n $restic_pin && -x $restic_bin ]] || die "the pinned restic $restic_bin is missing; run host/bin/ug-setup"
 [[ -s $backup/password ]] || die "the backup password $backup/password is missing; run host/bin/ug-setup"
 [[ -f $config ]] || die "no $config; write its repo=, wake=, and sleep= lines (docs/SPEC.md, B10)"
@@ -33,25 +41,28 @@ backup_target_read "$config"
 backup_target_wake
 
 status=0
-"$restic_bin" -r "$repo" cat config >/dev/null 2>&1 || status=$?
+what="does not open"
+err=$("$restic_bin" -r "$repo" cat config 2>&1 >/dev/null) || status=$?
 if [[ $status -eq 10 ]]; then
-  if "$restic_bin" -r "$repo" init >/dev/null; then
-    log "made the repo $repo"
-    status=0
-  else
-    status=1
-  fi
+  status=0
+  what="cannot be made"
+  err=$("$restic_bin" -r "$repo" init 2>&1 >/dev/null) || status=$?
+  [[ $status -ne 0 ]] || log "made the repo $repo"
 fi
 if [[ $status -ne 0 ]]; then
-  log "the repo $repo does not open (restic exit $status)"
+  log "the repo $repo $what (restic exit $status$(restic_hint "$status")): ${err//$'\n'/ }"
 elif [[ ! -x $agent_tar ]]; then
   log "the agent home reader $agent_tar is missing; run: host/bin/ug-setup"
   status=1
 else
   "$restic_bin" -r "$repo" backup --quiet --tag ug-agent --stdin-filename ug-agent-home.tar --stdin-from-command -- sudo -n "$agent_tar"
   status=$?
-  [[ $status -ne 0 ]] || date +%s >"$backup/last"
-  [[ $status -eq 0 ]] || log "the agent home was not saved (restic exit $status); a failed read stores no snapshot"
+  if [[ $status -eq 0 ]]; then
+    date +%s >"$backup/last"
+    log "saved the agent home to $repo"
+  else
+    log "the agent home was not saved (restic exit $status$(restic_hint "$status")); a failed read stores no snapshot"
+  fi
 fi
 
 backup_target_sleep

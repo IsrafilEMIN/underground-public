@@ -43,4 +43,7 @@ if [[ -n $top ]]; then
   [[ -z $slug ]] || export UG_REPO=$slug
 fi
 
+ug_port_answers 127.0.0.1 2222 >/dev/null 2>&1 ||
+  die "the agent sshd on 127.0.0.1:2222 does not answer. Check it with: sudo launchctl print system/com.underground.agent-sshd. Run host/bin/ug-setup to load it again."
+
 exec ssh -tt -p 2222 -i "$key" -o IdentitiesOnly=yes -o UserKnownHostsFile="$known_hosts" -o StrictHostKeyChecking=yes -o LogLevel=ERROR -o SendEnv=UG_REPO ugagent@127.0.0.1 -- "$@"
