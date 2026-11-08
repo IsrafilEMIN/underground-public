@@ -135,7 +135,6 @@ install -m 600 -o "$owner" -g staff "$known_hosts.tmp" "$known_hosts"
 rm -f "$known_hosts.tmp"
 step "known_hosts for 127.0.0.1:2222: $known_hosts"
 
-# Dies when $1 holds a link, a special file, or a token. $2 is the archive root, cut from the path in a message; $3 names the repo; $4 lists the bearers.
 vet_item() {
   local item=$1 base=$2 what=$3 secrets=$4 odd leak
   odd=$(find "$item" \( -type l -o ! -type f ! -type d \) -print 2>/dev/null | head -1) || true

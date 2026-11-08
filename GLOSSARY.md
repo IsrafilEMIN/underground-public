@@ -59,7 +59,7 @@ The owner's private repo of agent configs, `~/Developer/Projects/agent-config` (
 _Avoid_: dotfiles, role config
 
 **Skill repo**:
-An owner's repo of skills kept apart from the config repo, named one per line in the optional `~/.ug/host/skill-repos`. Setup takes its last commit, keeps each folder with a `SKILL.md` at its top or under `skills/`, refuses a link, a special file, or a token in it, and adds those folders to the config's `skills/`. A name that the config repo or an earlier skill repo already has stops setup (`stage_config`, `host/bin/ug-agent-setup:175-201`).
+An owner's repo of skills kept apart from the config repo, named one per line in the optional `~/.ug/host/skill-repos`. Setup takes its last commit, keeps each folder with a `SKILL.md` at its top or under `skills/`, refuses a link, a special file, or a token in it, and adds those folders to the config's `skills/`. A name that the config repo or an earlier skill repo already has stops setup (`stage_config`, `host/bin/ug-agent-setup:174-200`).
 _Avoid_: skill pack, plugin
 
 **Box** (removed, 2026-11-08):
