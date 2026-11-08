@@ -146,21 +146,6 @@ link() {
   ln -s "$target" "$at"
 }
 
-install_links() {
-  local omp_at="$sys/bin/omp"
-  if [[ -L $omp_at && $(readlink "$omp_at") == "$sys/box/"* ]]; then rm -f "$omp_at"; fi
-  rm -f "$sys/bin/ug-box" "$sys/bin/ug-box-restore"
-  rm -rf "$sys/box" "$sys/egress" "$sys/srt" "$sys/agent-bin" "$sys/libexec" "$sys/broker" "$sys/arena" "$sys/bin/omp-arena" "$sys/macos-build"
-  printf 'links: removed the stale box, egress, and srt copies in %s\n' "$sys"
-}
-
-remove_egress_agent() {
-  local label=com.underground.egress
-  launchctl bootout "gui/$UID/$label" >/dev/null 2>&1 || true
-  rm -f "$agents_dir/$label.plist"
-  printf 'egress: the old agent %s is booted out and deleted\n' "$label"
-}
-
 install_service_code() {
   local dir="$sys/services" f
   rm -rf "$dir"
@@ -254,8 +239,6 @@ install_services() {
 
 install_omp
 install_restic
-install_links
-remove_egress_agent
 install_service_code
 setup_backup
 install_services
