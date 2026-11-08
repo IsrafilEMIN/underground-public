@@ -87,7 +87,7 @@ run_mac_only_tests() {
 run_mac_only_tests
 
 [[ -d $HOME/.ug ]] || install -d -m 700 "$HOME/.ug"
-install -d -m 700 "$sys" "$sys/omp" "$sys/srt" "$sys/restic" "$sys/bin" "$sys/agent-bin" "$sys/libexec" "$sys/broker" "$HOME/.ug/run"
+install -d -m 700 "$sys" "$sys/omp" "$sys/srt" "$sys/restic" "$sys/bin" "$HOME/.ug/run"
 
 install_omp() {
   local dir="$sys/omp/$omp_pin" dest tmp have url
@@ -179,21 +179,11 @@ link() {
   ln -s "$target" "$at"
 }
 
-install_arena_files() {
-  local shim
-  put "$src/host/arena/init" "$sys/libexec/ug-arena-init" 555
-  rm -rf "$sys/arena"
-  put "$src/host/broker/client.ts" "$sys/broker/client.ts" 444
-  put "$src/host/broker/protocol.ts" "$sys/broker/protocol.ts" 444
-  shim=$(mktemp "$sys/agent-bin/.shim.XXXXXX")
-  cleanup+=("$shim")
-  printf '#!/bin/sh\nexec '"'"'%s'"'"' '"'"'%s'"'"' "$@"\n' "$node_bin" "$sys/broker/client.ts" >"$shim"
-  put "$shim" "$sys/agent-bin/broker" 555
-  link "$sys/omp/$omp_pin/omp" "$sys/agent-bin/omp"
+install_links() {
   link "$sys/box/host/bin/ug-box" "$sys/bin/omp"
-  link "$src/host/bin/omp-arena" "$sys/bin/omp-arena"
   link "$src/host/bin/ug-auth" "$sys/bin/ug-auth"
-  printf 'arena files: installed in %s\n' "$sys"
+  rm -rf "$sys/agent-bin" "$sys/libexec" "$sys/broker" "$sys/arena" "$sys/bin/omp-arena" "$sys/macos-build"
+  printf 'links: omp and ug-auth on PATH in %s\n' "$sys/bin"
 }
 
 install_egress() {
@@ -244,16 +234,6 @@ install_raw_config() {
   fi
   write_raw_config "$repo"
   printf 'raw omp: %s/raw-omp/config.yml in ~/.omp/agent/config.yml\n' "$repo"
-}
-
-prove() {
-  local build
-  build=$(sw_vers -buildVersion) || die "sw_vers failed"
-  rm -f "$sys/macos-build"
-  printf 'proof: running scripts/probe-arena.sh on macOS build %s\n' "$build"
-  "$src/scripts/probe-arena.sh" || die "the probe failed, so no macOS build is recorded and the wrapper refuses to start; fix the failure and run ug-setup again"
-  printf '%s\n' "$build" >"$sys/macos-build"
-  printf 'proof: macOS build %s recorded in %s\n' "$build" "$sys/macos-build"
 }
 
 write_addresses() {
@@ -330,7 +310,7 @@ install_box_image() {
 install_omp
 install_srt
 install_restic
-install_arena_files
+install_links
 install_egress
 install_ug_box
 install_service_code
@@ -338,4 +318,3 @@ install_box_image
 setup_backup
 install_services
 install_raw_config
-prove
