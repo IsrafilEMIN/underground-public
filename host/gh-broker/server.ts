@@ -54,6 +54,7 @@ export type ServerConfig = {
   home: string;
   tempRoot: string;
   now?: () => number;
+  checkTimeoutMs?: number;
 };
 
 const HOME = homedir();
@@ -64,7 +65,7 @@ const PR_STATUS_FIELDS = "number,state,headRefName,headRefOid,baseRefName,mergea
 const REFRESH_EVERY_MS = 30 * 1000;
 const FRESH_FOR_MS = 40 * 1000;
 const REFRESH_FOR_MS = 7 * 24 * 60 * 60 * 1000;
-const REFRESH_TIMEOUT_MS = 20 * 1000;
+const CHECK_TIMEOUT_MS = 20 * 1000;
 
 function defaultGitPath(): string {
   for (const candidate of ["/opt/homebrew/bin/git", "/usr/bin/git"]) {
@@ -285,10 +286,12 @@ export async function refreshRepos(config: ServerConfig, signal: AbortSignal): P
   await Promise.all(
     due.map(async ([repo, state]) => {
       state.refreshing = true;
-      const bounded = AbortSignal.any([signal, AbortSignal.timeout(REFRESH_TIMEOUT_MS)]);
       try {
         const bare = join(config.reposRoot, `${repo}.git`);
-        const result = await inRepoQueue(config, repo, async () => (await ensureBareRepo(config, bare, bounded)) ?? refreshMain(config, repo, bare, bounded));
+        const result = await inRepoQueue(config, repo, async () => {
+          const bounded = AbortSignal.any([signal, AbortSignal.timeout(config.checkTimeoutMs ?? CHECK_TIMEOUT_MS)]);
+          return (await ensureBareRepo(config, bare, bounded)) ?? refreshMain(config, repo, bare, bounded);
+        });
         if (!("branch" in result)) process.stderr.write(`${new Date().toISOString()} refresh of ${repo} failed: ${result.stderr.trim()}\n`);
       } catch (error) {
         process.stderr.write(`${new Date().toISOString()} refresh of ${repo} failed: ${redactTokens(error instanceof Error ? error.message : String(error))}\n`);
@@ -311,7 +314,7 @@ async function handleSync(config: ServerConfig, req: SyncRequest, signal: AbortS
     if (initFailure !== undefined) return initFailure;
     let branch = state.branch;
     if (req.cached !== true || branch === undefined || state.checkedAt === undefined || now - state.checkedAt > FRESH_FOR_MS) {
-      const refreshed = await refreshMain(config, repo, bare, signal);
+      const refreshed = await refreshMain(config, repo, bare, AbortSignal.any([signal, AbortSignal.timeout(config.checkTimeoutMs ?? CHECK_TIMEOUT_MS)]));
       if (!("branch" in refreshed)) return refreshed;
       branch = refreshed.branch;
     }

@@ -10,7 +10,7 @@ import { MAX_REQUEST_BYTES, REVIEWER_ROLES, isMergeReply } from "../../host/gh-b
 import type { PushRecord, Reply } from "../../host/gh-broker/protocol.ts";
 import { readPushRecord, writePushRecord } from "../../host/gh-broker/push-record.ts";
 import { appendReviewRecord, readReviewRecords } from "../../host/gh-broker/review-records.ts";
-import { defaultConfig, serveConnection } from "../../host/gh-broker/server.ts";
+import { defaultConfig, refreshRepos, serveConnection } from "../../host/gh-broker/server.ts";
 import type { ServerConfig } from "../../host/gh-broker/server.ts";
 import { FAKE_TOKEN, fakeTokens, tokenRemote } from "./fake-app.ts";
 import { handleAs } from "./session.ts";
@@ -68,6 +68,9 @@ if [ -f "$HOME/git-fail" ]; then
 fi
 if [ -f "$HOME/ls-remote" ]; then
   case "$*" in *" ls-remote "*) cat "$HOME/ls-remote"; exit 0 ;; esac
+fi
+if [ -f "$HOME/ls-remote-hangs" ]; then
+  case "$*" in *" ls-remote "*) exec sleep 60 ;; esac
 fi
 exec '${REAL_GIT}' -c 'url.file://${remote}.insteadOf=${tokenRemote(REPO)}' "$@"
 `;
@@ -365,6 +368,28 @@ test("sync with an unreadable default branch from GitHub fails and fetches nothi
   const ok = await request({ verb: "sync" });
   assert.equal(ok.exit, 0, JSON.stringify(ok));
   assert.ok("branch" in ok && ok.branch === "main", JSON.stringify(ok));
+});
+
+test("a check whose GitHub call hangs stops at its deadline, and a later sync of the repo still answers", async () => {
+  config.checkTimeoutMs = 500;
+  const signal = new AbortController().signal;
+  assert.equal((await request({ verb: "sync" })).exit, 0);
+  await writeHome("ls-remote-hangs", "");
+  const started = Date.now();
+  await refreshRepos(config, signal);
+  const hung = await request({ verb: "sync" });
+  assert.notEqual(hung.exit, 0, JSON.stringify(hung));
+  assert.ok(Date.now() - started < 10_000, "neither the refresh nor the sync waits for the hung call");
+  await rm(join(config.home, "ls-remote-hangs"));
+  const ok = await request({ verb: "sync" });
+  assert.equal(ok.exit, 0, JSON.stringify(ok));
+});
+
+test("a refresh whose copy of the repo cannot be made logs and resolves, so the timer never throws", async () => {
+  assert.equal((await request({ verb: "sync" })).exit, 0);
+  await writeFile(join(root, "not-a-dir"), "");
+  config.reposRoot = join(root, "not-a-dir", "bare");
+  await refreshRepos(config, new AbortController().signal);
 });
 
 test("push with an unreadable default branch pushes nothing and writes no push record", async () => {
