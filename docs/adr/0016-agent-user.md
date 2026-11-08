@@ -12,7 +12,7 @@ The base is three things:
 
 1. **The owner's home is closed.** Mode 700. A new standard user is in the group `staff`, as the owner is (`Assigning UID: 502 GID: 20`), and with the owner's home at the macOS default it read the owner's files; with mode 700 it could not read, write, or reopen it (owner runs, 2026-11-08). Setup sets it, and a start refuses if it is open.
 2. **The agent's files are pinned to its home.** A sandbox profile, run with `sandbox-exec`, allows writes only in the agent's home, its own temp folder under `/private/var/folders`, `/dev/null`, and the terminal devices, and allows reads only of its home and the system folders that programs need to run. Reads are an allow list, not a list of denied places, so a path nobody listed stays closed. The first pin, which listed denied places, closed `/tmp` and `/Users/Shared` both ways, and git and omp ran under it (owner runs, 2026-11-08).
-3. **The agent starts through a login of its own.** Not with `sudo -u` from the owner's terminal: started that way, it read the owner's clipboard, and macOS counted its requests as the owner's terminal app (owner runs, 2026-11-08). With its own login, such as ssh to this mac, it is outside the owner's desktop session and terminal, so no rule per service is needed [inference until run].
+3. **The agent starts through a login of its own.** Not with `sudo -u` from the owner's terminal: started that way, it read the owner's clipboard (owner run, 2026-11-08). With its own login, such as ssh to this mac, it is outside the owner's desktop session and terminal, so no rule per service is needed [inference until run].
 
 Around the base:
 
