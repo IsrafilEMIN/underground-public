@@ -64,12 +64,12 @@ else
   unset pw
   step "user ugagent: created, uid $uid, random password never shown"
 fi
-dscl . -create /Users/ugagent UserShell /bin/zsh
+dscl . -create /Users/ugagent UserShell /bin/sh
 dscl . -create /Users/ugagent IsHidden 1
 [[ " $(dscl . -read /Groups/admin GroupMembership 2>/dev/null) " != *" ugagent "* ]] ||
   die "ugagent is in the group admin; remove it: sudo dseditgroup -o edit -d ugagent -t user admin"
 install -d -m 700 -o ugagent -g staff /Users/ugagent
-step "user ugagent: standard, hidden, /bin/zsh, home /Users/ugagent mode 700"
+step "user ugagent: standard, hidden, /bin/sh, home /Users/ugagent mode 700"
 
 if [[ " $(dscl . -read /Groups/com.apple.access_ssh GroupMembership 2>/dev/null) " != *" ugagent "* ]]; then
   dscl . -append /Groups/com.apple.access_ssh GroupMembership ugagent

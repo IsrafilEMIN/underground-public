@@ -12,3 +12,4 @@
 (allow file-read-metadata)
 (deny file-write* (require-not (subpath "/Users/ugagent")))
 (allow file-write* (literal "/dev/null") (regex #"^/dev/tty") (subpath "/private/var/folders"))
+(deny file-write* (subpath "/Users/ugagent/.ssh") (literal "/Users/ugagent/.zshenv") (literal "/Users/ugagent/.zprofile") (literal "/Users/ugagent/.zshrc") (literal "/Users/ugagent/.zlogin") (literal "/Users/ugagent/.profile") (literal "/Users/ugagent/.bash_profile") (literal "/Users/ugagent/.bash_login") (literal "/Users/ugagent/.bashrc"))

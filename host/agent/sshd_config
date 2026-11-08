@@ -14,3 +14,5 @@ AllowAgentForwarding no
 X11Forwarding no
 PermitUserEnvironment no
 AcceptEnv UG_REPO
+PermitUserRC no
+DisableForwarding yes
