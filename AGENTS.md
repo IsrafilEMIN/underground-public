@@ -2,7 +2,7 @@
 
 ## North star
 
-The agent works like a coworker. The owner and the agent do the design together; the agent turns each ready ticket into a merged change on its own. Whatever the agent does on its own, the owner can undo.
+The agent works like a coworker. The owner and the agent do the design together; the agent turns each ready ticket into a merged change on its own. Whatever the agent does without the owner's approval, in either way of working, the owner can undo.
 
 ## Redesign phase
 
