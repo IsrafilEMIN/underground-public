@@ -50,8 +50,7 @@ ug_pull_main() {
 }
 
 ug_repo_slug() {
-  local top url re='^(git@github\.com:|ssh://git@github\.com/|https://github\.com/)([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)$'
-  top=$(git rev-parse --show-toplevel 2>/dev/null) || return 0
+  local top=$1 url re='^(git@github\.com:|ssh://git@github\.com/|https://github\.com/)([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)$'
   url=$(git -C "$top" config --get remote.origin.url 2>/dev/null) || true
   url=${url%/}
   url=${url%.git}

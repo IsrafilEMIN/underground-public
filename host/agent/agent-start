@@ -33,20 +33,28 @@ for dir in "$HOME/.omp" "$agent"; do
   mkdir -p "$dir"
 done
 
-names=()
-staged=()
-while IFS= read -r name; do
-  [[ -n $name ]] || continue
-  names+=("$name")
-  if [[ -e $root/config/$name ]]; then staged+=("$name"); fi
-done <"$root/config-names"
-rm -rf -- "${names[@]/#/$agent/}"
-if (( ${#staged[@]} > 0 )); then cp -cR -- "${staged[@]/#/$root/config/}" "$agent/"; fi
-wait "$hash_pid" || exit 1
+(
+  names=()
+  staged=()
+  while IFS= read -r name; do
+    [[ -n $name ]] || continue
+    names+=("$name")
+    if [[ -e $root/config/$name ]]; then staged+=("$name"); fi
+  done <"$root/config-names"
+  rm -rf -- "${names[@]/#/$agent/}"
+  if (( ${#staged[@]} > 0 )); then cp -cR -- "${staged[@]/#/$root/config/}" "$agent/"; fi
+) &
+copy_pid=$!
+
+ready() {
+  wait "$hash_pid" || exit 1
+  wait "$copy_pid" || die "the config copy failed, so no session starts"
+}
 
 if [[ -z ${UG_REPO:-} ]]; then
   mkdir -p "$HOME/scratch"
   cd "$HOME/scratch"
+  ready
   start_omp "$@"
 fi
 [[ $UG_REPO =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || die "UG_REPO has a value that is not owner/name"
@@ -61,6 +69,7 @@ fi
 cd "$clone"
 
 synced=$(/usr/bin/lockf -k .git/ug-sync.lock "$root/bin/gh-broker" sync "$UG_REPO" --cached) || {
+  wait "$hash_pid" || exit 1
   printf 'agent-start: gh-broker sync %s failed; is the gh-broker app installed on it?\n' "$UG_REPO" >&2
   exit 69
 }
@@ -68,4 +77,5 @@ base=$(printf '%s\n' "$synced" | sed -n 's|^origin/\([^ ]*\) is now .*|\1|p')
 [[ -n $base ]] || die "gh-broker sync gave no branch: $synced"
 
 /usr/bin/lockf -k .git/ug-sync.lock git checkout -q --detach "origin/$base"
+ready
 start_omp "$@"
