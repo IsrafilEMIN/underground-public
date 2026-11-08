@@ -112,7 +112,7 @@ To uninstall: delete `~/.ug` and the launchd files.
 
 ## Updates
 
-- underground: `git pull` in the owner's checkout, then setup, which copies the code into `~/.ug/sys` (`install_service_code`, `host/bin/ug-setup`; `adr/0012-pinned-omp-and-setup.md`, amendment "an installed copy of the host code"). The agent user's copy and its `omp` link come from `host/bin/ug-agent-setup`, which setup runs with sudo at its end.
+- underground: run setup. It fast-forwards `main` in its own checkout from `origin`, then copies the code into `~/.ug/sys` (`ug_pull_main`, `host/lib/ug.bash`; `install_service_code`, `host/bin/ug-setup`; `adr/0012-pinned-omp-and-setup.md`, amendments "an installed copy of the host code" and "setup pulls main first"). The agent user's copy and its `omp` link come from `host/bin/ug-agent-setup`, which setup runs with sudo at its end.
 - omp: change the pin, then run setup.
 - Config: commit to the config repo, then run setup. Setup copies the last commit into `/Library/Underground/config` (`stage_config`, `host/bin/ug-agent-setup:147-213`), and each start copies that folder into the agent's `~/.omp/agent` (`host/agent/agent-start:28-32`).
 - Skills from a skill repo: list the repo's path in the config repo's `skill-repos` file, commit to either repo, then run setup. Like the config repo, setup reads the skill repo's last commit, adds each `<name>/SKILL.md` folder, at the top or under `skills/`, to the config's `skills/`, with the same link and token checks, and stops on a name that is already there or a path outside the owner's home (`stage_config`, `host/bin/ug-agent-setup:174-203`).

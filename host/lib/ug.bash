@@ -28,6 +28,27 @@ ug_check_checkout() {
   [[ $head == "$main" ]] || { printf '%s: the checkout is at %s, not origin/main %s; setup installs only what CI proved on origin/main. Check out main and pull, or fetch.\n' "$tool" "${head:0:7}" "${main:0:7}" >&2; return 1; }
 }
 
+ug_pull_main() {
+  local src=$1 tool=$2 dirty branch before after
+  local g=(git --no-optional-locks -c "safe.directory=$src" -C "$src")
+  dirty=$("${g[@]}" status --porcelain 2>/dev/null) || { printf '%s: %s is not a git checkout\n' "$tool" "$src" >&2; return 1; }
+  [[ -z $dirty ]] || { printf '%s: the checkout %s has changes that are not committed; commit, stash, or drop them, then run setup again. Nothing changed.\n%s\n' "$tool" "$src" "$dirty" >&2; return 1; }
+  if "${g[@]}" rev-parse --verify --quiet origin/main >/dev/null; then
+    [[ $("${g[@]}" rev-list --count origin/main..HEAD) == 0 ]] || { printf '%s: the checkout has commits that are not on origin/main, so it is not origin/main and cannot fast-forward; move them to a branch, then run setup again. Nothing changed.\n' "$tool" >&2; return 1; }
+  fi
+  branch=$("${g[@]}" symbolic-ref --quiet --short HEAD) || branch=""
+  [[ $branch == main ]] || { printf '%s: the checkout is on %s, not main; check out main, then run setup again. Nothing changed.\n' "$tool" "${branch:-a detached HEAD}" >&2; return 1; }
+  before=$("${g[@]}" rev-parse HEAD)
+  "${g[@]}" fetch --quiet origin main || { printf '%s: cannot fetch main from origin; check the network and your GitHub login, then run setup again. Nothing changed.\n' "$tool" >&2; return 1; }
+  "${g[@]}" merge --quiet --ff-only origin/main || { printf '%s: main cannot fast-forward to origin/main; setup does not merge or rebase. Nothing changed.\n' "$tool" >&2; return 1; }
+  after=$("${g[@]}" rev-parse HEAD)
+  if [[ $before == "$after" ]]; then
+    printf 'checkout: main is at origin/main %s\n' "${after:0:7}"
+  else
+    printf 'checkout: pulled main from %s to %s\n' "${before:0:7}" "${after:0:7}"
+  fi
+}
+
 ug_repo_slug() {
   local top url re='^(git@github\.com:|ssh://git@github\.com/|https://github\.com/)([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)$'
   top=$(git rev-parse --show-toplevel 2>/dev/null) || return 0

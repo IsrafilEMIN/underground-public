@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { copyFile, mkdir, readdir, rm } from "node:fs/promises";
+import { copyFile, mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -58,4 +58,29 @@ test("ug-setup refuses a checkout that is not at origin/main or has local change
   const dirty = spawnSync("bash", [setup], { env, encoding: "utf8" });
   assert.notEqual(dirty.status, 0);
   assert.match(dirty.stderr, /not committed/);
+});
+
+test("ug-setup fast-forwards main from origin, then runs the setup that the pull brought", async (t) => {
+  const home = await tempDir(join(tmpdir(), "ug-setup-"));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const checkout = join(home, "code/underground");
+  const origin = join(home, "origin.git");
+  const other = join(home, "other");
+  const setup = await copyAt(checkout);
+  const git = (dir: string, ...args: string[]) => spawnSync("git", ["-C", dir, "-c", "user.email=o@x", "-c", "user.name=o", ...args], { encoding: "utf8" });
+  git(checkout, "init", "-q", "-b", "main");
+  git(checkout, "add", "-A");
+  git(checkout, "commit", "-q", "-m", "one");
+  git(home, "clone", "-q", "--bare", checkout, origin);
+  git(checkout, "remote", "add", "origin", origin);
+  git(checkout, "fetch", "-q", "origin");
+  git(home, "clone", "-q", origin, other);
+  await writeFile(join(other, "host/bin/ug-setup"), 'printf "new setup pulled=%s\\n" "$UG_SETUP_PULLED"\n');
+  git(other, "commit", "-q", "-am", "two");
+  git(other, "push", "-q", "origin", "main");
+  const r = spawnSync("bash", [setup], { env: { HOME: home, PATH: "/usr/bin:/bin" }, encoding: "utf8" });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /checkout: pulled main from/);
+  assert.match(r.stdout, /new setup pulled=1/);
+  assert.equal(git(checkout, "rev-parse", "HEAD").stdout, git(origin, "rev-parse", "main").stdout);
 });
