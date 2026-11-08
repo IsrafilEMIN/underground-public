@@ -13,9 +13,9 @@ const versions = await readFile(join(SRC, "VERSIONS"), "utf8");
 const RESTIC_PIN = /^restic=(.+)$/m.exec(versions)?.[1] ?? "";
 
 const FAKE_RESTIC = `#!/bin/sh
-{ printf 'RESTIC:'; for a in "$@"; do printf ' [%s]' "$a"; done; printf '\\n'; } >>"$HOME/calls"
-printf 'PW:%s\\n' "$RESTIC_PASSWORD_FILE" >>"$HOME/calls"
+line='RESTIC:'; for a in "$@"; do line="$line [$a]"; done; printf '%s\\nPW:%s\\n' "$line" "$RESTIC_PASSWORD_FILE" >>"$HOME/calls"
 case " $* " in *" backup "*) step=backup ;; *" init "*) step=init ;; *" cat config "*) step=cat ;; *) step=other ;; esac
+case " $* " in *" --stdin "*) cat >"$HOME/stdin" ;; esac
 code=$(cat "$HOME/exit-$step" 2>/dev/null) || code=0
 exit "$code"
 `;
@@ -48,6 +48,8 @@ async function fakeHome({ awake = true, password = true, config = true } = {}) {
   await exe(join(bin, "ssh"), FAKE_SSH);
   await exe(join(home, "wake-rig"), FAKE_WAKE);
   await exe(join(home, "rig-sleep"), FAKE_SLEEP);
+  await exe(join(bin, "container"), FAKE_CONTAINER);
+  await writeFile(join(home, "no-volume"), "");
   await mkdir(join(home, ".ug/host/backup"), { recursive: true });
   await mkdir(join(home, ".ug/home"), { recursive: true });
   if (password) await writeFile(join(home, ".ug/host/backup/password"), "pw\n");
@@ -63,7 +65,7 @@ async function fakeHome({ awake = true, password = true, config = true } = {}) {
 
 function run(home: string) {
   return spawnSync("bash", [JOB], {
-    env: { HOME: home, PATH: `${join(home, "fakebin")}:/usr/bin:/bin`, UG_BACKUP_WAIT_TRIES: "3", UG_BACKUP_WAIT_SECONDS: "0" },
+    env: { HOME: home, PATH: `${join(home, "fakebin")}:/usr/bin:/bin`, UG_BACKUP_WAIT_TRIES: "3", UG_BACKUP_WAIT_SECONDS: "0", UG_BOX_STATE: join(home, "state"), UG_BOX_LOCK_WAIT: "1" },
     encoding: "utf8",
     timeout: 30_000,
   });
@@ -90,6 +92,198 @@ test("ug-backup backs up the arena, minus what can be rebuilt, into the repo, an
   assert.ok((await calls(home)).some((c) => c === "SSH: -o BatchMode=yes -o ConnectTimeout=10 kutluk@v100-server true"));
   const last = Number(await readFile(lastFile(home), "utf8"));
   assert.ok(Math.abs(last - Date.now() / 1000) < 60, `last is ${last}`);
+});
+
+const FAKE_CONTAINER = `#!/bin/sh
+line='CONTAINER:'; for a in "$@"; do line="$line [$a]"; done; printf '%s\\n' "$line" >>"$HOME/calls"
+case "$1 $2" in
+  "volume list") [ ! -e "$HOME/no-volume" ] && echo ug-box-home ;;
+  "list --quiet") [ -e "$HOME/box-running" ] && echo ug-box ;;
+  "exec ug-box"|"run --rm") echo TARDATA; [ ! -e "$HOME/tar-changed" ] || exit 1; [ ! -e "$HOME/tar-breaks" ] || exit 2 ;;
+esac
+exit 0
+`;
+
+async function withBox(home: string, { running = false, image = true } = {}) {
+  await rm(join(home, "no-volume"), { force: true });
+  if (running) await writeFile(join(home, "box-running"), "");
+  if (image) {
+    await mkdir(join(home, ".ug/sys/box/host/lib"), { recursive: true });
+    await writeFile(join(home, ".ug/sys/box/host/lib/box-image.bash"), "box_image_tag() { echo ugbox:test; }\n");
+  }
+}
+
+const RESTORE = join(SRC, "host/bin/ug-box-restore");
+const FAKE_RESTIC_RESTORE = `#!/bin/sh
+line='RESTIC:'; for a in "$@"; do line="$line [$a]"; done; printf '%s\\n' "$line" >>"$HOME/calls"
+case " $* " in
+  *" cat config "*) [ ! -e "$HOME/repo-closed" ] ;;
+  *" snapshots "*) cat "$HOME/snapshots.json" ;;
+  *" --stdin "*) cat >"$HOME/stdin"; [ ! -e "$HOME/prerestore-fails" ] ;;
+  *" dump "*) echo DUMPDATA; [ ! -e "$HOME/dump-fails" ] ;;
+esac
+`;
+
+async function restoreHome({ volume = true } = {}) {
+  const home = await fakeHome();
+  await withBox(home);
+  await writeFile(join(home, ".ug/sys/box/VERSIONS"), `restic=${RESTIC_PIN}\n`);
+  await exe(join(home, ".ug/sys/restic", RESTIC_PIN, "restic"), FAKE_RESTIC_RESTORE);
+  await writeFile(join(home, "snapshots.json"), JSON.stringify([{ id: "a".repeat(64), paths: ["/ug-box-home.tar"], tags: ["ug-box"] }]));
+  await exe(join(home, "fakebin/container"), FAKE_CONTAINER.replace('"volume list") [ ! -e "$HOME/no-volume" ] && echo ug-box-home ;;', '"volume list") [ ! -e "$HOME/no-volume" ] && echo ug-box-home ;;\n  "image list") echo docker.io/library/ugbox:test ;;\n  "run --rm") cat >"$HOME/restored" 2>/dev/null; echo TARDATA ;;'));
+  if (!volume) await writeFile(join(home, "no-volume"), "");
+  return home;
+}
+
+function restore(home: string, ...args: string[]) {
+  return spawnSync("bash", [RESTORE, ...args], {
+    env: { HOME: home, PATH: `${join(home, "fakebin")}:/usr/bin:/bin`, UG_BOX_STATE: join(home, "state"), UG_BOX_NODE: process.execPath },
+    encoding: "utf8",
+    timeout: 30_000,
+  });
+}
+
+test("ug-box-restore saves the old home into the repo before it deletes the volume, then fills a new one from the snapshot", async (t) => {
+  const home = await restoreHome();
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const r = restore(home);
+  assert.equal(r.status, 0, r.stderr);
+  const all = await calls(home);
+  const order = ["[backup] [--quiet] [--tag] [ug-box-prerestore]", "[volume] [delete] [ug-box-home]", "[volume] [create] [ug-box-home]", `[dump] [${"a".repeat(64)}] [ug-box-home.tar]`].map((s) => all.findIndex((c) => c.includes(s)));
+  assert.ok(order.every((i, n) => i >= 0 && (n === 0 || i > order[n - 1])), all.join("\n"));
+  assert.equal(await readFile(join(home, "stdin"), "utf8"), "TARDATA\n");
+  assert.equal(await readFile(join(home, "restored"), "utf8"), "DUMPDATA\n");
+  assert.ok(!existsSync(join(home, "state/ug-box/lock")));
+});
+
+test("ug-box-restore deletes nothing when the old home does not reach the repo, when the box runs, or when ug-box holds its lock", async (t) => {
+  const home = await restoreHome();
+  t.after(() => rm(home, { recursive: true, force: true }));
+  await writeFile(join(home, "prerestore-fails"), "");
+  let r = restore(home);
+  assert.notEqual(r.status, 0);
+  assert.match(r.stderr, /nothing was deleted/);
+  await rm(join(home, "prerestore-fails"));
+  await writeFile(join(home, "box-running"), "");
+  r = restore(home);
+  assert.match(r.stderr, /the box is running/);
+  await rm(join(home, "box-running"));
+  await mkdir(join(home, "state/ug-box/lock"), { recursive: true });
+  await writeFile(join(home, "state/ug-box/lock/pid"), String(process.pid));
+  r = restore(home);
+  assert.match(r.stderr, /holds its lock/);
+  assert.ok(!(await calls(home)).some((c) => c.includes("[volume] [delete]")), (await calls(home)).join("\n"));
+});
+
+test("ug-box-restore refuses a snapshot that holds no box home, and a repo that does not open, before any change", async (t) => {
+  const home = await restoreHome();
+  t.after(() => rm(home, { recursive: true, force: true }));
+  await writeFile(join(home, "snapshots.json"), JSON.stringify([{ id: "b".repeat(64), paths: [join(home, ".ug/home")], tags: ["ug"] }]));
+  let r = restore(home);
+  assert.notEqual(r.status, 0);
+  assert.match(r.stderr, /holds ug-box-home.tar/);
+  await writeFile(join(home, "repo-closed"), "");
+  r = restore(home);
+  assert.match(r.stderr, /does not open/);
+  assert.ok(!(await calls(home)).some((c) => c.includes("[volume]")), (await calls(home)).join("\n"));
+});
+
+test("ug-backup streams the box home out of a stopped box through the installed image, into a second snapshot", async (t) => {
+  const home = await fakeHome();
+  t.after(() => rm(home, { recursive: true, force: true }));
+  await withBox(home);
+  const r = run(home);
+  assert.equal(r.status, 0, r.stderr);
+  const all = await calls(home);
+  const reader = all.find((c) => c.startsWith("CONTAINER: [run]"));
+  assert.ok(reader?.includes("[--rm] [--network] [none] [--volume] [ug-box-home:/home/agent] [ugbox:test] [tar] [-C] [/home/agent] [-c]"), reader);
+  for (const left of ["./.tmp", "./.cache", "./.omp/agent/cache", "node_modules"]) {
+    assert.ok(reader?.includes(`[--exclude] [${left}]`), `${left} is not left out: ${reader}`);
+  }
+  const [, box] = backups(all);
+  assert.ok(box.includes("[--tag] [ug-box] [--stdin] [--stdin-filename] [ug-box-home.tar]"), box);
+  assert.equal(await readFile(join(home, "stdin"), "utf8"), "TARDATA\n");
+  assert.ok(existsSync(lastFile(home)));
+});
+
+test("ug-backup reads a running box in place and does not mount its volume twice", async (t) => {
+  const home = await fakeHome();
+  t.after(() => rm(home, { recursive: true, force: true }));
+  await withBox(home, { running: true });
+  const r = run(home);
+  assert.equal(r.status, 0, r.stderr);
+  const all = await calls(home);
+  assert.ok(all.some((c) => c.startsWith("CONTAINER: [exec] [ug-box] [tar]")), all.join("\n"));
+  assert.ok(!all.some((c) => c.startsWith("CONTAINER: [run]")), all.join("\n"));
+  assert.equal(await readFile(join(home, "stdin"), "utf8"), "TARDATA\n");
+});
+
+test("ug-backup with a box home but no installed image fails, records no time, and still puts the target to sleep", async (t) => {
+  const home = await fakeHome({ awake: false });
+  t.after(() => rm(home, { recursive: true, force: true }));
+  await withBox(home, { image: false });
+  const r = run(home);
+  assert.notEqual(r.status, 0);
+  assert.match(r.stderr, /no box image is installed/);
+  assert.ok(!existsSync(lastFile(home)));
+  assert.ok((await calls(home)).some((c) => c.startsWith("SLEEP")));
+});
+
+test("ug-backup with no box volume backs up only the arena", async (t) => {
+  const home = await fakeHome();
+  t.after(() => rm(home, { recursive: true, force: true }));
+  await withBox(home);
+  await writeFile(join(home, "no-volume"), "");
+  const r = run(home);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(backups(await calls(home)).length, 1);
+});
+
+test("ug-backup without the container CLI on PATH fails and records no time, instead of a silent skip", async (t) => {
+  const home = await fakeHome();
+  t.after(() => rm(home, { recursive: true, force: true }));
+  await rm(join(home, "fakebin/container"));
+  const r = run(home);
+  assert.notEqual(r.status, 0);
+  assert.match(r.stderr, /container CLI is not on PATH/);
+  assert.ok(!existsSync(lastFile(home)));
+});
+
+test("ug-backup accepts a box read where files changed under tar, and fails on any other tar error", async (t) => {
+  const home = await fakeHome();
+  t.after(() => rm(home, { recursive: true, force: true }));
+  await withBox(home);
+  await writeFile(join(home, "tar-changed"), "");
+  let r = run(home);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stderr, /changed while they were read/);
+  assert.ok(existsSync(lastFile(home)));
+  await rm(lastFile(home));
+  await rm(join(home, "tar-changed"));
+  await writeFile(join(home, "tar-breaks"), "");
+  r = run(home);
+  assert.notEqual(r.status, 0);
+  assert.match(r.stderr, /read of the box home failed \(exit 2\)/);
+  assert.ok(!existsSync(lastFile(home)));
+});
+
+test("ug-backup takes ug-box's lock for a stopped box, releases it, and gives up when a live start holds it", async (t) => {
+  const home = await fakeHome();
+  t.after(() => rm(home, { recursive: true, force: true }));
+  await withBox(home);
+  let r = run(home);
+  assert.equal(r.status, 0, r.stderr);
+  assert.ok(!existsSync(join(home, "state/ug-box/lock")));
+  await mkdir(join(home, "state/ug-box/lock"), { recursive: true });
+  await writeFile(join(home, "state/ug-box/lock/pid"), String(process.pid));
+  await writeFile(join(home, "calls"), "");
+  r = run(home);
+  assert.notEqual(r.status, 0);
+  assert.match(r.stderr, /holds its lock/);
+  assert.ok(!(await calls(home)).some((c) => c.startsWith("CONTAINER: [run]")));
+  await writeFile(join(home, "state/ug-box/lock/pid"), "999999");
+  r = run(home);
+  assert.equal(r.status, 0, r.stderr);
 });
 
 test("ug-backup keeps every snapshot: it never forgets or prunes", async (t) => {
