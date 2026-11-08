@@ -120,6 +120,7 @@ async function withBox(home: string, { running = false, image = true } = {}) {
   if (image) {
     await mkdir(join(home, ".ug/sys/box/host/lib"), { recursive: true });
     await writeFile(join(home, ".ug/sys/box/host/lib/box-image.bash"), `source "${join(SRC, "host/lib/box-image.bash")}"\nbox_image_tag() { echo ugbox:test; }\n`);
+    await writeFile(join(home, ".ug/sys/box/host/lib/backup-target.bash"), `source "${join(SRC, "host/lib/backup-target.bash")}"\n`);
   }
 }
 
@@ -183,6 +184,24 @@ test("ug-box-restore deletes nothing when the old home does not reach the repo, 
   r = restore(home);
   assert.match(r.stderr, /holds its lock/);
   assert.ok(!(await calls(home)).some((c) => c.includes("[volume] [delete]")), (await calls(home)).join("\n"));
+});
+
+test("ug-box-restore wakes an asleep backup target first and puts it back to sleep at the end, also when it refuses", async (t) => {
+  const home = await restoreHome();
+  t.after(() => rm(home, { recursive: true, force: true }));
+  await rm(join(home, "awake"));
+  let r = restore(home);
+  assert.equal(r.status, 0, r.stderr);
+  let all = await calls(home);
+  assert.ok(all.indexOf("WAKE") >= 0 && all.indexOf("WAKE") < all.findIndex((c) => c.includes("[volume] [delete]")), all.join("\n"));
+  assert.equal(all.at(-1), "SLEEP now", all.join("\n"));
+  await writeFile(join(home, "calls"), "");
+  await writeFile(join(home, "snapshots.json"), "[]");
+  r = restore(home);
+  assert.notEqual(r.status, 0);
+  all = await calls(home);
+  assert.ok(all.includes("WAKE") && all.at(-1) === "SLEEP now", all.join("\n"));
+  assert.ok(!all.some((c) => c.includes("[volume]")), all.join("\n"));
 });
 
 test("ug-box-restore refuses a snapshot that holds no box home, and a repo that does not open, before any change", async (t) => {

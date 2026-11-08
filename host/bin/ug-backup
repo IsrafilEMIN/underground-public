@@ -11,8 +11,6 @@ restic_pin=$(sed -n 's/^restic=//p' "$src/VERSIONS")
 restic_bin="$HOME/.ug/sys/restic/$restic_pin/restic"
 backup="$HOME/.ug/host/backup"
 config="$backup/config"
-tries=${UG_BACKUP_WAIT_TRIES:-30}
-pause=${UG_BACKUP_WAIT_SECONDS:-10}
 box_image=""
 if [[ -f $HOME/.ug/sys/box/host/lib/box-image.bash ]]; then
   # shellcheck source=host/lib/box-image.bash disable=SC1091
@@ -71,38 +69,11 @@ backup_box() {
 [[ -f $config ]] || die "no $config; write its repo=, wake=, and sleep= lines (docs/SPEC.md, B10)"
 export RESTIC_PASSWORD_FILE="$backup/password"
 
-repo="" wake=() sleep_cmd=()
-while IFS= read -r line || [[ -n $line ]]; do
-  [[ -z ${line//[[:space:]]/} || $line == \#* ]] && continue
-  key=${line%%=*}
-  value=${line#*=}
-  [[ $line == *=* ]] || die "$config: a line without '=': $line"
-  case $key in
-    repo) repo=$value ;;
-    wake) read -r -a wake <<<"$value" ;;
-    sleep) read -r -a sleep_cmd <<<"$value" ;;
-    *) die "$config: unknown key $key" ;;
-  esac
-done <"$config"
-[[ $repo =~ ^sftp:([A-Za-z0-9_][A-Za-z0-9._-]*@[A-Za-z0-9][A-Za-z0-9.-]*):([^[:space:]]+)$ ]] || die "$config: repo must be sftp:<user>@<host>:<path>, not '$repo'"
-target=${BASH_REMATCH[1]}
-[[ ${#wake[@]} -gt 0 && ${#sleep_cmd[@]} -gt 0 ]] || die "$config needs a wake= and a sleep= line"
-
-up() { ssh -o BatchMode=yes -o ConnectTimeout=10 "$target" true >/dev/null 2>&1; }
-
-woke=0
-if ! up; then
-  "${wake[@]}" >/dev/null 2>&1 || die "the wake command ${wake[*]} failed"
-  woke=1
-  for ((i = 0; i < tries; i++)); do
-    up && break
-    sleep "$pause"
-  done
-  if ! up; then
-    log "$target did not answer ssh after the wake; if the mac is away from home, the wake signal cannot reach it"
-    exit 1
-  fi
-fi
+repo=""
+# shellcheck source=host/lib/backup-target.bash disable=SC1091
+source "$src/host/lib/backup-target.bash"
+backup_target_read "$config"
+backup_target_wake
 
 status=0
 "$restic_bin" -r "$repo" cat config >/dev/null 2>&1 || status=$?
@@ -142,7 +113,5 @@ else
   [[ $status -ne 0 ]] || date +%s >"$backup/last"
 fi
 
-if [[ $woke -eq 1 ]]; then
-  "${sleep_cmd[@]}" >/dev/null 2>&1 || log "the sleep command ${sleep_cmd[*]} failed; $target stays awake"
-fi
+backup_target_sleep
 [[ $status -eq 0 ]]
