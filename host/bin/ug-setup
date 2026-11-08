@@ -190,7 +190,8 @@ install_arena_files() {
   printf '#!/bin/sh\nexec '"'"'%s'"'"' '"'"'%s'"'"' "$@"\n' "$node_bin" "$sys/broker/client.ts" >"$shim"
   put "$shim" "$sys/agent-bin/broker" 555
   link "$sys/omp/$omp_pin/omp" "$sys/agent-bin/omp"
-  link "$src/host/bin/omp-arena" "$sys/bin/omp"
+  link "$sys/box/host/bin/ug-box" "$sys/bin/omp"
+  link "$src/host/bin/omp-arena" "$sys/bin/omp-arena"
   link "$src/host/bin/ug-auth" "$sys/bin/ug-auth"
   printf 'arena files: installed in %s\n' "$sys"
 }
