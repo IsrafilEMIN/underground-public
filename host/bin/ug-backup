@@ -69,6 +69,7 @@ backup_box() {
 [[ -f $config ]] || die "no $config; write its repo=, wake=, and sleep= lines (docs/SPEC.md, B10)"
 export RESTIC_PASSWORD_FILE="$backup/password"
 
+repo=""
 # shellcheck source=host/lib/backup-target.bash disable=SC1091
 source "$src/host/lib/backup-target.bash"
 backup_target_read "$config"
