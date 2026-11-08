@@ -1,10 +1,9 @@
 import assert from "node:assert/strict";
-import { Database } from "bun:sqlite";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { rewriteHistory, rewriteSessionText, rewriteSessions } from "../../host/agent/migrate-paths.ts";
+import { openDb, rewriteHistory, rewriteSessionText, rewriteSessions } from "../../host/agent/migrate-paths.ts";
 
 const FROM = "/home/agent";
 const TO = "/Users/ugagent";
@@ -45,19 +44,19 @@ test("history and session_recaps cwd rows move, and other rows stay", async (t) 
   const dir = await mkdtemp(join(tmpdir(), "migrate-history-"));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const dbPath = join(dir, "history.db");
-  const db = new Database(dbPath);
-  db.run("CREATE TABLE history (cwd TEXT)");
-  db.run("CREATE TABLE session_recaps (cwd TEXT)");
+  const db = openDb(dbPath);
+  db.exec("CREATE TABLE history (cwd TEXT)");
+  db.exec("CREATE TABLE session_recaps (cwd TEXT)");
   for (const cwd of ["/home/agent", "/home/agent/proj", "/home/agent2", "/srv/z"]) {
-    db.query("INSERT INTO history (cwd) VALUES (?1)").run(cwd);
-    db.query("INSERT INTO session_recaps (cwd) VALUES (?1)").run(cwd);
+    db.prepare("INSERT INTO history (cwd) VALUES (?1)").run(cwd);
+    db.prepare("INSERT INTO session_recaps (cwd) VALUES (?1)").run(cwd);
   }
   db.close();
 
   assert.equal(rewriteHistory(dbPath, FROM, TO), 4);
 
-  const check = new Database(dbPath, { readonly: true });
-  const rows = (table: string) => check.query<{ cwd: string }, []>(`SELECT cwd FROM ${table} ORDER BY rowid`).all().map((r) => r.cwd);
+  const check = openDb(dbPath);
+  const rows = (table: string) => (check.prepare(`SELECT cwd FROM ${table} ORDER BY rowid`).all() as { cwd: string }[]).map((r) => r.cwd);
   assert.deepEqual(rows("history"), ["/Users/ugagent", "/Users/ugagent/proj", "/home/agent2", "/srv/z"]);
   assert.deepEqual(rows("session_recaps"), ["/Users/ugagent", "/Users/ugagent/proj", "/home/agent2", "/srv/z"]);
   check.close();

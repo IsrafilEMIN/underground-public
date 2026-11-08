@@ -1,6 +1,15 @@
-import { Database } from "bun:sqlite";
 import { readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+
+type Db = {
+  prepare(sql: string): { run(...params: unknown[]): { changes: number | bigint }; all(...params: unknown[]): unknown[] };
+  exec(sql: string): void;
+  close(): void;
+};
+
+export const openDb: (path: string) => Db = process.versions.bun
+  ? ((m) => (path: string) => new m.Database(path) as unknown as Db)(await import("bun:sqlite"))
+  : ((m) => (path: string) => new m.DatabaseSync(path) as unknown as Db)(await import("node:sqlite"));
 
 export function movePath(path: string, from: string, to: string): string {
   if (path === from) return to;
@@ -58,14 +67,14 @@ export function rewriteSessions(agentDir: string, from: string, to: string): num
 }
 
 export function rewriteHistory(dbPath: string, from: string, to: string): number {
-  const db = new Database(dbPath);
+  const db = openDb(dbPath);
   try {
     let n = 0;
     for (const table of ["history", "session_recaps"]) {
       const res = db
-        .query(`UPDATE ${table} SET cwd = ?1 || substr(cwd, length(?2) + 1) WHERE cwd = ?2 OR substr(cwd, 1, length(?2) + 1) = ?2 || '/'`)
+        .prepare(`UPDATE ${table} SET cwd = ?1 || substr(cwd, length(?2) + 1) WHERE cwd = ?2 OR substr(cwd, 1, length(?2) + 1) = ?2 || '/'`)
         .run(to, from);
-      n += res.changes;
+      n += Number(res.changes);
     }
     return n;
   } finally {
