@@ -51,15 +51,15 @@ The threat model is to be checked again against these two ways (`THREAT-MODEL.md
 
 | zone | path | the agent may |
 |---|---|---|
-| arena | `~/.ug/home` | do anything |
+| arena | `/Users/ugagent` | do anything |
 | owner zone | `~/.ug/sys` | read only |
-| sockets | `~/.ug/run` | use the listed sockets only |
+| sockets | `/Library/Underground/run` | use the listed sockets only |
 | host | `~/.ug/host` | nothing |
 | owner's zone | everything else | nothing |
 
 - **Arena:** omp's own `~/.omp` (config, sessions, caches, helpers) and the agent's repo clones, proposed at `work/<owner>/<repo>`. The arena is the agent's `HOME`.
-- **Owner zone:** the pinned omp binary, the pinned srt (still installed for the egress door's HTTP proxy, `host/egress/server.ts:27-29`), and `bin/omp`, a link to the box's launcher `ug-box` (`host/bin/ug-setup:185`). `bin/` is on `PATH`.
-- **Sockets:** the gh-broker and egress sockets (`~/.ug/run`, `host/bin/ug-box:16-17`). The agent cannot write here, so it cannot plant a socket or a link.
+- **Owner zone:** the pinned omp binary, the pinned restic, the pinned srt (removed in step 4 of `adr/0016-agent-user.md`, 2026-11-08; it was for the egress door's HTTP proxy, `host/egress/server.ts:27-29`, now removed), and `bin/omp` and `bin/ug-agent`, both links to the launcher `ug-agent` (`host/bin/ug-agent-setup:224`, `:228`). The box's launcher `ug-box` is gone. `bin/` is on `PATH`.
+- **Sockets:** the gh-broker socket (`/Library/Underground/run/gh-broker.sock`, `host/gh-broker/server.ts:73`). The egress socket is gone (`adr/0016-agent-user.md:75`). The agent cannot write here, so it cannot plant a socket or a link.
 - **Host:** everything the agent gets nothing of: the GitHub App key, the auth broker's logins, the gh-broker's records, the arena backup's password and settings (`SPEC.md`, B10), and the owner's hand-edited gh-broker files, such as the addresses file (owner decision, 2026-11-03).
 - **Owner's zone:** the owner's checkouts. underground runs from its checkout. The owner's agent config repo lives here too.
 
@@ -67,7 +67,7 @@ To uninstall: delete `~/.ug` and the launchd files.
 
 ## Flows
 
-**Start a session**
+**Start a session** (the srt design; `ug-agent` starts the session now, `host/bin/ug-agent:44`)
 
 1. The owner types `omp` in a checkout. `PATH` finds the wrapper.
 2. The wrapper copies the owner's config repo into the arena's `~/.omp/agent`.
@@ -106,8 +106,8 @@ To uninstall: delete `~/.ug` and the launchd files.
 
 **No unboxed session**
 
-- Inside the sandbox: impossible. Every child of srt stays in the sandbox.
-- From the owner's shell: only the wrapper is named `omp`.
+- Inside the sandbox: impossible. Every child of the sandbox (`host/agent/agent-session:15`) stays in it.
+- From the owner's shell: only the launcher `ug-agent` (`host/bin/ug-agent:44`) is on `PATH`.
 - By full path: the raw omp finds no login, so it cannot work.
 
 ## Updates
@@ -137,6 +137,7 @@ Setup runs when underground's `main`, a pin, a host service, the config repo, or
 - The heavy install and its file hash record.
 
 ## Accepted trade-offs
+These trade-offs are the srt design's. srt was removed in step 4 of `adr/0016-agent-user.md` (2026-11-08, `:75`).
 
 - srt is a filter on the owner's macOS user, not a wall.
 - Localhost is open to every port for now. srt 0.0.81 has one switch for it (`dist/sandbox/macos-sandbox-utils.js:951` to `:954`).
