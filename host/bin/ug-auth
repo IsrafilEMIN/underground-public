@@ -19,8 +19,9 @@ src=$(cd "$(dirname "$self")/../.." && pwd -P)
 source "$src/host/lib/ug.bash"
 pin=$(ug_pin "$src/VERSIONS" omp)
 omp="${UG_ROOT:-/Library/Underground}/omp/$pin/omp"
-[[ -x $omp ]] || { printf 'ug-auth: the pinned omp %s is missing; run host/bin/ug-setup\n' "$omp" >&2; exit 1; }
 
-unset PI_CONFIG_DIR
-export OMP_PROFILE=ug-auth
-exec "$omp" "$@"
+broker=()
+[[ $1 != auth-gateway ]] || broker=(OMP_AUTH_BROKER_URL=http://127.0.0.1:8765)
+
+cd /
+exec sudo -u ugauth -H /usr/bin/env -i HOME=/Users/ugauth PATH=/usr/bin:/bin ${broker[@]+"${broker[@]}"} "$omp" "$@"

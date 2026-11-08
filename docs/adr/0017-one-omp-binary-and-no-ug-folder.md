@@ -1,6 +1,6 @@
 # One omp binary, owned by root, and no `~/.ug`
 
-Date: 2026-11-08. Status: built, not yet run on the owner's mac. Owner decisions in the design talk of 2026-11-08. Amends `0012-pinned-omp-and-setup.md` (where the pin is kept, and the one `omp` on `PATH`) and `0016-agent-user.md` (step 4: `omp` on `PATH`).
+Date: 2026-11-08. Status: built and run on the owner's mac (2026-11-08). The ug-auth profile, `ug-auth` with `OMP_PROFILE`, and vanilla omp by full path are superseded by `0018-login-user.md`. Owner decisions in the design talk of 2026-11-08. Amends `0012-pinned-omp-and-setup.md` (where the pin is kept, and the one `omp` on `PATH`) and `0016-agent-user.md` (step 4: `omp` on `PATH`).
 
 ## Context
 

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { chmod, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, copyFile, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -137,6 +137,28 @@ test("ug-agent-setup refuses to run without root", async (t) => {
   const r = spawnSync("bash", [SETUP], { env: { PATH: "/usr/bin:/bin", SUDO_USER: "owner" }, encoding: "utf8" });
   assert.equal(r.status, 1, r.stderr);
   assert.match(r.stderr, /run it as root/);
+});
+
+test("agent-home-tar leaves every config name out of the stream, so the gateway bearer never reaches the owner or a snapshot", async (t) => {
+  const dir = await tempDir(join(tmpdir(), "ug-tar-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const home = join(dir, "home");
+  await mkdir(join(home, ".omp/agent/sessions"), { recursive: true });
+  await mkdir(join(home, ".omp/agent/skills/x"), { recursive: true });
+  await writeFile(join(home, ".omp/agent/models.yml"), "apiKey: bearer-value\n");
+  await writeFile(join(home, ".omp/agent/skills/x/SKILL.md"), "x\n");
+  await writeFile(join(home, ".omp/agent/sessions/s.jsonl"), "{}\n");
+  await copyFile(join(ROOT, "host/agent/config-names"), join(dir, "config-names"));
+  const text = (await readFile(join(ROOT, "host/agent/agent-home-tar"), "utf8"))
+    .replace("names=/Library/Underground/config-names", `names=${join(dir, "config-names")}`)
+    .replace("home=/Users/ugagent", `home=${home}`);
+  await writeFile(join(dir, "agent-home-tar"), text);
+  const stream = spawnSync("sh", [join(dir, "agent-home-tar")], { encoding: "buffer" });
+  assert.equal(stream.status, 0, stream.stderr.toString());
+  assert.doesNotMatch(stream.stdout.toString("latin1"), /bearer-value/);
+  const list = spawnSync("tar", ["-t"], { input: stream.stdout, encoding: "utf8" }).stdout;
+  assert.match(list, /\.omp\/agent\/sessions\/s\.jsonl/);
+  assert.doesNotMatch(list, /models\.yml|skills/);
 });
 
 test(

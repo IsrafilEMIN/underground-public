@@ -19,12 +19,12 @@ test("the gh-broker listens on /Library/Underground/run/gh-broker.sock and keeps
   }
 });
 
-test("the gh-broker app's key and config, and the usage broker's files, are in the data folder and the ug-auth profile", () => {
+test("the gh-broker app's key and config are in the data folder, and the usage broker reads root's addresses and its own user's token", () => {
   const app = appFiles(HOME);
   assert.deepEqual(app, { configFile: join(DATA, "github-app.json"), keyFile: join(DATA, "github-app.pem") });
   const usage = usageConfig();
-  assert.equal(usage.addressesFile, join(DATA, "addresses"));
-  assert.equal(usage.gatewayTokenFile, join(HOME, ".omp/profiles/ug-auth/auth-gateway.token"));
+  assert.equal(usage.addressesFile, "/Library/Underground/addresses");
+  assert.equal(usage.gatewayTokenFile, join(HOME, ".omp/auth-gateway.token"));
 });
 
 test("the gh-broker socket is 0666 after it listens, so the agent user can connect", async () => {

@@ -26,27 +26,31 @@ async function fakeHome() {
   `], { encoding: "utf8" });
   assert.equal(install.status, 0, install.stderr);
   await rm(checkout, { recursive: true, force: true });
-  const dir = join(home, "root/omp", PIN);
-  await mkdir(dir, { recursive: true });
-  await writeFile(join(dir, "omp"), '#!/bin/sh\necho "RAN PROFILE=$OMP_PROFILE CONFIG_DIR=${PI_CONFIG_DIR-unset} ARGS=$*"\n');
-  await chmod(join(dir, "omp"), 0o755);
+  await mkdir(join(home, "fakebin"));
+  await writeFile(join(home, "fakebin/sudo"), '#!/bin/sh\necho "SUDO $*"\n');
+  await chmod(join(home, "fakebin/sudo"), 0o755);
   return home;
 }
 
 const run = (home: string, ...args: string[]) =>
   spawnSync(join(home, ".local/bin/ug-auth"), args, {
-    env: { HOME: home, PATH: "/usr/bin:/bin", UG_ROOT: join(home, "root"), PI_CONFIG_DIR: ".elsewhere" },
+    env: { HOME: home, PATH: `${join(home, "fakebin")}:/usr/bin:/bin`, PI_CONFIG_DIR: ".elsewhere", OMP_PROFILE: "x" },
     encoding: "utf8",
   });
 
-test("the installed ug-auth runs the pinned omp in the profile ug-auth, with the checkout gone", async (t) => {
+test("the installed ug-auth runs the pinned omp as ugauth in a clean environment, with the checkout gone", async (t) => {
   const home = await fakeHome();
   t.after(() => rm(home, { recursive: true, force: true }));
-  for (const args of [["auth-broker", "login", "anthropic"], ["auth-gateway", "token", "--regenerate"]]) {
-    const r = run(home, ...args);
-    assert.equal(r.status, 0, r.stderr);
-    assert.equal(r.stdout.trim(), `RAN PROFILE=ug-auth CONFIG_DIR=unset ARGS=${args.join(" ")}`);
-  }
+  const omp = `/Library/Underground/omp/${PIN}/omp`;
+  const login = run(home, "auth-broker", "login", "anthropic");
+  assert.equal(login.status, 0, login.stderr);
+  assert.equal(login.stdout.trim(), `SUDO -u ugauth -H /usr/bin/env -i HOME=/Users/ugauth PATH=/usr/bin:/bin ${omp} auth-broker login anthropic`);
+  const token = run(home, "auth-gateway", "token", "--regenerate");
+  assert.equal(token.status, 0, token.stderr);
+  assert.equal(
+    token.stdout.trim(),
+    `SUDO -u ugauth -H /usr/bin/env -i HOME=/Users/ugauth PATH=/usr/bin:/bin OMP_AUTH_BROKER_URL=http://127.0.0.1:8765 ${omp} auth-gateway token --regenerate`,
+  );
 });
 
 test("ug-auth refuses anything that is not an auth command, so it never starts a session with every login", async (t) => {
@@ -55,6 +59,6 @@ test("ug-auth refuses anything that is not an auth command, so it never starts a
   for (const args of [[], ["-p", "hi"], ["--version"], ["config", "list"], ["auth-brokerx"], ["--", "auth-broker"]]) {
     const r = run(home, ...args);
     assert.equal(r.status, 64, `${args.join(" ")}: ${r.stdout}`);
-    assert.doesNotMatch(r.stdout, /RAN/, `${args.join(" ")} started omp`);
+    assert.doesNotMatch(r.stdout, /SUDO/, `${args.join(" ")} started omp`);
   }
 });
