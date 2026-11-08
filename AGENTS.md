@@ -2,7 +2,7 @@
 
 ## North star
 
-An unattended agent can only do harm that you can undo.
+The agent works like a coworker. The owner and the agent do the design together; the agent turns each ready ticket into a merged change on its own. Whatever the agent does on its own, the owner can undo.
 
 ## Redesign phase
 
