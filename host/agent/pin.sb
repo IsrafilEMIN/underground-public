@@ -10,7 +10,7 @@
   (literal "/opt") (literal "/opt/homebrew")
   (subpath "/opt/homebrew/bin") (subpath "/opt/homebrew/Cellar") (subpath "/opt/homebrew/opt")
   (subpath "/opt/homebrew/lib") (subpath "/opt/homebrew/libexec") (subpath "/opt/homebrew/share")
-  (literal "/opt/homebrew/etc/openssl@3/openssl.cnf") (literal "/opt/homebrew/etc/openssl@3/cert.pem")
+  (regex #"^/opt/homebrew/etc/openssl@[0-9]+/(openssl\.cnf|cert\.pem)$")
   (literal "/opt/homebrew/etc/ca-certificates/cert.pem"))))
 (allow file-read-metadata)
 (deny file-write* (require-not (subpath "/Users/ugagent")))
