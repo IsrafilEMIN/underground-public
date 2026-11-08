@@ -37,3 +37,31 @@ ug_repo_slug() {
   [[ $url =~ $re ]] || return 1
   echo "${BASH_REMATCH[2]}/${BASH_REMATCH[3]}"
 }
+
+ug_restart_service() {
+  local domain=$1 label=$2 plist=$3 err i
+  launchctl bootout "$domain/$label" >/dev/null 2>&1 || true
+  for (( i = 0; i < 60; i++ )); do
+    launchctl print "$domain/$label" >/dev/null 2>&1 || break
+    sleep 0.5
+  done
+  if launchctl print "$domain/$label" >/dev/null 2>&1; then
+    printf '%s is still loaded 30 s after launchctl bootout, so its new version cannot load\n' "$label"
+    return 1
+  fi
+  for (( i = 0; i < 5; i++ )); do
+    err=$(launchctl bootstrap "$domain" "$plist" 2>&1) && return 0
+    sleep 1
+  done
+  printf 'launchctl bootstrap of %s failed: %s\n' "$label" "$err"
+  return 1
+}
+
+ug_wait_http() {
+  local url=$1 i
+  for (( i = 0; i < 60; i++ )); do
+    curl -fsS -o /dev/null --max-time 1 "$url" 2>/dev/null && return 0
+    sleep 0.5
+  done
+  return 1
+}
