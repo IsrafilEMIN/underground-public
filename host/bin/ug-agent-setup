@@ -145,7 +145,7 @@ vet_item() {
 }
 
 stage_config() {
-  local cfg gateway gateway_token stage name item secrets value token_file repo base n found ref
+  local cfg gateway gateway_token stage name item secrets value token_file repo base n found
   cfg=$(sed -n '1p' "$host_zone/config-repo" 2>/dev/null) || true
   [[ -n $cfg ]] || die "no config repo: $host_zone/config-repo names none"
   cfg=${cfg/#\~/$owner_home}
@@ -180,8 +180,7 @@ stage_config() {
       n=$((n + 1))
       base=$stage/skill-repo-$n
       mkdir "$base"
-      ref=$(git -c "safe.directory=$repo" -C "$repo" symbolic-ref -q --short refs/remotes/origin/HEAD) || ref=main
-      git -c "safe.directory=$repo" -C "$repo" archive --format=tar "$ref" | tar -x -C "$base" || die "cannot read $ref of the skill repo $repo"
+      git -c "safe.directory=$repo" -C "$repo" archive --format=tar HEAD | tar -x -C "$base" || die "cannot read the last commit of the skill repo $repo"
       [[ ! -L $base/skills ]] || die "the skill repo $repo has skills as a link, which the agent must not get"
       [[ ! -d $base/skills ]] || base=$base/skills
       found=0
@@ -195,8 +194,8 @@ stage_config() {
         cp -R "$item" "$stage/out/skills/$name"
         found=$((found + 1))
       done
-      [[ $found -gt 0 ]] || die "$ref of the skill repo $repo has no <name>/SKILL.md at its top or under skills/"
-      step "skill repo $repo: $found skills from $ref"
+      [[ $found -gt 0 ]] || die "the last commit of the skill repo $repo has no <name>/SKILL.md at its top or under skills/"
+      step "skill repo $repo: $found skills"
     done <"$host_zone/skill-repos"
   fi
   [[ -f $stage/out/models.yml ]] || die "the last commit of the config repo $cfg has no models.yml"
