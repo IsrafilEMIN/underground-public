@@ -14,7 +14,7 @@ READY_WAIT=${UG_BOX_READY_WAIT:-20}
 NODE=${UG_BOX_NODE:-/opt/homebrew/bin/node}
 UG=${UG_DIR:-$HOME/.ug}
 EGRESS=${UG_BOX_EGRESS_SOCKET:-$UG/run/egress.sock}
-BROKER=${UG_BOX_BROKER:-$UG/run/broker.sock}
+BROKER=${UG_BOX_BROKER:-/Library/Underground/run/broker.sock}
 PROXY=http://127.0.0.1:3128
 NAME=ug-box
 DIR=$STATE/$NAME
@@ -89,13 +89,10 @@ box_config() {
 }
 
 repo_slug() {
-  local top url re='^(git@github\.com:|ssh://git@github\.com/|https://github\.com/)([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)$'
+  local top slug
   top=$(git rev-parse --show-toplevel 2>/dev/null) || return 0
-  url=$(git -C "$top" config --get remote.origin.url 2>/dev/null) || true
-  url=${url%/}
-  url=${url%.git}
-  [[ $url =~ $re ]] || die "$top has no GitHub origin, so the box cannot clone it"
-  echo "${BASH_REMATCH[2]}/${BASH_REMATCH[3]}"
+  slug=$(ug_repo_slug) || die "$top has no GitHub origin, so the box cannot clone it"
+  echo "$slug"
 }
 
 boot() {

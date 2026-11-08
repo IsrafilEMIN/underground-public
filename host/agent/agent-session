@@ -1,0 +1,15 @@
+#!/bin/bash
+set -eo pipefail
+
+re='^[A-Za-z0-9._=:/@+-]+$'
+words=()
+if [[ -n ${SSH_ORIGINAL_COMMAND:-} ]]; then
+  read -r -a words <<<"$SSH_ORIGINAL_COMMAND"
+fi
+for word in "${words[@]}"; do
+  [[ $word =~ $re ]] || {
+    printf 'agent-session: refused argument %s\n' "$word" >&2
+    exit 64
+  }
+done
+exec /usr/bin/sandbox-exec -f /Library/Underground/pin.sb /Library/Underground/agent-start "${words[@]}"
