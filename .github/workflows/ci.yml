@@ -29,8 +29,7 @@ jobs:
         run: |
           set -euo pipefail
           bash_files=(); sh_files=()
-          for f in host/bin/* host/lib/*.bash scripts/*.sh box/*; do
-            case "$(head -n 1 "$f")" in
+          for f in host/bin/* host/lib/*.bash host/agent/* scripts/*.sh; do            case "$(head -n 1 "$f")" in
               '#!/usr/bin/env bash'*|'#!/bin/bash'*|'# shellcheck shell=bash'*) bash_files+=("$f") ;;
               '#!/bin/sh'*) sh_files+=("$f") ;;
             esac
@@ -41,8 +40,8 @@ jobs:
           shellcheck -s sh "${sh_files[@]}"
 
       - name: Launchd plist XML
-        run: xmllint --noout host/launchd/*.plist
-
+        run: xmllint --noout host/launchd/*.plist host/agent/*.plist
+        
       - name: Broker tests
         run: |
           set -euo pipefail
