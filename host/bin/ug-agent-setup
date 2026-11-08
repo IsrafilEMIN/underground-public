@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 
 if [[ $# -gt 1 ]]; then
   printf 'usage: sudo host/bin/ug-agent-setup [<downloaded omp>]\n' >&2
@@ -11,6 +11,13 @@ die() {
   printf 'ug-agent-setup: %s\n' "$*" >&2
   exit 1
 }
+
+stopped() {
+  local status=$1 line=$2 command=$3
+  (( BASH_SUBSHELL == 0 )) || return 0
+  printf 'ug-agent-setup: stopped at line %s of host/bin/ug-agent-setup: "%s" failed with exit %s. The steps above it are done, and nothing after it ran, so the agent user may be set up only in part. Fix the cause, then run host/bin/ug-setup again, which repeats every step.\n' "$line" "$command" "$status" >&2
+}
+trap 'stopped $? $LINENO "$BASH_COMMAND"' ERR
 
 step() { printf '%s\n' "$*"; }
 
@@ -259,10 +266,13 @@ stage_config() {
   sed -i.bak -e "s/@GATEWAY@/$gateway/g" -e "s/@GATEWAY_TOKEN@/$gateway_token/g" "$stage/out/models.yml"
   rm -f "$stage/out/models.yml.bak"
   if grep -qE '@[A-Z_]+@' "$stage/out/models.yml"; then die "models.yml of the config repo has an unknown placeholder"; fi
-  rm -rf "$root/config"
-  cp -R "$stage/out" "$root/config"
-  chown -R root:ugagent "$root/config"
-  chmod -R u=rwX,g=rX,o= "$root/config"
+  rm -rf "$root/config.new" "$root/config.old"
+  cp -R "$stage/out" "$root/config.new"
+  chown -R root:ugagent "$root/config.new"
+  chmod -R u=rwX,g=rX,o= "$root/config.new"
+  [[ ! -e $root/config ]] || mv "$root/config" "$root/config.old"
+  mv "$root/config.new" "$root/config"
+  rm -rf "$root/config.old"
   step "agent config: $root/config from $cfg, gateway $gateway"
 }
 
@@ -327,11 +337,11 @@ start_login_services() {
 start_login_services
 
 plist=/Library/LaunchDaemons/com.underground.agent-sshd.plist
-install -m 644 -o root -g wheel "$src/host/agent/com.underground.agent-sshd.plist" "$plist"
 /usr/sbin/sshd -t -f "$root/sshd_config" || die "sshd rejects $root/sshd_config; nothing was loaded"
-launchctl bootout system/com.underground.agent-sshd >/dev/null 2>&1 || true
-launchctl bootstrap system "$plist" || die "launchctl could not load $plist"
-step "agent sshd: 127.0.0.1:2222, loaded from $plist"
+fp=$(ug_fingerprint "$src/host/agent/com.underground.agent-sshd.plist" "$root/sshd_config" "$root/ssh_host_ed25519_key.pub") || die "cannot read the inputs of the agent sshd"
+out=$(ug_ensure_service system com.underground.agent-sshd "$src/host/agent/com.underground.agent-sshd.plist" "$plist" "$root/state/com.underground.agent-sshd.fingerprint" "$fp" ug_port_answers 127.0.0.1 2222) ||
+  die "agent sshd: $out; check it with: sudo launchctl print system/com.underground.agent-sshd"
+step "agent sshd at 127.0.0.1:2222: $out"
 
 agent_dir=$data/agent
 install -d -m 700 -o "$owner" -g staff "$agent_dir" "$agent_dir/bin" "$agent_dir/lib"

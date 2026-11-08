@@ -120,3 +120,17 @@ test("ug-backup refuses to run without the backup password", async (t) => {
   assert.match(r.stderr, /the backup password .* is missing/);
   assert.equal(existsSync(join(home, ".local/share/underground/backup/last")), false);
 });
+
+test("ug-backup logs restic's own error when the repo does not open, and stores no snapshot", async (t) => {
+  const home = await fakeHome();
+  t.after(() => rm(home, { recursive: true, force: true }));
+  await exe(
+    join(home, ".local/share/underground/restic", RESTIC_PIN, "restic"),
+    `#!/bin/sh\nprintf 'RESTIC: %s\\n' "$*" >>"$HOME/calls"\necho "Fatal: wrong password or no key found" >&2\nexit 12\n`,
+  );
+  const r = run(home);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /does not open \(restic exit 12, which can mean a wrong password\): Fatal: wrong password or no key found/);
+  assert.equal((await calls(home)).filter((c) => c.includes(" backup ")).length, 0);
+  assert.equal(existsSync(join(home, ".local/share/underground/backup/last")), false);
+});

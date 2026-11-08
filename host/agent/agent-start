@@ -72,7 +72,12 @@ sync_status=0
 synced=$(/usr/bin/lockf -k .git/ug-sync.lock "$root/bin/gh-broker" sync "$UG_REPO" --cached) || sync_status=$?
 wait "$hash_pid" || exit 1
 (( sync_status == 0 )) || {
-  printf 'agent-start: gh-broker sync %s failed; is the gh-broker app installed on it?\n' "$UG_REPO" >&2
+  case $sync_status in
+    69) hint="the gh-broker does not answer; the owner checks the launchd job com.underground.gh-broker and its gh-broker.log" ;;
+    2) hint="the gh-broker refused it, for the reason above" ;;
+    *) hint="is the gh-broker app installed on it?" ;;
+  esac
+  printf 'agent-start: gh-broker sync %s failed: %s\n' "$UG_REPO" "$hint" >&2
   exit 69
 }
 base=$(printf '%s\n' "$synced" | sed -n 's|^origin/\([^ ]*\) is now .*|\1|p')
