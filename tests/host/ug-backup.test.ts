@@ -119,7 +119,7 @@ async function withBox(home: string, { running = false, image = true } = {}) {
   if (running) await writeFile(join(home, "box-running"), "");
   if (image) {
     await mkdir(join(home, ".ug/sys/box/host/lib"), { recursive: true });
-    await writeFile(join(home, ".ug/sys/box/host/lib/box-image.bash"), "box_image_tag() { echo ugbox:test; }\n");
+    await writeFile(join(home, ".ug/sys/box/host/lib/box-image.bash"), `source "${join(SRC, "host/lib/box-image.bash")}"\nbox_image_tag() { echo ugbox:test; }\n`);
   }
 }
 
@@ -159,7 +159,7 @@ test("ug-box-restore saves the old home into the repo before it deletes the volu
   const r = restore(home);
   assert.equal(r.status, 0, r.stderr);
   const all = await calls(home);
-  const order = ["[backup] [--quiet] [--tag] [ug-box-prerestore]", "[volume] [delete] [ug-box-home]", "[volume] [create] [ug-box-home]", `[dump] [${"a".repeat(64)}] [ug-box-home.tar]`].map((s) => all.findIndex((c) => c.includes(s)));
+  const order = ["[backup] [--quiet] [--tag] [ug-box-prerestore]", "[volume] [delete] [ug-box-home]", "[volume] [create] [--opt] [size=64g] [ug-box-home]", `[dump] [${"a".repeat(64)}] [ug-box-home.tar]`].map((s) => all.findIndex((c) => c.includes(s)));
   assert.ok(order.every((i, n) => i >= 0 && (n === 0 || i > order[n - 1])), all.join("\n"));
   assert.equal(await readFile(join(home, "stdin"), "utf8"), "TARDATA\n");
   assert.equal(await readFile(join(home, "restored"), "utf8"), "DUMPDATA\n");

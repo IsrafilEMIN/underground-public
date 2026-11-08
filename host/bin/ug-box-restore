@@ -50,7 +50,7 @@ if container volume list --quiet | grep -qxF ug-box-home; then
   echo "ug-box-restore: the old box home is in $repo with tag ug-box-prerestore"
   container volume delete ug-box-home >/dev/null
 fi
-container volume create ug-box-home >/dev/null
+box_home_create ug-box-home
 "$restic_bin" -r "$repo" dump "$id" ug-box-home.tar |
   container run --rm --interactive --network none --volume ug-box-home:/home/agent "$image" tar -x -C /home/agent ||
   die "the restore of snapshot ${id:0:8} broke partway; the box home is incomplete. Run ug-box-restore again, or with the id of the ug-box-prerestore snapshot for the old home"

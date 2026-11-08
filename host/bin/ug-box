@@ -117,7 +117,11 @@ boot() {
     (( gone++ < READY_WAIT * 10 )) || die "the old box $NAME is still there"
     sleep 0.1
   done
-  container volume list --quiet | grep -qxF "$NAME-home" || container volume create "$NAME-home" >/dev/null
+  if ! container volume list --quiet | grep -qxF "$NAME-home"; then
+    box_home_create "$NAME-home"
+  elif ! box_home_capped "$NAME-home"; then
+    die "the box home $NAME-home has no size cap of $BOX_HOME_SIZE. With no session open, run: launchctl kickstart gui/\$UID/com.underground.backup; when ~/.ug/host/backup/last shows the new time, run: ug-box-restore"
+  fi
   container run --detach --rm --name "$NAME" \
     --network none --read-only --tmpfs /tmp \
     --volume "$NAME-home:/home/agent" \
