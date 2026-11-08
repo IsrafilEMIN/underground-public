@@ -243,11 +243,5 @@ install_service_code
 setup_backup
 install_services
 install_raw_config
-stale=()
-if [[ ! -f $sys/agent/bin/ug-agent ]] || ! cmp -s "$sys/agent/bin/ug-agent" "$src/host/bin/ug-agent"; then stale+=(ug-agent); fi
-for f in pin.sb agent-session agent-start sshd_config config-names bin/agent-home-tar; do
-  cmp -s "/Library/Underground/$f" "$src/host/agent/${f#bin/}" || stale+=("$f")
-done
-if [[ ${#stale[@]} -gt 0 ]]; then
-  printf '%s\n' "ug-setup: the installed ${stale[*]} are not this checkout's; run: sudo host/bin/ug-agent-setup"
-fi
+printf 'agent user: running sudo host/bin/ug-agent-setup, which asks for your password\n'
+sudo "$src/host/bin/ug-agent-setup" || die "ug-agent-setup failed, so the agent user is not up to date; fix its error and run host/bin/ug-setup again"

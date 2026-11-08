@@ -106,7 +106,7 @@ test("ug-backup refuses to run without the agent home reader and writes no snaps
   t.after(() => rm(home, { recursive: true, force: true }));
   const r = run(home);
   assert.equal(r.status, 1);
-  assert.match(r.stderr, /the agent home reader .* is missing; run: sudo host\/bin\/ug-agent-setup/);
+  assert.match(r.stderr, /the agent home reader .* is missing; run: host\/bin\/ug-setup/);
   assert.equal((await calls(home)).filter((c) => c.includes(" [backup] ")).length, 0);
   assert.equal(existsSync(join(home, ".ug/host/backup/last")), false);
 });

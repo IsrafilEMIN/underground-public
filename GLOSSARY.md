@@ -101,7 +101,7 @@ The daily restic snapshot of the agent home `/Users/ugagent`, minus `.cache` and
 _Avoid_: archive, sync, Time Machine
 
 **Setup**:
-The host script that does what `git pull` cannot: install the pinned omp and restic, make the zones and their modes, make the backup password, register and restart the launchd services, and write the raw omp's config. The agent user's omp link and backup helper are installed by `host/bin/ug-agent-setup`, run with sudo. It runs the `[mac]` tests first (`host/bin/ug-setup:82-86`). It runs when a pin changes, a host service changes, or macOS updates. It replaces the install (`docs/adr/0012-pinned-omp-and-setup.md`).
+The host script that does what `git pull` cannot: install the pinned omp and restic, make the zones and their modes, make the backup password, register and restart the launchd services, and write the raw omp's config. At its end it runs `sudo host/bin/ug-agent-setup`, which asks for the owner's password and installs the agent user, its omp link, and the backup helper. It runs the `[mac]` tests first (`host/bin/ug-setup:82-86`). It runs when a pin changes, a host service changes, or macOS updates. It replaces the install (`docs/adr/0012-pinned-omp-and-setup.md`).
 _Avoid_: install, installer, bootstrap
 
 **Preflight** (removed, #90):

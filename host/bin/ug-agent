@@ -18,7 +18,7 @@ re='^[A-Za-z0-9._=:/@+-]+$'
 die() { echo "ug-agent: $*" >&2; exit 1; }
 
 [[ -n $(find "$HOME" -maxdepth 0 -perm 700 2>/dev/null) ]] ||
-  die "your home $HOME is not mode 700; the agent user could read it. Run: sudo host/bin/ug-agent-setup"
+  die "your home $HOME is not mode 700; the agent user could read it. Run: host/bin/ug-setup"
 
 if launchctl print system/com.openssh.sshd >/dev/null 2>&1; then
   die "system Remote Login is running; with it on, the agent user could log in by a key it writes itself. Turn Remote Login off, then run this again."
@@ -33,7 +33,7 @@ for arg in "$@"; do
   [[ $arg =~ $re ]] || die "refused argument $arg: only letters, digits and . _ = : / @ + - are allowed"
 done
 
-[[ -f $key && -f $known_hosts ]] || die "no agent key or known_hosts under $UG/host/agent-ssh; run: sudo host/bin/ug-agent-setup"
+[[ -f $key && -f $known_hosts ]] || die "no agent key or known_hosts under $UG/host/agent-ssh; run: host/bin/ug-setup"
 
 top=$(git rev-parse --show-toplevel 2>/dev/null) || top=
 if [[ -n $top ]]; then

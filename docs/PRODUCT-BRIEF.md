@@ -112,11 +112,11 @@ To uninstall: delete `~/.ug` and the launchd files.
 
 ## Updates
 
-- underground: `git pull` in the owner's checkout, then setup, which copies the code into `~/.ug/sys` (`install_service_code`, `host/bin/ug-setup`; `adr/0012-pinned-omp-and-setup.md`, amendment "an installed copy of the host code"). The agent user's copy and its `omp` link come from `host/bin/ug-agent-setup`, run with sudo.
+- underground: `git pull` in the owner's checkout, then setup, which copies the code into `~/.ug/sys` (`install_service_code`, `host/bin/ug-setup`; `adr/0012-pinned-omp-and-setup.md`, amendment "an installed copy of the host code"). The agent user's copy and its `omp` link come from `host/bin/ug-agent-setup`, which setup runs with sudo at its end.
 - omp: change the pin, then run setup.
 - Config: edit the config repo. The next start copies it.
 
-Setup runs when underground's `main`, a pin, a host service, or macOS changes. It installs the pinned omp and restic, makes the zones and their modes, and registers and restarts the launchd services (`host/bin/ug-setup`). The agent user's `omp` on `PATH` is linked by `host/bin/ug-agent-setup`, which runs with sudo.
+Setup runs when underground's `main`, a pin, a host service, or macOS changes. It installs the pinned omp and restic, makes the zones and their modes, and registers and restarts the launchd services (`host/bin/ug-setup`). At its end it runs `host/bin/ug-agent-setup` with sudo, which links the agent user's `omp` on `PATH`.
 
 ## What stays
 
