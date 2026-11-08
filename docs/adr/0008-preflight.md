@@ -34,3 +34,5 @@ Cost: after each macOS update, and after each hand edit of an installed file, th
 ## Amendment 2026-11-07: the agent box (proposed)
 
 `0013-agent-box.md` is proposed, not built. Until it is built, this ADR describes the system. Once built, the macOS build check goes: it exists because srt's proof holds only on the build that setup probed, and the box does not rest on srt. The sorting rule (setup proves behavior, the start checks state) still holds. A new start check takes its place: the box must have no route (`0013-agent-box.md`, Cost), because `--network none` is undocumented in `container` 1.7.1.
+
+2026-11-07: partly built. The box has no macOS build check, and setup removes the leftover `~/.ug/sys/macos-build` (`host/bin/ug-setup:186`). The preflight of the removed wrapper went with #90 (commit 54a418a1).

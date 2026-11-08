@@ -33,6 +33,8 @@ Sessions are one trust level and share every door (`0011-one-agent-arena.md`, "W
 - Run on the owner's mac 2026-11-08: a launchd run of the backup saved the box's home (tag `ug-box`); `ug-box-restore` saved the old home (tag `ug-box-prerestore`), created a capped volume (`container volume inspect`: `"size" : "64g"`, `"sizeInBytes" : 68719476736`), filled it from snapshot `3add7f33`, and a session on it answered (`../THREAT-MODEL.md`, U37, U22). From #80 on, the restore wakes the backup target and puts it back to sleep, as the backup does.
 - The fold of `~/.ug` into `~/.omp`, and the removal of the srt design: the wrapper, `host/arena/init`, the zones, the probes and their tests, the docs and glossary terms.
 - The switch (2026-11-08): step 1, setup links `~/.ug/sys/bin/omp` to the installed `ug-box`, so `omp` starts a box session; the srt wrapper stays reachable as `omp-arena` until its removal. Step 2, the broker, usage broker, and backup run from `~/.ug/sys/services`, a copy that setup writes. Next: the removal of the srt design.
+
+- 2026-11-07: done. The srt wrapper, `host/arena/init`, the probes, and their tests were removed in #90 (commit 54a418a1). `~/.ug/sys/bin/omp` links to `ug-box` (`host/bin/ug-setup:185`).
 - Not run on the owner's mac yet: sessions in the clone with omp's own worktree (#69). Run on the owner's mac on 2026-11-07: the box with its start check, the model door, clone and status through the broker door, the config copy, and the raw-request refusals of the broker (`../THREAT-MODEL.md`, "The box against each row").
 
 ## Rejected
