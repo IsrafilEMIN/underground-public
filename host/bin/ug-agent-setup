@@ -78,8 +78,6 @@ else
   step "group com.apple.access_ssh: ugagent in place"
 fi
 
-# The system sshd reads /Users/ugagent/.ssh/authorized_keys. Its folder and file are root's and empty,
-# so the agent cannot add a key there. [inference] This holds only while nothing else replaces the folder.
 install -d -m 755 -o root -g wheel /Users/ugagent/.ssh
 install -m 444 -o root -g wheel /dev/null /Users/ugagent/.ssh/authorized_keys
 step "/Users/ugagent/.ssh: root-owned, empty authorized_keys"
