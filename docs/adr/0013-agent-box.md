@@ -2,6 +2,8 @@
 
 Date: 2026-11-07. Status: proposed. The owner agreed to the rough layout on 2026-11-07; the doors, the folders, and the start are not decided yet. Once built, it supersedes `0004-no-local-binding.md` and `0011-one-agent-arena.md` (except its one trust level), and amends `0001-accepted-risks.md`, `0005-model-auth-gateway.md`, `0008-preflight.md`, and `0012-pinned-omp-and-setup.md`. Each of them has an amendment of 2026-11-07 that says what changes. Amended by `0014-session-containers.md` (2026-11-07): one long-running VM. Amended by `0015-box-layout.md` (2026-11-07): no container per session, one home, three mounts, and an installed copy of the host code (N2).
 
+Owner decision, 2026-11-08: the containers go; the agent runs as its own macOS user (`0016-agent-user.md`), which supersedes this ADR once built.
+
 2026-11-07: built as a trial (`host/bin/ug-box`, `host/bin/ug-box-check.ts`, `host/egress/`, `box/`). The status above records the design decision.
 
 Redesign phase (owner decision, 2026-11-07; `../../AGENTS.md`, "Redesign phase"): this ADR was drafted on top of the srt design, so its decisions are checked again from the problem up. Its "Kept from underground" and "Gone once built" lines are candidates, not decisions: a part comes back only if the new base needs it.
