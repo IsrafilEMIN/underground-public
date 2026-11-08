@@ -12,7 +12,8 @@
     state = "skip"
   }
   sub(/^\[mac\] /, "", name)
-  printf "  %s  %s\n", state, name
+  color = state == "pass" ? pass : state == "fail" ? fail : skip
+  printf "  %s%s%s  %s\n", color, state, off, name
   if (reason != "") printf "        %s\n", reason
   detail = failed
   shown = 0

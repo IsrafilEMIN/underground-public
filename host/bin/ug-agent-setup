@@ -7,15 +7,20 @@ if [[ $# -gt 1 ]]; then
 fi
 staged=${1:-}
 
+err_red="" err_plain=""
+if [[ -z ${NO_COLOR:-} && ${TERM:-dumb} != dumb && -t 2 ]]; then
+  err_red=$'\e[31m' err_plain=$'\e[0m'
+fi
+
 die() {
-  printf 'ug-agent-setup: %s\n' "$*" >&2
+  printf '%sug-agent-setup: %s%s\n' "$err_red" "$*" "$err_plain" >&2
   exit 1
 }
 
 stopped() {
   local status=$1 line=$2 command=$3
   (( BASH_SUBSHELL == 0 )) || return 0
-  printf 'ug-agent-setup: stopped at line %s of host/bin/ug-agent-setup: "%s" failed with exit %s. The steps above it are done, and nothing after it ran, so the agent user may be set up only in part. Fix the cause, then run host/bin/ug-setup again, which repeats every step.\n' "$line" "$command" "$status" >&2
+  printf '%sug-agent-setup: stopped at line %s of host/bin/ug-agent-setup: "%s" failed with exit %s. The steps above it are done, and nothing after it ran, so the agent user may be set up only in part. Fix the cause, then run host/bin/ug-setup again, which repeats every step.%s\n' "$err_red" "$line" "$command" "$status" "$err_plain" >&2
 }
 trap 'stopped $? $LINENO "$BASH_COMMAND"' ERR
 
