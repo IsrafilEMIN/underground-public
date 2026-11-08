@@ -216,6 +216,13 @@ test(
     assert.doesNotMatch(brokenBoth.stderr, /gh-broker sync/);
     assert.doesNotMatch(brokenBoth.stdout, /OMP_RAN/);
 
+    await writeFile(join(root, "bin/gh-broker"), "#!/bin/sh\necho garbage\n");
+    const brokenQuiet = run(inRepo);
+    assert.equal(brokenQuiet.status, 1);
+    assert.match(brokenQuiet.stderr, /does not match its pinned SHA-256/);
+    assert.doesNotMatch(brokenQuiet.stderr, /gh-broker sync/);
+    await writeFile(join(root, "bin/gh-broker"), "#!/bin/sh\nexit 1\n");
+
     await writeFile(`${bin}.sha256`, `${createHash("sha256").update(await readFile(bin)).digest("hex")}\n`);
     const syncFailed = run(inRepo);
     assert.equal(syncFailed.status, 69);
