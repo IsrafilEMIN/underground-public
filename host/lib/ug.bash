@@ -72,7 +72,7 @@ ug_wait() {
 
 ug_http_answers() { curl -fsS -o /dev/null --max-time 1 "$1"; }
 
-ug_socket_answers() { printf '' | nc -U "$1" | grep -q .; }
+ug_socket_answers() { printf '' | nc -w 1 -U "$1" | grep -q .; }
 
 ug_fingerprint() {
   local out

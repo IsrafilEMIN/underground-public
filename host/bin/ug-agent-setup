@@ -278,7 +278,7 @@ fi
 stage_config
 
 start_login_services() {
-  local owner_uid gateway engine label rendered left f url err out fp inputs
+  local owner_uid gateway engine label rendered left f url err out fp inputs broker_out=""
   owner_uid=$(id -u "$owner")
   gateway=$(sed -n 's/^gateway=//p' "$data/addresses")
   engine=$(sed -n 's/^engine=//p' "$data/addresses")
@@ -314,9 +314,12 @@ start_login_services() {
         inputs=(/opt/homebrew/bin/node "$root/usage-broker/usage-broker.ts" "$root/usage-broker/addresses.ts" "$root/usage-broker/protocol.ts")
         ;;
     esac
+    [[ $label == com.underground.usage-broker || ! -e $auth_home/.omp/agent/config.yml ]] || inputs+=("$auth_home/.omp/agent/config.yml")
+    [[ $label != com.underground.auth-gateway || $broker_out != restarted* ]] || rm -f "$root/state/$label.fingerprint"
     fp=$(ug_fingerprint "$rendered" "${inputs[@]}") || die "cannot read the inputs of $label: ${inputs[*]}"
     out=$(ug_ensure_service system "$label" "$rendered" "/Library/LaunchDaemons/$label.plist" "$root/state/$label.fingerprint" "$fp" ug_http_answers "$url") ||
       die "$out; read /Users/ugauth/logs/${label#com.underground.}.log"
+    [[ $label != com.underground.auth-broker ]] || broker_out=$out
     step "login service $label at $url: $out"
   done
   step "login services: auth-broker, auth-gateway, usage-broker run as ugauth from /Library/LaunchDaemons"
