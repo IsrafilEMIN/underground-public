@@ -230,7 +230,7 @@ test("ug-backup streams the box home out of a stopped box through the installed 
   const all = await calls(home);
   const reader = all.find((c) => c.startsWith("CONTAINER: [run]"));
   assert.ok(reader?.includes("[--rm] [--network] [none] [--volume] [ug-box-home:/home/agent] [ugbox:test] [sh] [-c] [tar -C /home/agent -c"), reader);
-  for (const left of ["./.tmp", "./.cache", "./.omp/agent/cache", "node_modules"]) {
+  for (const left of ["./checkouts", "./.tmp", "./.cache", "./.omp/agent/cache", "node_modules"]) {
     assert.ok(reader?.includes(`--exclude ${left} `), `${left} is not left out: ${reader}`);
   }
   const [, box] = backups(all);
@@ -257,7 +257,7 @@ test("ug-backup with a box home but no installed image fails, records no time, a
   await withBox(home, { image: false });
   const r = run(home);
   assert.notEqual(r.status, 0);
-  assert.match(r.stderr, /no box image is installed/);
+  assert.match(r.stderr, /no box is installed/);
   assert.ok(!existsSync(lastFile(home)));
   assert.ok((await calls(home)).some((c) => c.startsWith("SLEEP")));
 });

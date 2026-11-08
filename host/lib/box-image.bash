@@ -8,6 +8,8 @@ box_image_tag() {
 
 BOX_HOME_SIZE=64g
 BOX_HOME_BYTES=$((64 * 1024 * 1024 * 1024))
+# shellcheck disable=SC2016
+BOX_HOME_TAR='tar -C /home/agent -c --exclude ./checkouts --exclude ./.tmp --exclude ./.cache --exclude ./.omp/agent/cache --exclude node_modules . ; [ $? -le 1 ]'
 
 box_home_create() {
   container volume create --opt "size=$BOX_HOME_SIZE" "$1" >/dev/null
