@@ -1,6 +1,6 @@
 # underground
 
-A safe environment for running the omp coding agent unattended on one macOS laptop. The design is in `docs/PRODUCT-BRIEF.md`. Where a term names a place that a build item in `docs/SPEC.md` moves, the term gives the new place and the build id. The architecture is being redesigned (`AGENTS.md`, "Redesign phase"). Terms marked (removed, #90) named the srt design, which commit 54a418a1 removed on 2026-11-07. Sessions run in the box (`host/bin/ug-box`, `docs/adr/0013-agent-box.md`).
+A safe environment for the omp coding agent on one macOS laptop: the owner designs with it, and it implements ready tickets on its own, up to the merge. The design is in `docs/PRODUCT-BRIEF.md`. Where a term names a place that a build item in `docs/SPEC.md` moves, the term gives the new place and the build id. The architecture is being redesigned (`AGENTS.md`, "Redesign phase"). Terms marked (removed, #90) named the srt design, which commit 54a418a1 removed on 2026-11-07. Sessions run in the box (`host/bin/ug-box`, `docs/adr/0013-agent-box.md`).
 
 ## Language
 
@@ -203,8 +203,12 @@ A threat that we do not control, with the reason written in an ADR in `docs/adr/
 _Avoid_: known issue, wontfix
 
 **North star**:
-The one direction that every decision follows, in `AGENTS.md` and `docs/PRODUCT-BRIEF.md`: an unattended agent can only do harm that you can undo.
+The one direction that every decision follows, in `AGENTS.md` and `docs/PRODUCT-BRIEF.md`: the agent works like a coworker. The owner and the agent do the design together; the agent turns each ready ticket into a merged change on its own. Whatever the agent does on its own, the owner can undo.
 _Avoid_: vision, goal, mission
+
+**Ready ticket**:
+A user story or ticket that the specs and ADRs have broken down into the smallest unit of work, with no design decision left in it. Only a ready ticket goes to the agent to do on its own (`docs/PRODUCT-BRIEF.md`, "Two ways of working").
+_Avoid_: task, job, issue
 
 **Gate**:
 The question before each decision: does this bring us closer to the north star, or further away? Yes only if it stops an irreversible harm, or keeps undo and work possible.

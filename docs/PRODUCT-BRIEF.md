@@ -6,7 +6,7 @@ Owner decision, 2026-11-02. This brief replaces the design of the first MVP 0.5.
 
 ## Summary
 
-underground lets the omp coding agent work on the owner's mac and merge its own PRs while the owner is away.
+underground lets the omp coding agent work on the owner's mac like a coworker: the owner designs with it, and it implements ready tickets and merges its own PRs while the owner is away.
 
 ## Problem
 
@@ -22,9 +22,18 @@ The first design drew the line between the agent and the owner as a list of path
 
 ## North star
 
-An unattended agent can only do harm that you can undo.
+The agent works like a coworker. The owner and the agent do the design together; the agent turns each ready ticket into a merged change on its own. Whatever the agent does on its own, the owner can undo.
 
 Before each decision, ask: does this stop an irreversible harm, or keep undo and work possible? If not, it waits.
+
+## Two ways of working
+
+Owner decision, 2026-11-08. Until this date the brief assumed that every session runs unattended. The agent now works in two ways:
+
+- **Together.** Design, architecture, specs, ADRs, and the split of user stories into tickets. The owner works in the session with the agent and reads each step.
+- **On its own.** A ready ticket: the smallest unit of work, with no design decision left in it. The agent implements it, gets it merged, and reports back to the owner with the result. Only this part runs unattended.
+
+The threat model is to be checked again against these two ways (`THREAT-MODEL.md`).
 
 ## Principles
 
