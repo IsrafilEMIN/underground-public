@@ -11,8 +11,25 @@ The box keeps the agent in a Linux VM. It costs a Linux image and a second omp p
 The base is three things:
 
 1. **The owner's home is closed.** Mode 700. A new standard user is in the group `staff`, as the owner is (`Assigning UID: 502 GID: 20`), and with the owner's home at the macOS default it read the owner's files; with mode 700 it could not read, write, or reopen it (owner runs, 2026-11-08). Setup sets it, and a start refuses if it is open.
-2. **The agent's files are pinned to its home.** A sandbox profile, run with `sandbox-exec`, allows writes only in the agent's home, its own temp folder under `/private/var/folders`, `/dev/null`, and the terminal devices, and allows reads only of its home and the system folders that programs need to run. Reads are an allow list, not a list of denied places, so a path nobody listed stays closed. The first pin, which listed denied places, closed `/tmp` and `/Users/Shared` both ways, and git and omp ran under it (owner runs, 2026-11-08).
-3. **The agent starts through a login of its own.** Not with `sudo -u` from the owner's terminal: started that way, it read the owner's clipboard (owner run, 2026-11-08). With its own login, such as ssh to this mac, it is outside the owner's desktop session and terminal, so no rule per service is needed [inference until run].
+2. **The agent's files are pinned to its home.** A sandbox profile, run with `sandbox-exec`, allows writes only in the agent's home, its own temp folder under `/private/var/folders`, `/dev/null`, and the terminal devices, and allows reads only of its home and the system folders that programs need to run. Reads are an allow list, not a list of denied places, so a path nobody listed stays closed. Under it, over ssh, `/tmp`, `/Users/Shared`, and `/Volumes` were closed, and git, a commit, and omp ran (owner run, 2026-11-08; `../THREAT-MODEL.md`, the agent user table). The profile as run, with the agent's home for `/Users/ugtest`:
+
+   ```
+   (version 1)
+   (allow default)
+   (deny file-read* (require-not (require-any
+     (literal "/") (literal "/Users") (literal "/private") (literal "/private/var")
+     (literal "/etc") (literal "/tmp") (literal "/var")
+     (subpath "/Users/ugtest")
+     (subpath "/System") (subpath "/usr") (subpath "/bin") (subpath "/sbin")
+     (subpath "/Library") (subpath "/Applications") (subpath "/dev")
+     (subpath "/private/etc") (subpath "/private/var/db/timezone") (literal "/private/var/db/xcode_select_link")
+     (subpath "/private/var/select") (subpath "/private/var/run") (subpath "/private/var/folders"))))
+   (allow file-read-metadata)
+   (deny file-write* (require-not (subpath "/Users/ugtest")))
+   (allow file-write* (literal "/dev/null") (regex #"^/dev/tty") (subpath "/private/var/folders"))
+   ```
+
+3. **The agent starts through a login of its own.** Not with `sudo -u` from the owner's terminal: started that way, it read the owner's clipboard (owner run, 2026-11-08). Logged in over ssh to `localhost`, with the profile and no rule per service, it did not read the clipboard, Apple events failed, and `open -a TextEdit` failed with no app started (owner run, 2026-11-08).
 
 Around the base:
 
@@ -24,8 +41,8 @@ Around the base:
 
 ## Open
 
-- The read allow list with git and omp under it, and the three tests through the agent's own login: the clipboard, Apple events, and `open` of an app as the owner.
-- The login: ssh needs Remote Login, which listens on every interface by default [inference]; it must listen on loopback only, and accept only the agent user, by key.
+- The login: ssh needs Remote Login, which listens on every interface by default [inference]; it must listen on loopback only, and accept only the agent user, by key. The test run added the user to `com.apple.access_ssh`, which Remote Login checks (`Connection closed by ::1 port 22` before the add, a login after it).
+- A full omp session under the profile, with a model, the broker, and subagents.
 - The broker socket moves out of the owner's home to a folder the agent user can use but not write.
 - The model door: with no network wall, the egress proxy limits nothing; the agent's `models.yml` then names the gateway and its bearer.
 - The disk cap (U22) and the backup of the agent's home (U37).
