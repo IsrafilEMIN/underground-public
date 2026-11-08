@@ -58,10 +58,6 @@ _Avoid_: dotfiles, role config
 The agent's own machine: one long-running Apple `container` VM with no network and its own kernel, built and run since 2026-11-07 as a trial (`docs/adr/0013-agent-box.md`, `docs/adr/0015-box-layout.md`). Every session runs in it on one home, with no container per session. It replaces the sandbox and the arena, which commit 54a418a1 removed. It reaches the host only through doors.
 _Avoid_: sandbox, arena, VM per session
 
-**Agent user** (proposed):
-The agent's own macOS user, a standard user that the owner never logs in as. Sessions start from the owner's terminal and run as it, in its own home. It is to replace the box (`docs/adr/0016-agent-user.md`).
-_Avoid_: agent account, second login, sandbox user
-
 **Door**:
 A unix socket that the host owns and mounts into the box: the egress door and the broker door. Each door must hold against a hostile caller (`docs/adr/0013-agent-box.md`).
 _Avoid_: hole, port, tunnel
