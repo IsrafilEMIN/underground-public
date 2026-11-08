@@ -35,7 +35,3 @@ Rejected: setup copies the host code at a commit into the owner zone and points 
 Owner decision, 2026-11-07. Once the box is built, the mac runs underground from a copy that setup installs from a merged `main` commit into a folder that only setup writes, not from the owner's checkout (`0015-box-layout.md`). The "live checkout" acceptance then ends: a checkout of an agent branch in the owner's folder runs nothing on the mac. An update is `git pull`, then setup.
 
 2026-11-07: built. Setup installs the copy (`install_ug_box`, `install_service_code`, `host/bin/ug-setup:199-225`); `ug-auth` joined it last, in PR #92 (commit 5338e47).
-
-## Amendment 2026-11-08: the agent user (proposed)
-
-Owner decision, 2026-11-08: the agent runs as its own macOS user with no network wall for now (`0016-agent-user.md`). Once built, U14 widens from the allowlist to every site, and U3, sending data to a site off the allowlist, is accepted too: there is no allowlist. U7, the agent reaching localhost, the LAN, and the tailnet, is accepted by name in `0016-agent-user.md`. The repos are public, so the code that the agent reads is public already; what it reads beyond them is its own home, the session transcripts included.

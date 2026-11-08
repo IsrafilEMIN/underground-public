@@ -21,26 +21,6 @@ Irreversible: after the harm, no action restores the earlier state. A row is irr
 
 MVP 0.5 holds every irreversible underground row except U14 (accepted risk), U16 (no credential needs it yet), and U27 (deferred), plus U19, U20, and U31, which keep undo and work possible. The rest is MVPF.
 
-## The agent user against each row (2026-11-08, proposed)
-
-Owner decision, 2026-11-08: the containers go, and the agent runs as its own macOS user (`adr/0016-agent-user.md`). Nothing of it is built or run yet. Each row below is the draft answer; **open** marks a part that `adr/0016-agent-user.md` lists under Open. Until it is built, the box section below describes the running code.
-
-|row|as the agent user|status|
-|---|---|---|
-|U1|The agent user cannot read the owner's files at mode 600 or 700, such as `~/.ssh` and `~/.ug/host`. It has its own keychain, not the owner's [inference]. It can read the owner's group- and world-readable files until setup makes the owner's home private.|open|
-|U2|Camera, microphone, screen, clipboard, and Apple events from a process started with `sudo -u` in the owner's Terminal are not checked.|open|
-|U3|No network wall, by owner decision (2026-11-08).|accepted|
-|U4|The agent cannot write the owner's files. It can write `/tmp`, `/Users/Shared`, and other folders that every user can write; a file there runs only if an owner tool loads it. The host code runs from setup's copy, as before.|open|
-|U6|The agent writes only its own home, the config copy in it included; a change lasts until the next copy. The owner's config repo is in the owner's home.|open|
-|U7|No network wall: localhost, the LAN, and the tailnet are in reach. Unix sockets in the owner's home are out of reach; sockets that every user can open are not.|accepted, sockets open|
-|U8, U9, U28, U10, U12, U13, U17, U29, U18|GitHub-side rows and the broker: unchanged. The broker socket moves out of the owner's home.|open|
-|U36|A plain omp of the owner finds no login, as now. The agent user's omp runs only as the agent user.|open|
-|U15|The logins stay in the owner's `~/.ug/host/auth`, which the agent user cannot read. The auth broker on `127.0.0.1:8765` is in reach, and its bearer is what keeps the agent out.|open|
-|U14|Widens to every site: there is no allowlist.|accepted|
-|U22|Draft: the agent's home on its own APFS volume with a quota.|open|
-|U37|The backup must read the agent's private home: as root, or with read access for the owner.|open|
-|a taken-over agent user persists|Code planted in the agent's home loads in later sessions until a rebuild: a fresh home, or a restore from a snapshot.|open|
-
 ## The box against each row (2026-11-07)
 
 The checklist that `../AGENTS.md`, "Redesign phase", asks for: each row of MVP 0.5 against the box as built and run on the owner's mac on 2026-11-07 (`adr/0013-agent-box.md`, `adr/0015-box-layout.md`; code in `host/bin/ug-box`, `host/bin/ug-box-check.ts`, `host/egress/`, `box/`). **handled** means the box stops the harm; **accepted** means an earlier decision names it; **open** means a part is not built yet, and the box is not for unattended use until the row is handled or accepted. The control column of the tables below still describes the srt design, which #90 removed (commit 54a418a1).
