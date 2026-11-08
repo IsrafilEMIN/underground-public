@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { chmod, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
@@ -34,10 +35,10 @@ async function stub(bin: string, name: string, body: string) {
   await chmod(join(bin, name), 0o755);
 }
 
-function runAgent(o: { home: string; repo: string; bin: string }, args: string[]) {
+function runAgent(o: { home: string; repo: string; bin: string }, args: string[], env: Record<string, string> = {}) {
   return spawnSync("bash", [AGENT, ...args], {
     cwd: o.repo,
-    env: { HOME: o.home, PATH: `${o.bin}:/usr/bin:/bin` },
+    env: { HOME: o.home, PATH: `${o.bin}:/usr/bin:/bin`, ...env },
     encoding: "utf8",
   });
 }
@@ -62,13 +63,35 @@ test("ug-agent refuses when the owner home is not mode 700", async (t) => {
   assert.match(r.stderr, /not mode 700/);
 });
 
-test("ug-agent refuses while the system Remote Login is running", async (t) => {
+const noSshd = !existsSync("/usr/sbin/sshd") && "needs /usr/sbin/sshd";
+
+async function remoteLoginOwner(t: { after: (fn: () => unknown) => void }, dropIn: string) {
   const o = await owner(t);
+  const key = join(o.home, ".local/share/underground/agent-ssh/id_ed25519");
+  await rm(key);
+  spawnSync("ssh-keygen", ["-q", "-t", "ed25519", "-N", "", "-f", key]);
+  const included = join(o.home, "010-test.conf");
+  await writeFile(included, dropIn);
+  const config = join(o.home, "sshd_config");
+  await writeFile(config, `Include ${included}\nPasswordAuthentication no\n`);
   await stub(o.bin, "launchctl", "exit 0");
-  await stub(o.bin, "ssh", "exit 0");
-  const r = runAgent(o, ["ls"]);
+  await stub(o.bin, "ssh", `echo ran > ${join(o.home, "ssh-ran")}`);
+  return { ...o, config };
+}
+
+test("ug-agent refuses while Remote Login runs and the system sshd does not deny ugagent", { skip: noSshd }, async (t) => {
+  const o = await remoteLoginOwner(t, "DenyUsers alice\n");
+  const r = runAgent(o, ["ls"], { UG_SSHD_CONFIG: o.config });
   assert.equal(r.status, 1, r.stderr);
-  assert.match(r.stderr, /Remote Login is running/);
+  assert.match(r.stderr, /does not deny ugagent/);
+  await assert.rejects(readFile(join(o.home, "ssh-ran")));
+});
+
+test("ug-agent starts while Remote Login runs and an included file denies ugagent", { skip: noSshd }, async (t) => {
+  const o = await remoteLoginOwner(t, "DenyUsers alice\nDenyUsers ugagent\n");
+  const r = runAgent(o, ["ls"], { UG_SSHD_CONFIG: o.config });
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(await readFile(join(o.home, "ssh-ran"), "utf8"), "ran\n");
 });
 
 test("ug-agent logs in as ugagent on port 2222 with the owner key, and sends UG_REPO from the cwd", async (t) => {

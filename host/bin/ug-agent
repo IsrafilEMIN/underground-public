@@ -13,16 +13,13 @@ source "$(dirname "$self")/../lib/ug.bash"
 UG=${UG_DIR:-$HOME/.local/share/underground}
 key=$UG/agent-ssh/id_ed25519
 known_hosts=$UG/agent-ssh/known_hosts
+sshd_config=${UG_SSHD_CONFIG:-/etc/ssh/sshd_config}
 re='^[A-Za-z0-9._=:/@+-]+$'
 
 die() { echo "ug-agent: $*" >&2; exit 1; }
 
 [[ -n $(find "$HOME" -maxdepth 0 -perm 700 2>/dev/null) ]] ||
   die "your home $HOME is not mode 700; the agent user could read it. Run: host/bin/ug-setup"
-
-if launchctl print system/com.openssh.sshd >/dev/null 2>&1; then
-  die "system Remote Login is running; with it on, the agent user could log in by a key it writes itself. Turn Remote Login off, then run this again."
-fi
 
 last=$UG/backup/last
 if [[ ! -s $last ]] || (( $(date +%s) - $(<"$last") > 36 * 3600 )); then
@@ -34,6 +31,11 @@ for arg in "$@"; do
 done
 
 [[ -f $key && -f $known_hosts ]] || die "no agent key or known_hosts under $UG/agent-ssh; run: host/bin/ug-setup"
+
+if launchctl print system/com.openssh.sshd >/dev/null 2>&1; then
+  /usr/sbin/sshd -T -f "$sshd_config" -o HostKey="$key" -C user=ugagent,host=localhost,addr=127.0.0.1 2>/dev/null | grep -qix 'denyusers ugagent' ||
+    die "system Remote Login is running, and the system sshd does not deny ugagent; without that, the agent user could log in there outside the pin. Run host/bin/ug-setup, or turn Remote Login off."
+fi
 
 top=$(git rev-parse --show-toplevel 2>/dev/null) || top=
 if [[ -n $top ]]; then

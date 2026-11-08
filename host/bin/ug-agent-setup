@@ -133,6 +133,15 @@ chmod 600 "$root/ssh_host_ed25519_key"
 chmod 644 "$root/ssh_host_ed25519_key.pub"
 step "agent sshd host key: $root/ssh_host_ed25519_key"
 
+deny=/etc/ssh/sshd_config.d/010-underground-deny-ugagent.conf
+deny_tmp=$(mktemp)
+cleanup+=("$deny_tmp")
+printf 'DenyUsers ugagent\n' >"$deny_tmp"
+install -m 444 -o root -g wheel "$deny_tmp" "$deny"
+/usr/sbin/sshd -T -f /etc/ssh/sshd_config -o HostKey="$root/ssh_host_ed25519_key" -C user=ugagent,host=localhost,addr=127.0.0.1 2>/dev/null | grep -qix 'denyusers ugagent' ||
+  die "the system sshd does not deny ugagent with $deny in place; keep Remote Login off"
+step "system sshd: $deny denies ugagent"
+
 [[ -d $data ]] || die "$data does not exist; run host/bin/ug-setup first"
 install -d -m 700 -o "$owner" -g staff "$key_dir"
 if [[ ! -f $owner_key ]]; then
