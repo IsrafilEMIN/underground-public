@@ -58,6 +58,10 @@ _Avoid_: role home, profile, owner part
 The owner's private repo of agent configs, `~/Developer/agent-config`, in the owner's zone, named in `~/.ug/host/config-repo`: `AGENTS.md`, skills, hooks, `config.yml`, `models.yml` with the gateway markers, and other settings, laid out like omp's `~/.omp/agent`. It holds what the agent does inside the walls; underground holds the walls, such as the network allowlist. It holds no secret: `ug-box` refuses to start on a link, a special file, or a token in it (`host/bin/ug-box`, `box_config`). The owner's local folder is the source of truth; GitHub keeps a private backup. `ug-box` takes its last commit at each start, and `box/ug-config` swaps its names into the box's `~/.omp/agent`, so a change that the agent makes to its config lasts until the next start (`docs/SPEC.md`, B3).
 _Avoid_: dotfiles, role config
 
+**Skill repo**:
+An owner's repo of skills kept apart from the config repo, named one per line in the optional `~/.ug/host/skill-repos`. Setup takes its last commit, keeps each folder with a `SKILL.md` at its top or under `skills/`, refuses a link, a special file, or a token in it, and adds those folders to the config's `skills/`. A name that the config repo or an earlier skill repo already has stops setup (`stage_config`, `host/bin/ug-agent-setup:175-201`).
+_Avoid_: skill pack, plugin
+
 **Box** (removed, 2026-11-08):
 The agent's own machine as built on 2026-11-07: one long-running Apple `container` VM with no network. Step 4 of `docs/adr/0016-agent-user.md` removed it; the agent runs as its own macOS user now. The term stays for the history.
 _Avoid_: sandbox, arena, VM per session

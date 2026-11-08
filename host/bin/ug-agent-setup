@@ -135,8 +135,18 @@ install -m 600 -o "$owner" -g staff "$known_hosts.tmp" "$known_hosts"
 rm -f "$known_hosts.tmp"
 step "known_hosts for 127.0.0.1:2222: $known_hosts"
 
+# Dies when $1 holds a link, a special file, or a token. $2 is the archive root, cut from the path in a message; $3 names the repo; $4 lists the bearers.
+vet_item() {
+  local item=$1 base=$2 what=$3 secrets=$4 odd leak
+  odd=$(find "$item" \( -type l -o ! -type f ! -type d \) -print 2>/dev/null | head -1) || true
+  [[ -z $odd ]] || die "$what has a link or a special file, which the agent must not get: ${odd#"$base/"}"
+  leak=$(grep -r -l -a -E -f "$src/host/secret-patterns" "$item" 2>/dev/null | head -1) || true
+  [[ -n $leak || ! -s $secrets ]] || leak=$(grep -r -l -a -F -f "$secrets" "$item" 2>/dev/null | head -1) || true
+  [[ -z $leak ]] || die "$what file ${leak#"$base/"} holds a token or a key; the agent reads every config file, so take it out"
+}
+
 stage_config() {
-  local cfg gateway gateway_token stage name item odd leak secrets value token_file
+  local cfg gateway gateway_token stage name item secrets value token_file repo base n found
   cfg=$(sed -n '1p' "$host_zone/config-repo" 2>/dev/null) || true
   [[ -n $cfg ]] || die "no config repo: $host_zone/config-repo names none"
   cfg=${cfg/#\~/$owner_home}
@@ -158,14 +168,37 @@ stage_config() {
   while IFS= read -r name; do
     item=$stage/repo/$name
     [[ -e $item || -L $item ]] || continue
-    odd=$(find "$item" \( -type l -o ! -type f ! -type d \) -print 2>/dev/null | head -1) || true
-    [[ -z $odd ]] || die "the config repo has a link or a special file, which the agent must not get: ${odd#"$stage/repo/"}"
-    leak=$(grep -r -l -a -E -f "$src/host/secret-patterns" "$item" 2>/dev/null | head -1) || true
-    [[ -n $leak || ! -s $secrets ]] || leak=$(grep -r -l -a -F -f "$secrets" "$item" 2>/dev/null | head -1) || true
-    [[ -z $leak ]] || die "the config repo file ${leak#"$stage/repo/"} holds a token or a key; the agent reads every config file, so take it out"
+    vet_item "$item" "$stage/repo" "the config repo" "$secrets"
     [[ $name != models.yaml ]] || die "the config repo has models.yaml; name it models.yml"
     cp -R "$item" "$stage/out/$name"
   done <"$src/host/agent/config-names"
+  n=0
+  if [[ -f $host_zone/skill-repos ]]; then
+    while IFS= read -r repo || [[ -n $repo ]]; do
+      [[ -n $repo ]] || continue
+      repo=${repo/#\~/$owner_home}
+      [[ -d $repo && ! -L $repo ]] || die "the skill repo $repo in $host_zone/skill-repos is not a folder"
+      n=$((n + 1))
+      base=$stage/skill-repo-$n
+      mkdir "$base"
+      git -c "safe.directory=$repo" -C "$repo" archive --format=tar HEAD | tar -x -C "$base" || die "cannot read the last commit of the skill repo $repo"
+      [[ ! -L $base/skills ]] || die "the skill repo $repo has skills as a link, which the agent must not get"
+      [[ ! -d $base/skills ]] || base=$base/skills
+      found=0
+      for item in "$base"/*/; do
+        item=${item%/}
+        [[ -f $item/SKILL.md || -L $item ]] || continue
+        name=${item##*/}
+        vet_item "$item" "$base" "the skill repo $repo" "$secrets"
+        [[ ! -e $stage/out/skills/$name ]] || die "the skill $name of the skill repo $repo is also in the config repo or an earlier skill repo; rename one"
+        mkdir -p "$stage/out/skills"
+        cp -R "$item" "$stage/out/skills/$name"
+        found=$((found + 1))
+      done
+      [[ $found -gt 0 ]] || die "the last commit of the skill repo $repo has no <name>/SKILL.md at its top or under skills/"
+      step "skill repo $repo: $found skills"
+    done <"$host_zone/skill-repos"
+  fi
   [[ -f $stage/out/models.yml ]] || die "the last commit of the config repo $cfg has no models.yml"
   sed -i.bak -e "s/@GATEWAY@/$gateway/g" -e "s/@GATEWAY_TOKEN@/$gateway_token/g" "$stage/out/models.yml"
   rm -f "$stage/out/models.yml.bak"

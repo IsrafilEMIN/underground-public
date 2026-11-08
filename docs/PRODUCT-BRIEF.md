@@ -114,7 +114,8 @@ To uninstall: delete `~/.ug` and the launchd files.
 
 - underground: `git pull` in the owner's checkout, then setup, which copies the code into `~/.ug/sys` (`install_service_code`, `host/bin/ug-setup`; `adr/0012-pinned-omp-and-setup.md`, amendment "an installed copy of the host code"). The agent user's copy and its `omp` link come from `host/bin/ug-agent-setup`, which setup runs with sudo at its end.
 - omp: change the pin, then run setup.
-- Config: commit to the config repo, then run setup. Setup copies the last commit into `/Library/Underground/config` (`stage_config`, `host/bin/ug-agent-setup:136-177`), and each start copies that folder into the agent's `~/.omp/agent` (`host/agent/agent-start:20-24`).
+- Config: commit to the config repo, then run setup. Setup copies the last commit into `/Library/Underground/config` (`stage_config`, `host/bin/ug-agent-setup:148-211`), and each start copies that folder into the agent's `~/.omp/agent` (`host/agent/agent-start:28-32`).
+- Skills from a skill repo: commit to that repo, then run setup. Setup adds each `<name>/SKILL.md` folder of its last commit, at the top or under `skills/`, to the config's `skills/`, with the same link and token checks, and stops on a name that is already there (`stage_config`, `host/bin/ug-agent-setup:175-201`).
 
 Setup runs when underground's `main`, a pin, a host service, the config repo, or macOS changes. It installs the pinned omp and restic, makes the zones and their modes, and registers and restarts the launchd services (`host/bin/ug-setup`). At its end it runs `host/bin/ug-agent-setup` with sudo, which links the agent user's `omp` on `PATH`.
 
