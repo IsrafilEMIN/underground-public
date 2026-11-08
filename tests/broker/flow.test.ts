@@ -482,3 +482,13 @@ test("a revert of a merged PR goes through the auto path like any PR and restore
   assert.equal(await pushRecord(revertBranch), undefined);
   assert.equal(existsSync(revertTree), false);
 });
+
+test("a launch sync right after a merge through the gh-broker gets the merged main, not the copy from before it", async () => {
+  const head = await newHead("feature.txt");
+  const pr = await openPr();
+  await passAll(pr, head);
+  await ok("author", work, "sync", REPO, "--cached");
+  await mergeOk(pr);
+  const synced = await ok("author", work, "sync", REPO, "--cached");
+  assert.equal(synced, `origin/main is now ${remoteRef("refs/heads/main")}\n`);
+});

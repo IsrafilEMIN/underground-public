@@ -30,11 +30,15 @@ for dir in "$HOME/.omp" "$agent"; do
   mkdir -p "$dir"
 done
 
+names=()
+staged=()
 while IFS= read -r name; do
   [[ -n $name ]] || continue
-  rm -rf "${agent:?}/${name:?}"
-  if [[ -e $root/config/$name ]]; then cp -R "$root/config/$name" "$agent/$name"; fi
+  names+=("$name")
+  if [[ -e $root/config/$name ]]; then staged+=("$name"); fi
 done <"$root/config-names"
+rm -rf -- "${names[@]/#/$agent/}"
+if (( ${#staged[@]} > 0 )); then cp -cR -- "${staged[@]/#/$root/config/}" "$agent/"; fi
 
 if [[ -z ${UG_REPO:-} ]]; then
   mkdir -p "$HOME/scratch"
@@ -52,7 +56,7 @@ if [[ ! -d $clone/.git ]]; then
 fi
 cd "$clone"
 
-synced=$(/usr/bin/lockf -k .git/ug-sync.lock "$root/bin/gh-broker" sync "$UG_REPO") || {
+synced=$(/usr/bin/lockf -k .git/ug-sync.lock "$root/bin/gh-broker" sync "$UG_REPO" --cached) || {
   printf 'agent-start: gh-broker sync %s failed; is the gh-broker app installed on it?\n' "$UG_REPO" >&2
   exit 69
 }

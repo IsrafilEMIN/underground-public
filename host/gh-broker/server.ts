@@ -14,6 +14,7 @@ import {
   isSha,
   mergeRefusal,
   parseProtectedPaths,
+  parseRemoteHead,
   reviewHeadRefusal,
   isDefaultBranchName,
   prHeadRefusal,
@@ -37,7 +38,7 @@ import type {
   Request,
 } from "./protocol.ts";
 import { appFiles, createAppTokens, redactTokens } from "./github-app.ts";
-import type { GithubTokens } from "./github-app.ts";
+import type { GithubTokens, TokenScope } from "./github-app.ts";
 import { dropPushRecord, readPushRecord, writePushRecord } from "./push-record.ts";
 import { appendReviewRecord, readReviewRecords } from "./review-records.ts";
 
@@ -52,6 +53,8 @@ export type ServerConfig = {
   github: GithubTokens;
   home: string;
   tempRoot: string;
+  now?: () => number;
+  checkTimeoutMs?: number;
 };
 
 const HOME = homedir();
@@ -59,6 +62,10 @@ const CHILD_PATH = "/opt/homebrew/bin:/usr/bin:/bin";
 const EMPTY_GH_CONFIG = "/var/empty";
 const UNAUTHORIZED = /HTTP 401|Bad credentials|Authentication failed|Invalid username or password/;
 const PR_STATUS_FIELDS = "number,state,headRefName,headRefOid,baseRefName,mergeable,mergeStateStatus,statusCheckRollup,url";
+const REFRESH_EVERY_MS = 30 * 1000;
+const FRESH_FOR_MS = 40 * 1000;
+const REFRESH_FOR_MS = 7 * 24 * 60 * 60 * 1000;
+const CHECK_TIMEOUT_MS = 20 * 1000;
 
 function defaultGitPath(): string {
   for (const candidate of ["/opt/homebrew/bin/git", "/usr/bin/git"]) {
@@ -161,18 +168,19 @@ async function asApp(
   access: Access,
   signal: AbortSignal,
   run: (token: string) => Promise<ChildResult>,
+  scope: TokenScope = "app",
 ): Promise<ChildResult> {
   for (let attempt = 1; ; attempt++) {
     let token: string;
     try {
-      token = await config.github.token(repo, signal);
+      token = await config.github.token(repo, signal, scope);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return { exit: 1, rawStdout: "", stderr: `gh-broker: cannot get a GitHub App token: ${redactTokens(message)}\n` };
     }
     const result = await run(token);
     if (access === "write" || attempt > 1 || result.exit === 0 || !UNAUTHORIZED.test(result.stderr)) return result;
-    config.github.drop(repo);
+    config.github.drop(repo, scope);
   }
 }
 
@@ -193,8 +201,9 @@ function gitRemote(
   access: Access,
   args: (url: string) => string[],
   signal: AbortSignal,
+  scope: TokenScope = "app",
 ): Promise<ChildResult> {
-  return asApp(config, repo, access, signal, (token) => git(config, bare, args(`https://x-access-token:${token}@github.com/${repo}.git`), signal));
+  return asApp(config, repo, access, signal, (token) => git(config, bare, args(`https://x-access-token:${token}@github.com/${repo}.git`), signal), scope);
 }
 
 async function defaultBranch(config: ServerConfig, repo: string, signal: AbortSignal): Promise<string | ResultReply> {
@@ -223,27 +232,117 @@ async function brokerTempDir(config: ServerConfig): Promise<string> {
   return mkdtemp(join(config.tempRoot, "ug-gh-broker-"));
 }
 
+type RepoState = { queue: Promise<void>; branch?: string; checkedAt?: number; syncedAt?: number; refreshing?: boolean };
+
+const repoStates = new WeakMap<ServerConfig, Map<string, RepoState>>();
+
+function repoState(config: ServerConfig, repo: string): RepoState {
+  let repos = repoStates.get(config);
+  if (repos === undefined) {
+    repos = new Map();
+    repoStates.set(config, repos);
+  }
+  let state = repos.get(repo);
+  if (state === undefined) {
+    state = { queue: Promise.resolve() };
+    repos.set(repo, state);
+  }
+  return state;
+}
+
+function inRepoQueue<T>(config: ServerConfig, repo: string, work: () => Promise<T>): Promise<T> {
+  const state = repoState(config, repo);
+  const run = state.queue.then(work);
+  state.queue = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
+async function refreshMain(config: ServerConfig, repo: string, bare: string, signal: AbortSignal): Promise<{ branch: string } | ResultReply> {
+  const startedAt = (config.now ?? Date.now)();
+  const listed = await gitRemote(config, bare, repo, "read", (url) => ["ls-remote", "--symref", url, "HEAD"], signal, "contents-read");
+  if (listed.exit !== 0) return forward(listed);
+  const remote = parseRemoteHead(listed.rawStdout);
+  if (remote === undefined) return { exit: 1, stdout: "", stderr: "gh-broker: cannot read default branch\n" };
+  const ref = `refs/heads/${remote.branch}`;
+  const local = await git(config, bare, ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`], signal);
+  if (local.exit !== 0 || local.rawStdout.trim() !== remote.head) {
+    const fetch = await gitRemote(config, bare, repo, "read", (url) => ["fetch", "--quiet", "--no-tags", "--no-write-fetch-head", url, `+${ref}:${ref}`], signal, "contents-read");
+    if (fetch.exit !== 0) return forward(fetch);
+  }
+  const state = repoState(config, repo);
+  state.branch = remote.branch;
+  state.checkedAt = startedAt;
+  return { branch: remote.branch };
+}
+
+export async function refreshRepos(config: ServerConfig, signal: AbortSignal): Promise<void> {
+  const now = (config.now ?? Date.now)();
+  const due = [...(repoStates.get(config) ?? [])].filter(
+    ([, state]) => state.syncedAt !== undefined && now - state.syncedAt <= REFRESH_FOR_MS && state.refreshing !== true,
+  );
+  await Promise.all(
+    due.map(async ([repo, state]) => {
+      state.refreshing = true;
+      try {
+        const bare = join(config.reposRoot, `${repo}.git`);
+        const result = await inRepoQueue(config, repo, async () => {
+          const bounded = AbortSignal.any([signal, AbortSignal.timeout(config.checkTimeoutMs ?? CHECK_TIMEOUT_MS)]);
+          return (await ensureBareRepo(config, bare, bounded)) ?? refreshMain(config, repo, bare, bounded);
+        });
+        if (!("branch" in result)) process.stderr.write(`${new Date().toISOString()} refresh of ${repo} failed: ${result.stderr.trim()}\n`);
+      } catch (error) {
+        process.stderr.write(`${new Date().toISOString()} refresh of ${repo} failed: ${redactTokens(error instanceof Error ? error.message : String(error))}\n`);
+      } finally {
+        state.refreshing = false;
+      }
+    }),
+  );
+}
+
 async function handleSync(config: ServerConfig, req: SyncRequest, signal: AbortSignal): Promise<Reply> {
   if (req.pr !== undefined) return handleSyncPr(config, req.repo, req.pr, signal);
-  const branch = await defaultBranch(config, req.repo, signal);
-  if (typeof branch !== "string") return branch;
-  const tempDir = await brokerTempDir(config);
-  try {
-    const bundlePath = join(tempDir, "sync.bundle");
-    const bare = join(config.reposRoot, `${req.repo}.git`);
+  const { repo } = req;
+  const bare = join(config.reposRoot, `${repo}.git`);
+  return inRepoQueue(config, repo, async () => {
+    const state = repoState(config, repo);
+    const now = (config.now ?? Date.now)();
+    state.syncedAt = now;
     const initFailure = await ensureBareRepo(config, bare, signal);
     if (initFailure !== undefined) return initFailure;
+    let branch = state.branch;
+    if (req.cached !== true || branch === undefined || state.checkedAt === undefined || now - state.checkedAt > FRESH_FOR_MS) {
+      const refreshed = await refreshMain(config, repo, bare, AbortSignal.any([signal, AbortSignal.timeout(config.checkTimeoutMs ?? CHECK_TIMEOUT_MS)]));
+      if (!("branch" in refreshed)) return refreshed;
+      branch = refreshed.branch;
+    }
     const ref = `refs/heads/${branch}`;
-    const fetch = await gitRemote(config, bare, req.repo, "read", (url) => ["fetch", "--quiet", "--no-tags", "--no-write-fetch-head", url, `+${ref}:${ref}`], signal);
-    if (fetch.exit !== 0) return forward(fetch);
-    const bundled = await git(config, bare, ["bundle", "create", "--quiet", bundlePath, ref], signal);
-    if (bundled.exit !== 0) return forward(bundled);
-    const bundle = await readFile(bundlePath);
-    const reply: SyncReply = { exit: 0, stdout: "", stderr: "", branch, bundle_b64: bundle.toString("base64") };
-    return reply;
-  } finally {
-    await rm(tempDir, { recursive: true, force: true });
-  }
+    const tip = await git(config, bare, ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`], signal);
+    const head = tip.rawStdout.trim();
+    if (tip.exit !== 0 || !isSha(head)) return { exit: 1, stdout: "", stderr: `gh-broker: the gh-broker's copy of ${repo} has no ${ref}\n` };
+    const known: string[] = [];
+    for (const have of req.have ?? []) {
+      if ((await git(config, bare, ["cat-file", "-e", `${have}^{commit}`], signal)).exit !== 0) continue;
+      if ((await git(config, bare, ["merge-base", "--is-ancestor", head, have], signal)).exit === 0) {
+        const reply: SyncReply = { exit: 0, stdout: "", stderr: "", branch, head };
+        return reply;
+      }
+      known.push(have);
+    }
+    const tempDir = await brokerTempDir(config);
+    try {
+      const bundlePath = join(tempDir, "sync.bundle");
+      const bundled = await git(config, bare, ["bundle", "create", "--quiet", bundlePath, ref, ...known.map((have) => `^${have}`)], signal);
+      if (bundled.exit !== 0) return forward(bundled);
+      const bundle = await readFile(bundlePath);
+      const reply: SyncReply = { exit: 0, stdout: "", stderr: "", branch, head, bundle_b64: bundle.toString("base64") };
+      return reply;
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
 }
 
 async function handleSyncPr(config: ServerConfig, repo: string, number: number, signal: AbortSignal): Promise<Reply> {
@@ -251,27 +350,29 @@ async function handleSyncPr(config: ServerConfig, repo: string, number: number, 
   if ("reply" in view) return view.reply;
   const head = view.pr.headRefOid;
   if (!isSha(head)) return refused("cannot read pull request head commit");
-  const tempDir = await brokerTempDir(config);
   const bare = join(config.reposRoot, `${repo}.git`);
-  const tempRef = `refs/gh-broker/pr/${basename(tempDir)}`;
-  try {
-    const initFailure = await ensureBareRepo(config, bare, signal);
-    if (initFailure !== undefined) return initFailure;
-    const fetch = await gitRemote(config, bare, repo, "read", (url) => ["fetch", "--quiet", "--no-tags", "--no-write-fetch-head", url, `+refs/pull/${number}/head:${tempRef}`], signal);
-    if (fetch.exit !== 0) return forward(fetch);
-    const fetched = await git(config, bare, ["rev-parse", "--verify", "--quiet", `${tempRef}^{commit}`], signal);
-    const sha = fetched.rawStdout.trim();
-    if (fetched.exit !== 0 || sha !== head) return refused(`PR ${number} head moved during the sync: headRefOid is ${head}, GitHub sent ${sha}; run sync again`);
-    const bundlePath = join(tempDir, "pr.bundle");
-    const bundled = await git(config, bare, ["bundle", "create", "--quiet", bundlePath, tempRef], signal);
-    if (bundled.exit !== 0) return forward(bundled);
-    const bundle = await readFile(bundlePath);
-    const reply: SyncPrReply = { exit: 0, stdout: "", stderr: "", pr: number, head, bundle_b64: bundle.toString("base64") };
-    return reply;
-  } finally {
-    await git(config, bare, ["update-ref", "-d", tempRef], new AbortController().signal);
-    await rm(tempDir, { recursive: true, force: true });
-  }
+  return inRepoQueue(config, repo, async () => {
+    const tempDir = await brokerTempDir(config);
+    const tempRef = `refs/gh-broker/pr/${basename(tempDir)}`;
+    try {
+      const initFailure = await ensureBareRepo(config, bare, signal);
+      if (initFailure !== undefined) return initFailure;
+      const fetch = await gitRemote(config, bare, repo, "read", (url) => ["fetch", "--quiet", "--no-tags", "--no-write-fetch-head", url, `+refs/pull/${number}/head:${tempRef}`], signal);
+      if (fetch.exit !== 0) return forward(fetch);
+      const fetched = await git(config, bare, ["rev-parse", "--verify", "--quiet", `${tempRef}^{commit}`], signal);
+      const sha = fetched.rawStdout.trim();
+      if (fetched.exit !== 0 || sha !== head) return refused(`PR ${number} head moved during the sync: headRefOid is ${head}, GitHub sent ${sha}; run sync again`);
+      const bundlePath = join(tempDir, "pr.bundle");
+      const bundled = await git(config, bare, ["bundle", "create", "--quiet", bundlePath, tempRef], signal);
+      if (bundled.exit !== 0) return forward(bundled);
+      const bundle = await readFile(bundlePath);
+      const reply: SyncPrReply = { exit: 0, stdout: "", stderr: "", pr: number, head, bundle_b64: bundle.toString("base64") };
+      return reply;
+    } finally {
+      await git(config, bare, ["update-ref", "-d", tempRef], new AbortController().signal);
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
 }
 
 async function handlePush(config: ServerConfig, req: PushRequest, signal: AbortSignal): Promise<Reply> {
@@ -280,31 +381,33 @@ async function handlePush(config: ServerConfig, req: PushRequest, signal: AbortS
   const base = await defaultBranch(config, req.repo, signal);
   if (typeof base !== "string") return base;
   if (req.branch === base) return refused("branch is the default branch");
-  const tempDir = await brokerTempDir(config);
   const bare = join(config.reposRoot, `${req.repo}.git`);
-  const tempRef = `refs/gh-broker/push/${basename(tempDir)}`;
-  try {
-    const bundlePath = join(tempDir, "push.bundle");
-    await writeFile(bundlePath, bundle, { mode: 0o600 });
-    const initFailure = await ensureBareRepo(config, bare, signal);
-    if (initFailure !== undefined) return initFailure;
-    const fetch = await git(config, bare, ["fetch", "--quiet", "--no-tags", "--no-write-fetch-head", bundlePath, `+refs/heads/${req.branch}:${tempRef}`], signal);
-    if (fetch.exit !== 0) return forward(fetch);
-    const parsed = await git(config, bare, ["rev-parse", "--verify", "--quiet", `${tempRef}^{commit}`], signal);
-    if (parsed.exit !== 0 || parsed.rawStdout.trim() !== req.sha) return refused("bundle ref does not match sha");
-    const push = await gitRemote(config, bare, req.repo, "write", (url) => ["push", "--porcelain", "--force", url, `${req.sha}:refs/heads/${req.branch}`], signal);
-    if (push.exit !== 0) return forward(push);
+  return inRepoQueue(config, req.repo, async () => {
+    const tempDir = await brokerTempDir(config);
+    const tempRef = `refs/gh-broker/push/${basename(tempDir)}`;
     try {
-      await writePushRecord(config.pushesDir, { repo: req.repo, branch: req.branch }, req.sha);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      return { ...forward(push), exit: 1, stderr: `${push.stderr}gh-broker: pushed, but cannot write the push record, so auto merge refuses this head: ${redactTokens(message)}\n` };
+      const bundlePath = join(tempDir, "push.bundle");
+      await writeFile(bundlePath, bundle, { mode: 0o600 });
+      const initFailure = await ensureBareRepo(config, bare, signal);
+      if (initFailure !== undefined) return initFailure;
+      const fetch = await git(config, bare, ["fetch", "--quiet", "--no-tags", "--no-write-fetch-head", bundlePath, `+refs/heads/${req.branch}:${tempRef}`], signal);
+      if (fetch.exit !== 0) return forward(fetch);
+      const parsed = await git(config, bare, ["rev-parse", "--verify", "--quiet", `${tempRef}^{commit}`], signal);
+      if (parsed.exit !== 0 || parsed.rawStdout.trim() !== req.sha) return refused("bundle ref does not match sha");
+      const push = await gitRemote(config, bare, req.repo, "write", (url) => ["push", "--porcelain", "--force", url, `${req.sha}:refs/heads/${req.branch}`], signal);
+      if (push.exit !== 0) return forward(push);
+      try {
+        await writePushRecord(config.pushesDir, { repo: req.repo, branch: req.branch }, req.sha);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return { ...forward(push), exit: 1, stderr: `${push.stderr}gh-broker: pushed, but cannot write the push record, so auto merge refuses this head: ${redactTokens(message)}\n` };
+      }
+      return forward(push);
+    } finally {
+      await git(config, bare, ["update-ref", "-d", tempRef], new AbortController().signal);
+      await rm(tempDir, { recursive: true, force: true });
     }
-    return forward(push);
-  } finally {
-    await git(config, bare, ["update-ref", "-d", tempRef], new AbortController().signal);
-    await rm(tempDir, { recursive: true, force: true });
-  }
+  });
 }
 
 async function handlePrCreate(config: ServerConfig, req: PrCreateRequest, signal: AbortSignal): Promise<Reply> {
@@ -470,6 +573,7 @@ async function handleMerge(config: ServerConfig, req: MergeRequest, signal: Abor
     signal,
   );
   if (merge.exit !== 0) return forward(merge);
+  repoState(config, req.repo).checkedAt = undefined;
   return cleanUpMergedBranch(config, { repo: req.repo, branch: pr.headRefName, head: pr.headRefOid }, forward(merge), signal);
 }
 
@@ -670,13 +774,22 @@ function closeServer(server: Server): Promise<void> {
   return closed.promise;
 }
 
-export type GhBroker = { config: ServerConfig; server: Server };
+export type GhBroker = { config: ServerConfig; server: Server; stopRefresh: () => void };
 
 export async function startServer(config: ServerConfig): Promise<GhBroker> {
-  return { config, server: await listenUnix(config.socketPath, (input, signal) => handleRequest(config, input, signal)) };
+  const server = await listenUnix(config.socketPath, (input, signal) => handleRequest(config, input, signal));
+  const stop = new AbortController();
+  const timer = setInterval(() => void refreshRepos(config, stop.signal), REFRESH_EVERY_MS);
+  timer.unref();
+  const stopRefresh = (): void => {
+    clearInterval(timer);
+    stop.abort();
+  };
+  return { config, server, stopRefresh };
 }
 
 export async function stopServer(broker: GhBroker): Promise<void> {
+  broker.stopRefresh();
   await closeServer(broker.server);
 }
 
