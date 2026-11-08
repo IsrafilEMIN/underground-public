@@ -1,4 +1,6 @@
 # shellcheck shell=bash
+# shellcheck source=host/lib/ug.bash disable=SC1091
+source "$(dirname "${BASH_SOURCE[0]}")/ug.bash"
 
 box_image_tag() {
   local src=$1 h LC_ALL=C
@@ -31,10 +33,10 @@ box_image_build() {
   ctx=$(mktemp -d) || return 1
   cp "$src"/box/* "$src/host/broker/client.ts" "$src/host/broker/protocol.ts" "$ctx/"
   container build -t "$tag" \
-    --build-arg "OMP_VERSION=$(sed -n 's/^box_omp=//p' "$src/VERSIONS")" \
-    --build-arg "OMP_SHA256=$(sed -n 's/^box_omp_sha256=//p' "$src/VERSIONS")" \
-    --build-arg "OVNFS_VERSION=$(sed -n 's/^ovnfs=//p' "$src/VERSIONS")" \
-    --build-arg "OVNFS_SHA256=$(sed -n 's/^ovnfs_sha256=//p' "$src/VERSIONS")" \
+    --build-arg "OMP_VERSION=$(ug_pin "$src/VERSIONS" box_omp)" \
+    --build-arg "OMP_SHA256=$(ug_pin "$src/VERSIONS" box_omp_sha256)" \
+    --build-arg "OVNFS_VERSION=$(ug_pin "$src/VERSIONS" ovnfs)" \
+    --build-arg "OVNFS_SHA256=$(ug_pin "$src/VERSIONS" ovnfs_sha256)" \
     -f "$ctx/Containerfile" "$ctx" || status=$?
   rm -rf "$ctx"
   [[ $status -ne 0 ]] || echo "box image: built $tag"

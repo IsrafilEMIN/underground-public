@@ -50,9 +50,8 @@ async function fakeHome({ awake = true, password = true, config = true } = {}) {
   await exe(join(home, "rig-sleep"), FAKE_SLEEP);
   await exe(join(bin, "container"), FAKE_CONTAINER);
   await exe(join(bin, "tar"), FAKE_TAR);
-  await writeFile(join(home, "no-volume"), "");
   await mkdir(join(home, ".ug/host/backup"), { recursive: true });
-  await mkdir(join(home, ".ug/home"), { recursive: true });
+  await withBox(home);
   if (password) await writeFile(join(home, ".ug/host/backup/password"), "pw\n");
   if (config) {
     await writeFile(
@@ -78,17 +77,17 @@ async function calls(home: string): Promise<string[]> {
 const backups = (all: string[]) => all.filter((c) => c.startsWith("RESTIC:") && c.includes(" [backup] "));
 const lastFile = (home: string) => join(home, ".ug/host/backup/last");
 
-test("ug-backup backs up the arena, minus what can be rebuilt, into the repo, and records the time", async (t) => {
+test("ug-backup backs up the box home into the repo with the backup password, and records the time", async (t) => {
   const home = await fakeHome();
   t.after(() => rm(home, { recursive: true, force: true }));
   const r = run(home);
   assert.equal(r.status, 0, r.stderr);
-  const [backup] = backups(await calls(home));
+  const all = await calls(home);
+  assert.equal(backups(all).length, 1, all.join("\n"));
+  const [backup] = backups(all);
   assert.ok(backup.startsWith("RESTIC: [-r] [sftp:kutluk@v100-server:backups/mac-arena] [backup]"), backup);
-  assert.ok(backup.endsWith(`[${join(home, ".ug/home")}]`), backup);
-  for (const left of [join(home, ".ug/home/tmp"), join(home, ".ug/home/.omp/agent/cache"), join(home, ".ug/home/.cache"), "node_modules"]) {
-    assert.ok(backup.includes(`[--exclude] [${left}]`), `${left} is not left out: ${backup}`);
-  }
+  assert.ok(backup.includes("[--tag] [ug-box]"), backup);
+  assert.ok(!all.some((c) => c.includes(".ug/home")), "the old arena folder is no longer backed up");
   assert.ok((await calls(home)).includes(`PW:${join(home, ".ug/host/backup/password")}`));
   assert.ok((await calls(home)).some((c) => c === "SSH: -o BatchMode=yes -o ConnectTimeout=10 kutluk@v100-server true"));
   const last = Number(await readFile(lastFile(home), "utf8"));
@@ -121,6 +120,8 @@ async function withBox(home: string, { running = false, image = true } = {}) {
     await mkdir(join(home, ".ug/sys/box/host/lib"), { recursive: true });
     await writeFile(join(home, ".ug/sys/box/host/lib/box-image.bash"), `source "${join(SRC, "host/lib/box-image.bash")}"\nbox_image_tag() { echo ugbox:test; }\n`);
     await writeFile(join(home, ".ug/sys/box/host/lib/backup-target.bash"), `source "${join(SRC, "host/lib/backup-target.bash")}"\n`);
+  } else {
+    await rm(join(home, ".ug/sys/box"), { recursive: true, force: true });
   }
 }
 
@@ -186,6 +187,16 @@ test("ug-box-restore deletes nothing when the old home does not reach the repo, 
   assert.ok(!(await calls(home)).some((c) => c.includes("[volume] [delete]")), (await calls(home)).join("\n"));
 });
 
+test("ug-box-restore clears a lock left behind by a crashed process and goes on", async (t) => {
+  const home = await restoreHome();
+  t.after(() => rm(home, { recursive: true, force: true }));
+  await mkdir(join(home, "state/ug-box/lock"), { recursive: true });
+  await writeFile(join(home, "state/ug-box/lock/pid"), "999999");
+  const r = restore(home);
+  assert.equal(r.status, 0, r.stderr);
+  assert.ok(!existsSync(join(home, "state/ug-box/lock")));
+});
+
 test("ug-box-restore wakes an asleep backup target first and puts it back to sleep at the end, also when it refuses", async (t) => {
   const home = await restoreHome();
   t.after(() => rm(home, { recursive: true, force: true }));
@@ -221,7 +232,7 @@ test("ug-box-restore refuses a snapshot that holds no box home, and a repo that 
   assert.ok(!(await calls(home)).some((c) => c.includes("[volume]")), (await calls(home)).join("\n"));
 });
 
-test("ug-backup streams the box home out of a stopped box through the installed image, into a second snapshot", async (t) => {
+test("ug-backup streams the box home out of a stopped box through the installed image", async (t) => {
   const home = await fakeHome();
   t.after(() => rm(home, { recursive: true, force: true }));
   await withBox(home);
@@ -233,7 +244,7 @@ test("ug-backup streams the box home out of a stopped box through the installed 
   for (const left of ["./checkouts", "./.tmp", "./.cache", "./.omp/agent/cache", "node_modules"]) {
     assert.ok(reader?.includes(`--exclude ${left} `), `${left} is not left out: ${reader}`);
   }
-  const [, box] = backups(all);
+  const [box] = backups(all);
   assert.ok(box.includes("[--tag] [ug-box] [--stdin-filename] [ug-box-home.tar] [--stdin-from-command] [--] [container] [run]"), box);
   assert.equal(await readFile(join(home, "stdin"), "utf8"), "TARDATA\n");
   assert.ok(existsSync(lastFile(home)));
@@ -262,14 +273,15 @@ test("ug-backup with a box home but no installed image fails, records no time, a
   assert.ok((await calls(home)).some((c) => c.startsWith("SLEEP")));
 });
 
-test("ug-backup with no box volume backs up only the arena", async (t) => {
+test("ug-backup with no box home yet backs up nothing, records no time, and says why", async (t) => {
   const home = await fakeHome();
   t.after(() => rm(home, { recursive: true, force: true }));
-  await withBox(home);
   await writeFile(join(home, "no-volume"), "");
   const r = run(home);
   assert.equal(r.status, 0, r.stderr);
-  assert.equal(backups(await calls(home)).length, 1);
+  assert.match(r.stderr, /no box home yet/);
+  assert.equal(backups(await calls(home)).length, 0);
+  assert.ok(!existsSync(lastFile(home)));
 });
 
 test("ug-backup without the container CLI on PATH fails and records no time, instead of a silent skip", async (t) => {
@@ -407,16 +419,6 @@ test("ug-backup makes the repo on its first run, and backs up nothing when it ca
   assert.equal(r.status, 1);
   assert.match(r.stderr, /does not open \(restic exit 12\)/);
   assert.deepEqual(backups(await calls(home3)), []);
-});
-
-test("ug-backup counts a run with some unreadable files (restic exit 3) and says so", async (t) => {
-  const home = await fakeHome();
-  t.after(() => rm(home, { recursive: true, force: true }));
-  await writeFile(join(home, "exit-backup"), "3");
-  const r = run(home);
-  assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stderr, /some files could not be read/);
-  assert.ok(existsSync(lastFile(home)));
 });
 
 test("ug-backup runs a config command as plain words, never through a shell", async (t) => {

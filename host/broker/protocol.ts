@@ -36,7 +36,7 @@ export type Request =
   | ReviewRequest
   | MergeRequest;
 
-export type ReviewRecord = { repo: string; pr: number; role: ReviewerRole | null; head: string; verdict: Verdict; reason: string; at: string };
+export type ReviewRecord = { repo: string; pr: number; role: ReviewerRole; head: string; verdict: Verdict; reason: string; at: string };
 export type ReviewRecords = { kind: "records"; records: ReviewRecord[] } | { kind: "unreadable" };
 
 export type ResultReply = { exit: number; stdout: string; stderr: string };
@@ -289,16 +289,10 @@ function hasRecordFields(value: unknown): value is Omit<ReviewRecord, "role"> {
   );
 }
 
-function isOldRoleName(value: Record<string, unknown>): boolean {
-  if (!("role_name" in value)) return true;
-  return value.role === null ? value.role_name === null : typeof value.role_name === "string";
-}
-
 export function parseReviewRecord(value: unknown): ReviewRecord | undefined {
   if (!hasRecordFields(value) || !isRecord(value)) return undefined;
   const role = value.role;
-  if (role !== null && !isReviewerRole(role)) return undefined;
-  if (!isOldRoleName(value)) return undefined;
+  if (!isReviewerRole(role)) return undefined;
   return { repo: value.repo, pr: value.pr, role, head: value.head, verdict: value.verdict, reason: value.reason, at: value.at };
 }
 
@@ -327,17 +321,13 @@ export function holds(records: ReviewRecord[], protectedFiles: string[]): Hold[]
   ];
 }
 
-function reviewerName(record: ReviewRecord): string {
-  return record.role ?? "an old record with no role";
-}
-
 function holdRefusal(hold: Hold): string {
   const prefix = "a hold refuses, so the owner merges this PR on GitHub";
   switch (hold.kind) {
     case "manual":
-      return `${prefix}: ${reviewerName(hold.record)} asked for manual review of ${hold.record.head} at ${hold.record.at}: ${hold.record.reason}`;
+      return `${prefix}: ${hold.record.role} asked for manual review of ${hold.record.head} at ${hold.record.at}: ${hold.record.reason}`;
     case "attempt":
-      return `${prefix}: attempt ${hold.attempt} (${hold.record.head}) got a block at ${hold.record.at} from ${reviewerName(hold.record)}: ${hold.record.reason}`;
+      return `${prefix}: attempt ${hold.attempt} (${hold.record.head}) got a block at ${hold.record.at} from ${hold.record.role}: ${hold.record.reason}`;
     case "protected-path":
       return `${prefix}: protected path ${hold.path} changed`;
     default: {
@@ -350,7 +340,7 @@ function holdRefusal(hold: Hold): string {
 function headVerdictRefusal(records: ReviewRecord[], head: string): string | undefined {
   const onHead = records.filter((record) => record.head === head);
   const block = onHead.find((record) => record.verdict === "block");
-  if (block !== undefined) return `${reviewerName(block)} blocks it: ${block.reason}`;
+  if (block !== undefined) return `${block.role} blocks it: ${block.reason}`;
   for (const role of REVIEWER_ROLES) {
     const latest = onHead.filter((record) => record.role === role).at(-1);
     if (latest === undefined) return `${role} has no verdict on it`;

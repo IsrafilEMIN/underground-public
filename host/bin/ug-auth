@@ -15,7 +15,9 @@ while [[ -L $self ]]; do
   [[ $link == /* ]] && self=$link || self="$(dirname "$self")/$link"
 done
 src=$(cd "$(dirname "$self")/../.." && pwd -P)
-pin=$(sed -n 's/^omp=//p' "$src/VERSIONS")
+# shellcheck source=host/lib/ug.bash disable=SC1091
+source "$src/host/lib/ug.bash"
+pin=$(ug_pin "$src/VERSIONS" omp)
 omp="$HOME/.ug/sys/omp/$pin/omp"
 [[ -x $omp ]] || { printf 'ug-auth: the pinned omp %s is missing; run host/bin/ug-setup\n' "$omp" >&2; exit 1; }
 

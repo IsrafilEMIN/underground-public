@@ -10,7 +10,7 @@ src=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)
 ug_real=$(cd "$HOME/.ug" 2>/dev/null && pwd -P) || ug_real="$HOME/.ug"
 case $src/ in
   "$HOME/.ug/"* | "$ug_real/"*)
-    printf 'ug-setup: %s is inside ~/.ug, where agents write; run setup from your own checkout\n' "$src" >&2
+    printf 'ug-setup: %s is inside ~/.ug, which setup itself writes; run setup from your own checkout\n' "$src" >&2
     exit 64
     ;;
 esac
@@ -41,9 +41,11 @@ check_checkout() {
   [[ $head == "$main" ]] || die "the checkout is at ${head:0:7}, not origin/main ${main:0:7}; setup installs only what CI proved on origin/main. Check out main and pull, or fetch."
 }
 check_checkout
+# shellcheck source=host/lib/ug.bash disable=SC1091
+source "$src/host/lib/ug.bash"
 pin() {
   local value
-  value=$(sed -n "s/^$1=//p" "$src/VERSIONS")
+  value=$(ug_pin "$src/VERSIONS" "$1")
   [[ $value =~ $2 ]] || die "bad pin for $1 in VERSIONS"
   printf '%s\n' "$value"
 }
@@ -199,7 +201,7 @@ install_service_code() {
   local dir="$sys/services" f
   rm -rf "$dir"
   install -d -m 700 "$dir" "$dir/host/bin" "$dir/host/lib" "$dir/host/broker"
-  for f in host/bin/ug-backup host/lib/backup-target.bash VERSIONS "$src"/host/broker/*.ts; do
+  for f in host/bin/ug-backup host/lib/backup-target.bash host/lib/ug.bash VERSIONS "$src"/host/broker/*.ts; do
     f=${f#"$src/"}
     put "$src/$f" "$dir/$f" 444
   done
@@ -211,7 +213,7 @@ install_ug_box() {
   local dir="$sys/box" f
   rm -rf "$dir"
   install -d -m 700 "$dir" "$dir/host/bin" "$dir/host/lib" "$dir/host/broker" "$dir/box"
-  for f in host/bin/ug-box host/bin/ug-box-restore host/bin/ug-box-check.ts host/lib/box-image.bash host/lib/backup-target.bash host/secret-patterns \
+  for f in host/bin/ug-box host/bin/ug-box-restore host/bin/ug-box-check.ts host/lib/box-image.bash host/lib/ug.bash host/lib/backup-target.bash host/secret-patterns \
     host/broker/client.ts host/broker/protocol.ts VERSIONS "$src"/box/*; do
     f=${f#"$src/"}
     put "$src/$f" "$dir/$f" 444

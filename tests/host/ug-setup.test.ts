@@ -17,11 +17,11 @@ async function copyAt(root: string): Promise<string> {
 test("ug-setup refuses to run from a checkout inside ~/.ug, and writes nothing", async (t) => {
   const home = await tempDir(join(tmpdir(), "ug-setup-"));
   t.after(() => rm(home, { recursive: true, force: true }));
-  const setup = await copyAt(join(home, ".ug/home/work/o/r"));
+  const setup = await copyAt(join(home, ".ug/checkout"));
   const r = spawnSync("bash", [setup], { env: { HOME: home, PATH: "/usr/bin:/bin" }, encoding: "utf8" });
   assert.equal(r.status, 64, r.stderr);
-  assert.match(r.stderr, /is inside ~\/\.ug, where agents write/);
-  assert.deepEqual((await readdir(join(home, ".ug"))).sort(), ["home"]);
+  assert.match(r.stderr, /is inside ~\/\.ug, which setup itself writes/);
+  assert.deepEqual((await readdir(join(home, ".ug"))).sort(), ["checkout"]);
 });
 
 test("ug-setup from a checkout outside ~/.ug gets past that guard", async (t) => {

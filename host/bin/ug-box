@@ -26,21 +26,8 @@ source "$SRC/host/lib/box-image.bash"
 
 image_tag() { box_image_tag "$SRC"; }
 
-lock() {
-  local dir=$1/lock waited=0
-  until mkdir "$dir" 2>/dev/null; do
-    local holder
-    holder=$(cat "$dir/pid" 2>/dev/null || true)
-    if [[ -n $holder ]] && ! kill -0 "$holder" 2>/dev/null; then
-      rm -rf "$dir"
-      continue
-    fi
-    (( waited++ < LOCK_WAIT * 10 )) || die "another start holds the lock of $(basename "$1")"
-    sleep 0.1
-  done
-  echo $$ > "$dir/pid"
-}
-unlock() { rm -rf "$1/lock"; }
+lock() { ug_lock "$1" "$LOCK_WAIT" || die "another start holds the lock of $(basename "$1")"; }
+unlock() { ug_unlock "$1"; }
 
 live_sessions() {
   local f n=0
