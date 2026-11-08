@@ -36,9 +36,12 @@ The base agreed by the owner on 2026-11-08 (`adr/0016-agent-user.md`): the agent
 |✅ tested, own login|U2, U4, U36: started through its own login|Over ssh to `localhost`, with the read allow list and no rule per service: `pbpaste` did not find `ug-clip-marker`; `osascript` to System Events failed (`An error of type -10810 has occurred`); `open -a TextEdit` failed (`cannot be opened for an unexpe…`), and no TextEdit process ran afterwards (`ps … | grep -i textedit` printed nothing). The agent gets its own terminal from ssh, so it cannot type into the owner's [inference; not run]. Cost: the start needs the mac's ssh server, on for the agent user only (`adr/0016-agent-user.md`, Open).|
 |❌ accepted|U3, U7, U14|No network wall, by owner decision: every site, localhost, the LAN, and the tailnet.|
 |🔧 built, not run on a mac|U18 (broker socket)|The broker socket moved out of the owner's home to `/Library/Underground/run/broker.sock` (`host/broker/server.ts:73`). The folder `run/` is owned by the owner, mode 0711, and the agent user cannot write it. The broker sets the socket to 0666 after it listens (`host/broker/server.ts:661`) so the agent user can connect.|
-|🔧 to build|U22, U37|A disk cap for the agent's home, and a backup that can read it.|
+|🔧 built, not run on a mac|U37 (backup)|The daily backup reads the agent home through the root helper `/Library/Underground/bin/agent-home-tar` (`host/agent/agent-home-tar`), which the owner's `/etc/sudoers.d/underground-backup` rule allows, and restic stores the tar stream (`host/bin/ug-backup`). A failed read stores no snapshot. Untested on a mac: the sudoers rule and a backup to a real repo.|
+|🔧 to build|U22|A disk cap for the agent's home.|
 
 ## The box against each row (2026-11-07)
+
+The box was removed in step 4 of `adr/0016-agent-user.md` (2026-11-08). The rows below are the history of the box design; the code they name is gone.
 
 The checklist that `../AGENTS.md`, "Redesign phase", asks for: each row of MVP 0.5 against the box as built and run on the owner's mac on 2026-11-07 (`adr/0013-agent-box.md`, `adr/0015-box-layout.md`; code in `host/bin/ug-box`, `host/bin/ug-box-check.ts`, `host/egress/`, `box/`). **handled** means the box stops the harm; **accepted** means an earlier decision names it; **open** means a part is not built yet, and the box is not for unattended use until the row is handled or accepted. The control column of the tables below still describes the srt design, which #90 removed (commit 54a418a1).
 

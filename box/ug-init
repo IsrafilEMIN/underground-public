@@ -1,5 +1,0 @@
-#!/bin/sh
-set -eu
-chmod 666 /dev/fuse
-chown 1000:1000 /home/agent /tmp/ug-egress.sock /tmp/ug-broker.sock
-exec setpriv --reuid 1000 --regid 1000 --clear-groups -- unshare --user --map-root-user --mount -- /usr/local/bin/ug-holder

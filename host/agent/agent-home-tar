@@ -1,0 +1,13 @@
+#!/bin/sh
+# Streams the agent's home as a tar archive for the owner's backup. Root runs it
+# through sudo (/etc/sudoers.d/underground-backup); it reads only and takes no argument.
+if [ "$#" -ne 0 ]; then
+  echo "usage: agent-home-tar" >&2
+  exit 64
+fi
+/usr/bin/tar -C /Users/ugagent -c --exclude ./.cache --exclude node_modules .
+status=$?
+# 1 means a file changed while it was read; the archive is still whole for backup.
+if [ "$status" -gt 1 ]; then
+  exit "$status"
+fi

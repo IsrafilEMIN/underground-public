@@ -101,7 +101,7 @@ install -m 444 -o root -g wheel "$src/host/agent/pin.sb" "$root/pin.sb"
 install -m 555 -o root -g wheel "$src/host/agent/agent-session" "$root/agent-session"
 install -m 555 -o root -g wheel "$src/host/agent/agent-start" "$root/agent-start"
 install -m 444 -o root -g wheel "$src/host/agent/sshd_config" "$root/sshd_config"
-install -m 444 -o root -g wheel "$src/box/config-names" "$root/config-names"
+install -m 444 -o root -g wheel "$src/host/agent/config-names" "$root/config-names"
 step "$root: omp $omp_pin, pin.sb, bin/, broker, agent-session, agent-start, sshd_config installed"
 
 install -d -m 711 -o "$owner" -g wheel "$root/run"
@@ -163,7 +163,7 @@ stage_config() {
     [[ -z $leak ]] || die "the config repo file ${leak#"$stage/repo/"} holds a token or a key; the agent reads every config file, so take it out"
     [[ $name != models.yaml ]] || die "the config repo has models.yaml; name it models.yml"
     cp -R "$item" "$stage/out/$name"
-  done <"$src/box/config-names"
+  done <"$src/host/agent/config-names"
   [[ -f $stage/out/models.yml ]] || die "the last commit of the config repo $cfg has no models.yml"
   sed -i.bak -e "s/@GATEWAY@/$gateway/g" -e "s/@GATEWAY_TOKEN@/$gateway_token/g" "$stage/out/models.yml"
   rm -f "$stage/out/models.yml.bak"
@@ -190,3 +190,15 @@ install -m 444 -o "$owner" -g staff "$src/host/lib/ug.bash" "$agent_dir/lib/ug.b
 ln -sfn "$agent_dir/bin/ug-agent" "$sys/bin/ug-agent"
 chown -h "$owner" "$sys/bin/ug-agent"
 step "ug-agent: on PATH as $sys/bin/ug-agent"
+
+ln -sfn "$agent_dir/bin/ug-agent" "$sys/bin/omp"
+chown -h "$owner" "$sys/bin/omp"
+step "omp on PATH: $sys/bin/omp, the agent's launcher"
+
+install -m 555 -o root -g wheel "$src/host/agent/agent-home-tar" "$root/bin/agent-home-tar"
+sudoers_tmp=$(mktemp) || die "cannot make a temp file for the backup sudoers rule"
+cleanup+=("$sudoers_tmp")
+printf '%s ALL=(root) NOPASSWD: %s\n' "$owner" "$root/bin/agent-home-tar" >"$sudoers_tmp"
+visudo -cf "$sudoers_tmp" >/dev/null || die "the sudoers rule for the backup does not check; nothing was installed"
+install -m 440 -o root -g wheel "$sudoers_tmp" /etc/sudoers.d/underground-backup
+step "backup: $root/bin/agent-home-tar, and sudo for $owner to run it (/etc/sudoers.d/underground-backup)"

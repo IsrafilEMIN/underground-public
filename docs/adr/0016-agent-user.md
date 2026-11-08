@@ -1,6 +1,6 @@
 # The agent user: its own macOS user, its own login, pinned to its home
 
-Date: 2026-11-08. Status: proposed. Owner decision of 2026-11-08: remove the containers; the agent runs as its own macOS user, and damage stays in that user's home. The base below is agreed; the parts under Open are not built or not run. Once built, this ADR supersedes `0013-agent-box.md`, `0014-session-containers.md`, and `0015-box-layout.md`. The checklist of every row is in `../THREAT-MODEL.md`, "The agent user against each row".
+Date: 2026-11-08. Status: built (step 4, 2026-11-08: the box removed, `omp` switched to the agent user, the backup moved to the agent home). Owner decision of 2026-11-08: remove the containers; the agent runs as its own macOS user, and damage stays in that user's home. The login and the pin ran on the owner's mac (Open). The backup and its sudo rule are built but not run on a mac. This ADR supersedes `0013-agent-box.md`, `0014-session-containers.md`, and `0015-box-layout.md`. The checklist of every row is in `../THREAT-MODEL.md`, "The agent user against each row".
 
 ## Context
 
@@ -50,7 +50,7 @@ Around the base:
 - A full omp session with subagents and a merge: not run.
 - The broker socket moved to `/Library/Underground/run/broker.sock` (`host/broker/server.ts:73`), 0666 after it listens (`host/broker/server.ts:661`). The folder `run/` is owned by the owner, mode 0711. `broker sync` from the agent user worked (above). The box mounts the socket at its start, so a running box loses the broker until it restarts.
 - The model door: setup writes `/Library/Underground/config` with the gateway's real address and bearer in `models.yml`. The bearer sits in a file the agent can read [it already could use the gateway; U30 accepted].
-- The disk cap (U22) and the backup of the agent's home (U37).
+- The disk cap (U22). The backup of the agent's home (U37) is built, see Step 4, and not run on a mac.
 - The owner's leftover files in `/tmp`: the tool that writes each fixed name moves to a private folder before the files are deleted, so the agent cannot plant one at the same name. With the pin, the agent cannot write `/tmp` at all.
 
 ## Rejected
@@ -59,6 +59,7 @@ Around the base:
 - A pin that lists denied places: a place nobody listed stays open.
 - A start with `sudo -u` from the owner's terminal: it shares the owner's desktop session (Decision, 3).
 - An admin agent user: it can run `sudo`.
+- A root LaunchDaemon for the backup: it would run the owner's `wake=` and `sleep=` lines as root, and it would need the owner's ssh key and known_hosts where root reads them.
 
 ## Cost
 
@@ -66,3 +67,12 @@ Around the base:
 - The agent shares the owner's kernel; a local privilege escalation in macOS reaches the owner.
 - `sandbox-exec` is marked deprecated by Apple [inference, from its manual page], and srt runs on the same mechanism; a macOS update can change it.
 - Code planted in the agent's home loads in later sessions until a rebuild.
+
+## Step 4 (2026-11-08): the switch
+
+- `omp` on `PATH` is `~/.ug/sys/bin/omp`, linked to `ug-agent` by `host/bin/ug-agent-setup`. Setup removes an older `omp` link only if it points into `~/.ug/sys/box`.
+- The box is removed: `host/bin/ug-box`, `host/bin/ug-box-restore`, `host/bin/ug-box-check.ts`, `host/lib/box-image.bash`, `box/`, `host/egress/`, `host/srt/`, `host/network-allowlist`, the `com.underground.egress` LaunchAgent, and the `srt`, `box_omp`, and `ovnfs` pins in `VERSIONS`. Setup removes the old installed copies. It never touches the volume `ug-box-home` or the images; the owner deletes those by hand.
+- The backup stays the owner's LaunchAgent `com.underground.backup`, at 20:00. `host/bin/ug-backup` takes the agent home from a root helper through sudo: `/Library/Underground/bin/agent-home-tar` (`host/agent/agent-home-tar`, which runs tar on `/Users/ugagent` and excludes `./.cache` and `node_modules`). The owner's rule is `/etc/sudoers.d/underground-backup`, written by `ug-agent-setup` and checked with `visudo -cf`. restic reads the tar stream with `--stdin-from-command`, so a failed read stores no snapshot. `.ug-nobackup` is no longer honored.
+- Not run on a mac: the sudoers rule, the helper's tar exclude match, and a backup to a real repo. `tests/host/ug-backup.test.ts` runs the script with fakes only.
+- Restore of a box snapshot (the box's home volume): `restic -r <repo> dump <id> ug-box-home.tar | sudo tar -x -C /Users/ugagent --exclude .omp/natives`, then `sudo env BUN_BE_BUN=1 <omp> host/agent/migrate-paths.ts /Users/ugagent /home/agent /Users/ugagent`, then `sudo chown -R ugagent:staff /Users/ugagent`. The migration moves the session header `cwd` and the `history` and `session_recaps` rows under the old home (`tests/host/migrate-paths.test.ts`).
+- Restore of an agent snapshot: `restic -r <repo> dump <id> ug-agent-home.tar | sudo tar -x -C /Users/ugagent`, then `sudo chown -R ugagent:staff /Users/ugagent`. The snapshot is a tar stream, so `restic restore` would leave the tar file unpacked.

@@ -1,6 +1,6 @@
 # Layers inside the box: one long-running VM, a Linux container per session
 
-Date: 2026-11-07. Status: proposed. Owner decision on 2026-11-07, after the design talk of that day: the layout below is agreed, and the items under Open are not decided. Amends `0013-agent-box.md`: its "The box" and "Vanilla omp inside" lines give way to the layers here; its doors, egress, and host-service decisions stand.
+Date: 2026-11-07. Status: superseded by `0016-agent-user.md` (2026-11-08). Owner decision on 2026-11-07, after the design talk of that day: the layout below was agreed, and the items under Open were not decided. Amends `0013-agent-box.md`: its "The box" and "Vanilla omp inside" lines give way to the layers here; its doors, egress, and host-service decisions stand.
 
 Owner decision, 2026-11-08: the containers go; the agent runs as its own macOS user (`0016-agent-user.md`), which supersedes this ADR once built.
 

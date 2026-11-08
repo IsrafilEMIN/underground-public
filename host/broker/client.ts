@@ -249,7 +249,7 @@ export async function main(argv: string[], socketPath: string | undefined = proc
     return 1;
   }
   if (socketPath === undefined || socketPath === "") {
-    process.stderr.write(`broker: this session has no broker socket (${SOCKET_ENV} is not set; the box's broker command sets it)\n`);
+    process.stderr.write(`broker: this session has no broker socket (${SOCKET_ENV} is not set)\n`);
     return EXIT_UNAVAILABLE;
   }
   let reply: Reply;

@@ -1,6 +1,6 @@
 # Product brief: underground MVP 0.5 (redesign)
 
-Owner decision, 2026-11-02. This brief replaces the design of the first MVP 0.5. `SPEC.md` lists the build work, `THREAT-MODEL.md` the threats and their controls, and `adr/0011-one-agent-arena.md` and `adr/0012-pinned-omp-and-setup.md` the reasons. The code ran the old design until #90 removed it (commit 54a418a1, 2026-11-07); the box now runs the sessions (`host/bin/ug-box`, `adr/0013-agent-box.md`).
+Owner decision, 2026-11-02. This brief replaces the design of the first MVP 0.5. `SPEC.md` lists the build work, `THREAT-MODEL.md` the threats and their controls, and `adr/0011-one-agent-arena.md` and `adr/0012-pinned-omp-and-setup.md` the reasons. The code ran the old design until #90 removed it (commit 54a418a1, 2026-11-07). The box ran the sessions until step 4 of `adr/0016-agent-user.md` removed it (2026-11-08); the agent's own macOS user runs them now.
 
 **Redesign phase** (owner decision, 2026-11-07; `../AGENTS.md`, "Redesign phase"). The architecture is being redesigned from the problem up. This brief describes the srt design, which the code ran until #90 removed its wrapper and arena start step (`host/bin/omp-arena`, `host/arena/init`, commit 54a418a1). For the new design, its summary, the first paragraph of its problem, its user and scope, and its north star hold. The rest (the second paragraph of the problem, the principles, zones, flows, "What stays", "What goes", and the trade-offs) is aid, not base: a part comes back only if the new base needs it. This includes "the rest stays" under Accepted trade-offs; it is not a decision for the box (`adr/0013-agent-box.md`).
 
@@ -112,11 +112,11 @@ To uninstall: delete `~/.ug` and the launchd files.
 
 ## Updates
 
-- underground: `git pull` in the owner's checkout, then setup, which copies the code into `~/.ug/sys` (`install_egress`, `install_ug_box`, `install_service_code`, `host/bin/ug-setup`; `adr/0012-pinned-omp-and-setup.md`, amendment "an installed copy of the host code").
+- underground: `git pull` in the owner's checkout, then setup, which copies the code into `~/.ug/sys` (`install_service_code`, `host/bin/ug-setup`; `adr/0012-pinned-omp-and-setup.md`, amendment "an installed copy of the host code"). The agent user's copy and its `omp` link come from `host/bin/ug-agent-setup`, run with sudo.
 - omp: change the pin, then run setup.
 - Config: edit the config repo. The next start copies it.
 
-Setup runs when underground's `main`, a pin, a host service, or macOS changes. It installs the pinned omp and srt, makes the zones and their modes, registers and restarts the launchd services, installs the box and makes `ug-box` the `omp` on `PATH` (`host/bin/ug-setup:185`). It no longer proves srt: that probe went with #90 (commit 54a418a1).
+Setup runs when underground's `main`, a pin, a host service, or macOS changes. It installs the pinned omp and restic, makes the zones and their modes, and registers and restarts the launchd services (`host/bin/ug-setup`). The agent user's `omp` on `PATH` is linked by `host/bin/ug-agent-setup`, which runs with sudo.
 
 ## What stays
 
