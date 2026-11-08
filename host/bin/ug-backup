@@ -43,7 +43,7 @@ take_box_lock() {
 
 backup_box() {
   local reader locked=0
-  local tar_sh='tar -C /home/agent -c --exclude ./.tmp --exclude ./.cache --exclude ./.omp/agent/cache --exclude node_modules . ; [ $? -le 1 ]'
+  [[ -n ${BOX_HOME_TAR:-} ]] || { log "the box home is there but no box is installed to read it; run host/bin/ug-setup"; status=1; return; }
   take_box_lock || { log "ug-box holds its lock, so the box home was not read"; status=1; return; }
   locked=1
   if container list --quiet | grep -qxF ug-box; then
@@ -58,7 +58,7 @@ backup_box() {
     status=1
     return
   fi
-  "$restic_bin" -r "$repo" backup --quiet --tag ug-box --stdin-filename ug-box-home.tar --stdin-from-command -- "${reader[@]}" sh -c "$tar_sh"
+  "$restic_bin" -r "$repo" backup --quiet --tag ug-box --stdin-filename ug-box-home.tar --stdin-from-command -- "${reader[@]}" sh -c "$BOX_HOME_TAR"
   status=$?
   [[ $locked -eq 0 ]] || rm -rf "$box_lock"
   [[ $status -eq 0 ]] || log "the box home was not saved (restic exit $status); a failed read stores no snapshot"
