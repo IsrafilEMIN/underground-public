@@ -369,7 +369,7 @@ test("ug-backup puts the machine it woke back to sleep even when the backup fail
     await writeFile(join(home, "exit-backup"), code);
     const r = run(home);
     assert.equal(r.status, 1, `exit ${code}: ${r.stderr}`);
-    assert.match(r.stderr, new RegExp(`failed with restic exit ${code}`));
+    assert.match(r.stderr, new RegExp(`was not saved \\(restic exit ${code}\\)`));
     assert.equal(await readFile(lastFile(home), "utf8"), "1000\n", `exit ${code} was recorded as good`);
     assert.ok((await calls(home)).includes("SLEEP now"), `exit ${code}: the woken machine stayed awake`);
   }
