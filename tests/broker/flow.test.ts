@@ -187,11 +187,11 @@ async function assertRefusedWithoutMerge(pr: number, reason?: RegExp): Promise<v
 beforeEach(async () => {
 
   root = await tempDir(join(process.env.XDG_STATE_HOME ?? "/tmp", "u"));
-  const agents = join(root, ".ug/host/gh-broker");
-  const owner = join(root, ".ug/host");
+  const agents = join(root, "data/gh-broker");
+  const owner = join(root, "data");
   config = {
     ...defaultConfig(),
-    socketPath: join(root, ".ug/run", "gh-broker.sock"),
+    socketPath: join(root, "run", "gh-broker.sock"),
     reposRoot: join(agents, "repos"),
     reviewsDir: join(agents, "reviews"),
     pushesDir: join(agents, "pushes"),

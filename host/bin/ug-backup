@@ -10,8 +10,8 @@ src=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)
 # shellcheck source=host/lib/ug.bash disable=SC1091
 source "$src/host/lib/ug.bash"
 restic_pin=$(ug_pin "$src/VERSIONS" restic)
-restic_bin="$HOME/.ug/sys/restic/$restic_pin/restic"
-backup="$HOME/.ug/host/backup"
+restic_bin="$HOME/.local/share/underground/restic/$restic_pin/restic"
+backup="$HOME/.local/share/underground/backup"
 config="$backup/config"
 agent_tar=${UG_AGENT_HOME_TAR:-/Library/Underground/bin/agent-home-tar}
 

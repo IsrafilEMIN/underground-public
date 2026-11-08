@@ -10,9 +10,9 @@ done
 # shellcheck source=host/lib/ug.bash disable=SC1091
 source "$(dirname "$self")/../lib/ug.bash"
 
-UG=${UG_DIR:-$HOME/.ug}
-key=$UG/host/agent-ssh/id_ed25519
-known_hosts=$UG/host/agent-ssh/known_hosts
+UG=${UG_DIR:-$HOME/.local/share/underground}
+key=$UG/agent-ssh/id_ed25519
+known_hosts=$UG/agent-ssh/known_hosts
 re='^[A-Za-z0-9._=:/@+-]+$'
 
 die() { echo "ug-agent: $*" >&2; exit 1; }
@@ -24,16 +24,16 @@ if launchctl print system/com.openssh.sshd >/dev/null 2>&1; then
   die "system Remote Login is running; with it on, the agent user could log in by a key it writes itself. Turn Remote Login off, then run this again."
 fi
 
-last=$UG/host/backup/last
+last=$UG/backup/last
 if [[ ! -s $last ]] || (( $(date +%s) - $(<"$last") > 36 * 3600 )); then
-  echo "ug-agent: warning: the agent home has no backup from the last 36 hours; see $UG/host/backup/backup.log" >&2
+  echo "ug-agent: warning: the agent home has no backup from the last 36 hours; see $UG/backup/backup.log" >&2
 fi
 
 for arg in "$@"; do
   [[ $arg =~ $re ]] || die "refused argument $arg: only letters, digits and . _ = : / @ + - are allowed"
 done
 
-[[ -f $key && -f $known_hosts ]] || die "no agent key or known_hosts under $UG/host/agent-ssh; run: host/bin/ug-setup"
+[[ -f $key && -f $known_hosts ]] || die "no agent key or known_hosts under $UG/agent-ssh; run: host/bin/ug-setup"
 
 top=$(git rev-parse --show-toplevel 2>/dev/null) || top=
 if [[ -n $top ]]; then

@@ -48,18 +48,19 @@ async function exe(path: string, text: string) {
 async function fakeHome({ password = true, helper = true } = {}) {
   const home = await tempDir(join(tmpdir(), "ug-backup-"));
   const bin = join(home, "fakebin");
-  await mkdir(join(home, ".ug/sys/restic", RESTIC_PIN), { recursive: true });
-  await mkdir(join(home, ".ug/host/backup"), { recursive: true });
+  const data = join(home, ".local/share/underground");
+  await mkdir(join(data, "restic", RESTIC_PIN), { recursive: true });
+  await mkdir(join(data, "backup"), { recursive: true });
   await mkdir(bin);
-  await exe(join(home, ".ug/sys/restic", RESTIC_PIN, "restic"), FAKE_RESTIC);
+  await exe(join(data, "restic", RESTIC_PIN, "restic"), FAKE_RESTIC);
   await exe(join(bin, "ssh"), FAKE_SSH);
   await exe(join(bin, "sudo"), FAKE_SUDO);
   await exe(join(home, "wake-rig"), FAKE_WAKE);
   await exe(join(home, "rig-sleep"), FAKE_SLEEP);
   if (helper) await exe(join(home, "agent-home-tar"), FAKE_HELPER);
-  if (password) await writeFile(join(home, ".ug/host/backup/password"), "pw\n");
+  if (password) await writeFile(join(data, "backup/password"), "pw\n");
   await writeFile(
-    join(home, ".ug/host/backup/config"),
+    join(data, "backup/config"),
     `repo=sftp:kutluk@v100-server:backups/mac-arena\nwake=${join(home, "wake-rig")}\nsleep=${join(home, "rig-sleep")} now\n`,
   );
   await writeFile(join(home, "awake"), "");
@@ -98,7 +99,7 @@ test("ug-backup streams the agent home through the sudo helper into restic and r
   );
   assert.ok(all.includes(`SUDO: -n ${helper}`));
   assert.equal(await readFile(join(home, "stdin"), "utf8"), "tar-bytes\n");
-  assert.match(await readFile(join(home, ".ug/host/backup/last"), "utf8"), /^\d+\n$/);
+  assert.match(await readFile(join(home, ".local/share/underground/backup/last"), "utf8"), /^\d+\n$/);
 });
 
 test("ug-backup refuses to run without the agent home reader and writes no snapshot", async (t) => {
@@ -108,7 +109,7 @@ test("ug-backup refuses to run without the agent home reader and writes no snaps
   assert.equal(r.status, 1);
   assert.match(r.stderr, /the agent home reader .* is missing; run: host\/bin\/ug-setup/);
   assert.equal((await calls(home)).filter((c) => c.includes(" [backup] ")).length, 0);
-  assert.equal(existsSync(join(home, ".ug/host/backup/last")), false);
+  assert.equal(existsSync(join(home, ".local/share/underground/backup/last")), false);
 });
 
 test("ug-backup refuses to run without the backup password", async (t) => {
@@ -117,5 +118,5 @@ test("ug-backup refuses to run without the backup password", async (t) => {
   const r = run(home);
   assert.equal(r.status, 1);
   assert.match(r.stderr, /the backup password .* is missing/);
-  assert.equal(existsSync(join(home, ".ug/host/backup/last")), false);
+  assert.equal(existsSync(join(home, ".local/share/underground/backup/last")), false);
 });

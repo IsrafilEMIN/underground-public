@@ -193,7 +193,7 @@ run_wizard() {
 
 TOTAL_STAGES=5
 
-CONFIG_DIR="$HOME/.ug/host"
+CONFIG_DIR="$HOME/.local/share/underground"
 APP_JSON="$CONFIG_DIR/github-app.json"
 APP_PEM="$CONFIG_DIR/github-app.pem"
 SCRIPT_CHECKOUT=$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)
