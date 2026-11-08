@@ -93,7 +93,7 @@ A version and a SHA-256 in `VERSIONS`. The omp pin names the release file `omp-d
 _Avoid_: lock, current version
 
 **Raw omp**:
-The pinned omp binary started by its full path, outside any session. Its home `~/.omp` holds no login and no token. Setup writes its `~/.omp/agent/config.yml` from the config repo's `raw-omp/config.yml`, whose `disabledProviders` line turns off the keyless built-in providers (`install_raw_config`, `host/bin/ug-setup:174-186`). The removed wrapper also rewrote that file at each start (commit 54a418a1). Its logins sit in `~/.ug/host/auth`, not in `~/.omp`. So it cannot call a model. The removed probe asked it for every model that it could call (`scripts/probe-arena.sh`, commit 54a418a1); nothing runs that check now.
+The pinned omp binary started by its full path, outside any session. Its home `~/.omp` holds no login and no token: its logins sit in `~/.ug/host/auth`. So it cannot call a model with a login. It still finds the keyless built-in providers (`apple`, and a local `lm-studio`, `ollama`, or `llama.cpp` server), unless `~/.omp/agent/config.yml` turns them off. Setup wrote that file from the config repo's `raw-omp/config.yml` until 2026-11-08, and now leaves it as it is (`docs/adr/0012-pinned-omp-and-setup.md`, amendment 2026-11-08). The agent user cannot start it, because the owner's home is mode 700 (`host/bin/ug-agent-setup:47`).
 _Avoid_: plain omp, unwrapped session
 
 **ug-auth**:
@@ -105,7 +105,7 @@ The daily restic snapshot of the agent home `/Users/ugagent`, minus `.cache` and
 _Avoid_: archive, sync, Time Machine
 
 **Setup**:
-The host script that does what `git pull` cannot: install the pinned omp and restic, make the zones and their modes, make the backup password, register and restart the launchd services, and write the raw omp's config. At its end it runs `sudo host/bin/ug-agent-setup`, which asks for the owner's password and installs the agent user, its omp link, and the backup helper. It runs the `[mac]` tests first (`host/bin/ug-setup:63`, called at line 75). It runs when a pin changes, a host service changes, or macOS updates. It replaces the install (`docs/adr/0012-pinned-omp-and-setup.md`).
+The host script that does what `git pull` cannot: install the pinned omp and restic, make the zones and their modes, make the backup password, and register and restart the launchd services. At its end it runs `sudo host/bin/ug-agent-setup`, which asks for the owner's password and installs the agent user, its omp link, and the backup helper. It runs the `[mac]` tests first (`host/bin/ug-setup:63`, called at line 75). It runs when a pin changes, a host service changes, or macOS updates. It replaces the install (`docs/adr/0012-pinned-omp-and-setup.md`).
 _Avoid_: install, installer, bootstrap
 
 **Preflight** (removed, #90):
