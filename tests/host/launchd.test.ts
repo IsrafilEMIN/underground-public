@@ -22,13 +22,16 @@ test("every launchd template uses only the placeholders that setup fills", async
   }
 });
 
-test("the auth services run the pinned omp, and the brokers run the checkout's code", async () => {
+test("the auth services run the pinned omp, and the brokers and the backup run setup's copy, never the checkout", async () => {
   const args = async (label: string) => programArguments(await readFile(join(DIR, `${label}.plist`), "utf8"));
   assert.deepEqual((await args("com.underground.auth-broker")).slice(0, 3), ["@OMP@", "auth-broker", "serve"]);
   assert.deepEqual((await args("com.underground.auth-gateway")).slice(0, 3), ["@OMP@", "auth-gateway", "serve"]);
-  assert.deepEqual(await args("com.underground.broker"), ["/opt/homebrew/bin/node", "@SRC@/host/broker/server.ts"]);
-  assert.deepEqual(await args("com.underground.usage-broker"), ["/opt/homebrew/bin/node", "@SRC@/host/broker/usage-broker.ts"]);
-  assert.deepEqual(await args("com.underground.backup"), ["/bin/bash", "@SRC@/host/bin/ug-backup"]);
+  assert.deepEqual(await args("com.underground.broker"), ["/opt/homebrew/bin/node", "@SYS@/services/host/broker/server.ts"]);
+  assert.deepEqual(await args("com.underground.usage-broker"), ["/opt/homebrew/bin/node", "@SYS@/services/host/broker/usage-broker.ts"]);
+  assert.deepEqual(await args("com.underground.backup"), ["/bin/bash", "@SYS@/services/host/bin/ug-backup"]);
+  for (const label of ["broker", "usage-broker", "backup", "auth-broker", "auth-gateway"]) {
+    assert.doesNotMatch(await readFile(join(DIR, `com.underground.${label}.plist`), "utf8"), /@SRC@/, label);
+  }
 });
 
 test("the egress door runs from setup's copy in ~/.ug/sys, never from the checkout, and reads its pins and allowlist there", async () => {
