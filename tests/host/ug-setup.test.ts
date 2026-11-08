@@ -84,3 +84,26 @@ test("ug-setup fast-forwards main from origin, then runs the setup that the pull
   assert.match(r.stdout, /new setup pulled=1/);
   assert.equal(git(checkout, "rev-parse", "HEAD").stdout, git(origin, "rev-parse", "main").stdout);
 });
+
+test("ug-setup stops on another branch or a failed fetch, and leaves HEAD where it was", async (t) => {
+  const home = await tempDir(join(tmpdir(), "ug-setup-"));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const checkout = join(home, "code/underground");
+  const setup = await copyAt(checkout);
+  const git = (...args: string[]) => spawnSync("git", ["-C", checkout, "-c", "user.email=o@x", "-c", "user.name=o", ...args], { encoding: "utf8" });
+  git("init", "-q", "-b", "main");
+  git("add", "-A");
+  git("commit", "-q", "-m", "one");
+  git("remote", "add", "origin", join(home, "missing.git"));
+  const head = git("rev-parse", "HEAD").stdout;
+  const env = { HOME: home, PATH: "/usr/bin:/bin" };
+  const fetch = spawnSync("bash", [setup], { env, encoding: "utf8" });
+  assert.equal(fetch.status, 1);
+  assert.match(fetch.stderr, /cannot fetch main from origin/);
+  assert.equal(git("rev-parse", "HEAD").stdout, head);
+  git("checkout", "-q", "-b", "feature");
+  const branch = spawnSync("bash", [setup], { env, encoding: "utf8" });
+  assert.equal(branch.status, 1);
+  assert.match(branch.stderr, /is on feature, not main/);
+  assert.equal(git("rev-parse", "HEAD").stdout, head);
+});
