@@ -172,11 +172,14 @@ stage_config() {
     cp -R "$item" "$stage/out/$name"
   done <"$src/host/agent/config-names"
   n=0
-  if [[ -f $host_zone/skill-repos ]]; then
+  if [[ -e $stage/repo/skill-repos || -L $stage/repo/skill-repos ]]; then
+    [[ -f $stage/repo/skill-repos && ! -L $stage/repo/skill-repos ]] || die "skill-repos in the config repo must be a file, not a link or a folder"
     while IFS= read -r repo || [[ -n $repo ]]; do
       [[ -n $repo ]] || continue
       repo=${repo/#\~/$owner_home}
-      [[ -d $repo && ! -L $repo ]] || die "the skill repo $repo in $host_zone/skill-repos is not a folder"
+      [[ -d $repo && ! -L $repo ]] || die "the skill repo $repo in the config repo's skill-repos is not a folder"
+      repo=$(cd "$repo" && pwd -P) || die "cannot open the skill repo $repo"
+      [[ $repo == "$owner_home"/* ]] || die "the skill repo $repo is not inside $owner_home; setup reads skill repos only from your home"
       n=$((n + 1))
       base=$stage/skill-repo-$n
       mkdir "$base"
@@ -196,7 +199,7 @@ stage_config() {
       done
       [[ $found -gt 0 ]] || die "the last commit of the skill repo $repo has no <name>/SKILL.md at its top or under skills/"
       step "skill repo $repo: $found skills"
-    done <"$host_zone/skill-repos"
+    done <"$stage/repo/skill-repos"
   fi
   [[ -f $stage/out/models.yml ]] || die "the last commit of the config repo $cfg has no models.yml"
   sed -i.bak -e "s/@GATEWAY@/$gateway/g" -e "s/@GATEWAY_TOKEN@/$gateway_token/g" "$stage/out/models.yml"
