@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -60,4 +60,12 @@ test("history and session_recaps cwd rows move, and other rows stay", async (t) 
   assert.deepEqual(rows("history"), ["/Users/ugagent", "/Users/ugagent/proj", "/home/agent2", "/srv/z"]);
   assert.deepEqual(rows("session_recaps"), ["/Users/ugagent", "/Users/ugagent/proj", "/home/agent2", "/srv/z"]);
   check.close();
+});
+
+test("a home without history.db moves no rows and gets no empty history.db", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "migrate-history-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const dbPath = join(dir, "history.db");
+  assert.equal(rewriteHistory(dbPath, FROM, TO), 0);
+  await assert.rejects(access(dbPath));
 });

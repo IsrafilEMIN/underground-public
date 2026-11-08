@@ -33,12 +33,16 @@ export async function readReviewRecords(dir: string, key: PrKey): Promise<Review
   if (file.kind === "missing") return { kind: "records", records: [] };
   if (file.kind === "unreadable") return { kind: "unreadable" };
   const records: ReviewRecord[] = [];
-  for (const line of file.text.split("\n")) {
+  const lines = file.text.split("\n");
+  const last = lines.pop() ?? "";
+  for (const line of lines) {
     if (line === "") continue;
     const record = parseRecordLine(line, key);
     if (record === undefined) return { kind: "unreadable" };
     records.push(record);
   }
+  const finished = last === "" ? undefined : parseRecordLine(last, key);
+  if (finished !== undefined) records.push(finished);
   return { kind: "records", records };
 }
 

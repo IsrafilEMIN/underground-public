@@ -211,6 +211,23 @@ test("a record in the file of another PR makes that file unreadable", async () =
   assert.deepEqual(await readReviewRecords(config.reviewsDir, { repo: REPO, pr: 7 }), { kind: "unreadable" });
 });
 
+test("a last line with no newline that does not parse is a write that never finished, so the reader skips it and keeps the rest", async () => {
+  const head = "a".repeat(40);
+  const record = { repo: REPO, pr: 7, role: "code-review", head, verdict: "pass", reason: "", at: "2026-10-01T00:00:00.000Z" };
+  await mkdir(join(config.reviewsDir, REPO), { recursive: true });
+  await writeFile(reviewRecordsPath(config.reviewsDir, { repo: REPO, pr: 7 }), `${JSON.stringify(record)}\n${JSON.stringify(record).slice(0, 30)}`);
+  assert.deepEqual(await readReviewRecords(config.reviewsDir, { repo: REPO, pr: 7 }), { kind: "records", records: [record] });
+});
+
+test("a complete last record with no newline still counts, so a block cannot vanish", async () => {
+  const head = "a".repeat(40);
+  const pass = { repo: REPO, pr: 7, role: "code-review", head, verdict: "pass", reason: "", at: "2026-10-01T00:00:00.000Z" };
+  const block = { ...pass, verdict: "block", reason: "no", at: "2026-10-02T00:00:00.000Z" };
+  await mkdir(join(config.reviewsDir, REPO), { recursive: true });
+  await writeFile(reviewRecordsPath(config.reviewsDir, { repo: REPO, pr: 7 }), `${JSON.stringify(pass)}\n${JSON.stringify(block)}`);
+  assert.deepEqual(await readReviewRecords(config.reviewsDir, { repo: REPO, pr: 7 }), { kind: "records", records: [pass, block] });
+});
+
 test("a record with no role, or a role that cannot review, makes the file unreadable", async () => {
   const head = "a".repeat(40);
   const at = "2026-11-01T00:00:00.000Z";

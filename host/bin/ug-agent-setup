@@ -31,6 +31,7 @@ bin_dir=$owner_home/.local/bin
 key_dir=$data/agent-ssh
 owner_key=$key_dir/id_ed25519
 known_hosts=$key_dir/known_hosts
+ip_port='^[0-9]{1,3}(\.[0-9]{1,3}){3}:[0-9]{1,5}$'
 omp_pin=$(ug_pin "$src/VERSIONS" omp)
 omp_sha=$(ug_pin "$src/VERSIONS" omp_sha256)
 [[ $omp_pin =~ ^[0-9A-Za-z.+-]+$ ]] || die "VERSIONS has no omp pin"
@@ -205,7 +206,7 @@ stage_config() {
   cfg=${cfg/#\~/$owner_home}
   [[ -d $cfg && ! -L $cfg ]] || die "the config repo $cfg is not a folder"
   gateway=$(sed -n 's/^gateway=//p' "$data/addresses" 2>/dev/null) || true
-  [[ $gateway == *:* ]] || die "the addresses file $data/addresses has no gateway=<address>:<port> line"
+  [[ $gateway =~ $ip_port ]] || die "the addresses file $data/addresses has no gateway=<ip>:<port> line"
   gateway_token=$({ tr -d '[:space:]' <"$auth_home/.omp/auth-gateway.token"; } 2>/dev/null) || gateway_token=""
   [[ $gateway_token =~ ^[A-Za-z0-9._~+=-]{12,}$ ]] || die "$auth_home/.omp/auth-gateway.token is missing or has characters the config cannot hold"
   stage=$(mktemp -d) || die "cannot make a temp folder for the config"
@@ -259,10 +260,13 @@ stage_config() {
   sed -i.bak -e "s/@GATEWAY@/$gateway/g" -e "s/@GATEWAY_TOKEN@/$gateway_token/g" "$stage/out/models.yml"
   rm -f "$stage/out/models.yml.bak"
   if grep -qE '@[A-Z_]+@' "$stage/out/models.yml"; then die "models.yml of the config repo has an unknown placeholder"; fi
-  rm -rf "$root/config"
-  cp -R "$stage/out" "$root/config"
-  chown -R root:ugagent "$root/config"
-  chmod -R u=rwX,g=rX,o= "$root/config"
+  rm -rf "$root/config.new" "$root/config.old"
+  cp -R "$stage/out" "$root/config.new"
+  chown -R root:ugagent "$root/config.new"
+  chmod -R u=rwX,g=rX,o= "$root/config.new"
+  [[ ! -e $root/config ]] || mv "$root/config" "$root/config.old"
+  mv "$root/config.new" "$root/config"
+  rm -rf "$root/config.old"
   step "agent config: $root/config from $cfg, gateway $gateway"
 }
 
@@ -282,7 +286,7 @@ start_login_services() {
   owner_uid=$(id -u "$owner")
   gateway=$(sed -n 's/^gateway=//p' "$data/addresses")
   engine=$(sed -n 's/^engine=//p' "$data/addresses")
-  [[ -n $gateway && -n $engine ]] || die "$data/addresses needs a gateway= and an engine= line"
+  [[ $gateway =~ $ip_port && $engine =~ $ip_port ]] || die "$data/addresses needs a gateway=<ip>:<port> and an engine=<ip>:<port> line"
   install -d -m 755 -o root -g wheel "$root/usage-broker"
   for f in usage-broker.ts addresses.ts protocol.ts; do
     install -m 444 -o root -g wheel "$src/host/gh-broker/$f" "$root/usage-broker/$f"
