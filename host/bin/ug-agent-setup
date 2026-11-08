@@ -278,7 +278,7 @@ fi
 stage_config
 
 start_login_services() {
-  local owner_uid gateway engine label plist rendered left f url err
+  local owner_uid gateway engine label rendered left f url err out fp inputs broker_out=""
   owner_uid=$(id -u "$owner")
   gateway=$(sed -n 's/^gateway=//p' "$data/addresses")
   engine=$(sed -n 's/^engine=//p' "$data/addresses")
@@ -288,12 +288,8 @@ start_login_services() {
     install -m 444 -o root -g wheel "$src/host/gh-broker/$f" "$root/usage-broker/$f"
   done
   install -m 444 -o root -g wheel "$data/addresses" "$root/addresses"
+  install -d -m 700 -o root -g wheel "$root/state"
   for label in com.underground.auth-broker com.underground.auth-gateway com.underground.usage-broker; do
-    case $label in
-      com.underground.auth-broker) url=http://127.0.0.1:8765/v1/healthz ;;
-      com.underground.auth-gateway) url=http://$gateway/healthz ;;
-      com.underground.usage-broker) url=http://127.0.0.1:18765/v1/healthz ;;
-    esac
     err=$(ug_stop_service "gui/$owner_uid/$label") || die "$err"
     rm -f "$owner_home/Library/LaunchAgents/$label.plist"
     rendered=$(mktemp)
@@ -301,11 +297,30 @@ start_login_services() {
     sed -e "s|@OMP@|$omp_bin|g" -e "s|@GATEWAY@|$gateway|g" -e "s|@ENGINE@|$engine|g" "$src/host/agent/$label.plist" >"$rendered"
     left=$(grep -o '@[A-Z_]*@' "$rendered" | head -1) || true
     [[ -z $left ]] || die "host/agent/$label.plist has an unknown placeholder $left"
-    plist=/Library/LaunchDaemons/$label.plist
-    install -m 644 -o root -g wheel "$rendered" "$plist"
-    err=$(ug_restart_service system "$label" "$plist") || die "$err"
-    ug_wait_http "$url" || die "$label does not answer at $url 30 s after it loaded; read /Users/ugauth/logs/${label#com.underground.}.log"
-    step "login service $label: answers at $url"
+    inputs=()
+    case $label in
+      com.underground.auth-broker)
+        url=http://127.0.0.1:8765/v1/healthz
+        inputs=("$omp_bin.sha256")
+        [[ ! -e $auth_home/.omp/auth-broker.token ]] || inputs+=("$auth_home/.omp/auth-broker.token")
+        ;;
+      com.underground.auth-gateway)
+        url=http://$gateway/healthz
+        inputs=("$omp_bin.sha256" "$auth_home/.omp/auth-gateway.token")
+        [[ ! -e $auth_home/.omp/auth-broker.token ]] || inputs+=("$auth_home/.omp/auth-broker.token")
+        ;;
+      com.underground.usage-broker)
+        url=http://127.0.0.1:18765/v1/healthz
+        inputs=(/opt/homebrew/bin/node "$root/usage-broker/usage-broker.ts" "$root/usage-broker/addresses.ts" "$root/usage-broker/protocol.ts")
+        ;;
+    esac
+    [[ $label == com.underground.usage-broker || ! -e $auth_home/.omp/agent/config.yml ]] || inputs+=("$auth_home/.omp/agent/config.yml")
+    [[ $label != com.underground.auth-gateway || $broker_out != restarted* ]] || rm -f "$root/state/$label.fingerprint"
+    fp=$(ug_fingerprint "$rendered" "${inputs[@]}") || die "cannot read the inputs of $label: ${inputs[*]}"
+    out=$(ug_ensure_service system "$label" "$rendered" "/Library/LaunchDaemons/$label.plist" "$root/state/$label.fingerprint" "$fp" ug_http_answers "$url") ||
+      die "$out; read /Users/ugauth/logs/${label#com.underground.}.log"
+    [[ $label != com.underground.auth-broker ]] || broker_out=$out
+    step "login service $label at $url: $out"
   done
   step "login services: auth-broker, auth-gateway, usage-broker run as ugauth from /Library/LaunchDaemons"
 }

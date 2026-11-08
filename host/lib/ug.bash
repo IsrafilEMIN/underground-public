@@ -60,11 +60,37 @@ ug_restart_service() {
   return 1
 }
 
-ug_wait_http() {
-  local url=$1 i
-  for (( i = 0; i < 60; i++ )); do
-    curl -fsS -o /dev/null --max-time 1 "$url" 2>/dev/null && return 0
-    sleep 0.5
+ug_wait() {
+  local tries=$1 i
+  shift
+  for (( i = 0; i < tries; i++ )); do
+    "$@" >/dev/null 2>&1 && return 0
+    (( i + 1 < tries )) && sleep 0.5
   done
   return 1
+}
+
+ug_http_answers() { curl -fsS -o /dev/null --max-time 1 "$1"; }
+
+ug_socket_answers() { printf '' | nc -w 1 -U "$1" | grep -q .; }
+
+ug_fingerprint() {
+  local out
+  out=$(set -o pipefail; cat -- "$@" | openssl dgst -sha256 -r) || return 1
+  printf '%s\n' "${out%% *}"
+}
+
+ug_ensure_service() {
+  local domain=$1 label=$2 rendered=$3 plist=$4 stamp=$5 fp=$6
+  shift 6
+  if [[ -f $stamp && $(<"$stamp") == "$fp" ]] && launchctl print "$domain/$label" >/dev/null 2>&1 && ug_wait 1 "$@"; then
+    printf 'unchanged and answers, so not restarted\n'
+    return 0
+  fi
+  rm -f "$stamp"
+  install -m 644 "$rendered" "$plist" || { printf 'cannot install %s\n' "$plist"; return 1; }
+  ug_restart_service "$domain" "$label" "$plist" || return 1
+  ug_wait 60 "$@" || { printf '%s does not answer 30 s after it loaded\n' "$label"; return 1; }
+  printf '%s\n' "$fp" >"$stamp"
+  printf 'restarted, answers\n'
 }

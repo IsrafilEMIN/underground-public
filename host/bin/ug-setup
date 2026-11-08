@@ -192,18 +192,13 @@ write_addresses() {
   mv -f "$tmp" "$addresses_file"
 }
 
-restart_service() {
-  local label=$1 err
-  err=$(ug_restart_service "gui/$UID" "$label" "$agents_dir/$label.plist") || die "$err"
-}
-
 prepare_services() {
-  install -d -m 700 "$data/gh-broker" "$data/gh-broker/repos" "$data/gh-broker/tmp" "$data/gh-broker/reviews" "$data/gh-broker/pushes"
+  install -d -m 700 "$data/gh-broker" "$data/gh-broker/repos" "$data/gh-broker/tmp" "$data/gh-broker/reviews" "$data/gh-broker/pushes" "$data/state"
   write_addresses
 }
 
 start_services() {
-  local label rendered left
+  local label rendered left out fp inputs answers
   install -d "$agents_dir"
   for label in $labels; do
     rendered=$(mktemp "$agents_dir/.$label.XXXXXX")
@@ -211,10 +206,21 @@ start_services() {
     sed -e "s|@DATA@|$data|g" -e "s|@HOME@|$HOME|g" "$src/host/launchd/$label.plist" >"$rendered"
     left=$(grep -o '@[A-Z_]*@' "$rendered" | head -1) || true
     [[ -z $left ]] || die "host/launchd/$label.plist has an unknown placeholder $left"
-    put "$rendered" "$agents_dir/$label.plist" 644
-    restart_service "$label"
+    case $label in
+      com.underground.gh-broker)
+        inputs=("$node_bin" "$data"/services/host/gh-broker/*.ts)
+        answers=(ug_socket_answers "$root/run/gh-broker.sock")
+        ;;
+      *)
+        inputs=()
+        answers=(true)
+        ;;
+    esac
+    fp=$(ug_fingerprint "$rendered" ${inputs[@]+"${inputs[@]}"}) || die "cannot read the inputs of $label"
+    out=$(ug_ensure_service "gui/$UID" "$label" "$rendered" "$agents_dir/$label.plist" "$data/state/$label.fingerprint" "$fp" "${answers[@]}") ||
+      die "$out; read $data/gh-broker/gh-broker.log"
+    printf 'service %s: %s\n' "$label" "$out"
   done
-  printf 'services: %s restarted\n' "$labels"
 }
 
 check_path() {
