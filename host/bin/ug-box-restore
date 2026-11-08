@@ -15,6 +15,7 @@ node=${UG_BOX_NODE:-/opt/homebrew/bin/node}
 lock="$state/lock"
 
 die() { echo "ug-box-restore: $*" >&2; exit 1; }
+log() { echo "ug-box-restore: $*" >&2; }
 
 [[ -n $restic_pin && -x $restic_bin ]] || die "the pinned restic is missing; run host/bin/ug-setup"
 [[ -f $HOME/.ug/sys/box/host/lib/box-image.bash ]] || die "no installed box; run host/bin/ug-setup"
@@ -23,17 +24,21 @@ source "$HOME/.ug/sys/box/host/lib/box-image.bash"
 image=$(box_image_tag "$HOME/.ug/sys/box")
 container image list --quiet | grep -qE "(^|/)${image}\$" || die "the box image $image is not built; run host/bin/ug-setup"
 [[ -s $backup/password ]] || die "the backup password $backup/password is missing"
-repo=$(sed -n 's/^repo=//p' "$backup/config" 2>/dev/null | sed -n '1p')
-[[ -n $repo ]] || die "no repo= line in $backup/config"
+[[ -f $backup/config ]] || die "no $backup/config"
+# shellcheck source=host/lib/backup-target.bash disable=SC1091
+source "$HOME/.ug/sys/box/host/lib/backup-target.bash"
+backup_target_read "$backup/config"
 export RESTIC_PASSWORD_FILE="$backup/password"
 
 mkdir -p "$state"
 mkdir "$lock" 2>/dev/null || die "ug-box holds its lock; end every session first"
 echo $$ >"$lock/pid"
-trap 'rm -rf "$lock"' EXIT
+woke=0
+trap 'rm -rf "$lock"; backup_target_sleep' EXIT
 ! container list --quiet | grep -qxF ug-box || die "the box is running; end every session first"
 
-"$restic_bin" -r "$repo" cat config >/dev/null 2>&1 || die "the backup repo $repo does not open; is the backup target awake?"
+backup_target_wake
+"$restic_bin" -r "$repo" cat config >/dev/null 2>&1 || die "the backup repo $repo does not open"
 id=$("$restic_bin" -r "$repo" snapshots --tag ug-box --json "$snapshot" | "$node" -e '
   let d = "";
   process.stdin.on("data", (c) => (d += c)).on("end", () => {

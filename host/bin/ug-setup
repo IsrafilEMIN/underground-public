@@ -208,7 +208,7 @@ install_ug_box() {
   local dir="$sys/box" f
   rm -rf "$dir"
   install -d -m 700 "$dir" "$dir/host/bin" "$dir/host/lib" "$dir/host/broker" "$dir/box"
-  for f in host/bin/ug-box host/bin/ug-box-restore host/bin/ug-box-check.ts host/lib/box-image.bash host/secret-patterns \
+  for f in host/bin/ug-box host/bin/ug-box-restore host/bin/ug-box-check.ts host/lib/box-image.bash host/lib/backup-target.bash host/secret-patterns \
     host/broker/client.ts host/broker/protocol.ts VERSIONS "$src"/box/*; do
     f=${f#"$src/"}
     put "$src/$f" "$dir/$f" 444
