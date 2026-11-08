@@ -23,7 +23,7 @@ MVP 0.5 holds every irreversible underground row except U14 (accepted risk), U16
 
 ## The box against each row (2026-11-07)
 
-The checklist that `../AGENTS.md`, "Redesign phase", asks for: each row of MVP 0.5 against the box as built and run on the owner's mac on 2026-11-07 (`adr/0013-agent-box.md`, `adr/0015-box-layout.md`; code in `host/bin/ug-box`, `host/bin/ug-box-check.ts`, `host/egress/`, `box/`). **handled** means the box stops the harm; **accepted** means an earlier decision names it; **open** means a part is not built yet, and the box is not for unattended use until the row is handled or accepted. The control column of the tables below still describes the srt design.
+The checklist that `../AGENTS.md`, "Redesign phase", asks for: each row of MVP 0.5 against the box as built and run on the owner's mac on 2026-11-07 (`adr/0013-agent-box.md`, `adr/0015-box-layout.md`; code in `host/bin/ug-box`, `host/bin/ug-box-check.ts`, `host/egress/`, `box/`). **handled** means the box stops the harm; **accepted** means an earlier decision names it; **open** means a part is not built yet, and the box is not for unattended use until the row is handled or accepted. The control column of the tables below still describes the srt design, which #90 removed (commit 54a418a1).
 
 |row|in the box|status|
 |---|---|---|
@@ -35,7 +35,7 @@ The checklist that `../AGENTS.md`, "Redesign phase", asks for: each row of MVP 0
 |U7|No network and its own loopback: the mac's localhost, LAN, and sockets are out of reach but for the two doors. Sessions share the box's one loopback (`adr/0015-box-layout.md`, Cost).|handled|
 |U8, U9, U28, U10, U12, U13, U17, U29|GitHub-side rows: unchanged. The onboarding checks (`SPEC.md`) and the broker's merge gate are the same; the broker runs on the mac, outside the box.|handled|
 |U18|The broker accepts `agent/*` and `wt/*` branches only (`AGENT_BRANCH_RE`, `host/broker/protocol.ts:55`). Owner run from inside the box, 2026-11-07, raw requests on the broker socket with the client skipped: push to `main` → `refused: branch is not an agent branch`; pr-create from `main` → `refused: head is not an agent branch`; a risk-review `block` → `refused: risk-review cannot give block`; through the client, a repo without the app → GitHub 422, and `merge` of a PR with no verdicts → `refused: code-review has no verdict on it`. Holds, protected paths, and the push-record rule were not run from the box; they rest on `tests/broker`.|handled|
-|U36|A plain omp on the mac still finds no login, because the auth services keep theirs in `~/.ug/host/auth`. Open on two counts: `omp` on `PATH` is still the srt wrapper until the switch, and the planned fold of `~/.ug` into `~/.omp` would put the logins where a plain omp looks; that fold must keep them apart.|open|
+|U36|A plain omp on the mac finds no login: the logins sit in `~/.ug/host/auth`, which the auth services use through `PI_CONFIG_DIR=.ug/host/auth` (`host/launchd/com.underground.auth-broker.plist:26-27`, `com.underground.auth-gateway.plist:26-27`). `omp` on `PATH` is `~/.ug/sys/bin/omp`, a link to `ug-box` (`host/bin/ug-setup:185`), so the srt wrapper no longer sits on `PATH`. Setup still writes the raw omp's `~/.omp/agent/config.yml` from `raw-omp/config.yml` (`install_raw_config`, `host/bin/ug-setup:227-239`; `host/lib/raw-omp-config.bash:11-21`). The removed wrapper also rewrote that file at every `omp` start (`git show 54a418a1 -- host/bin/omp-arena`, which sourced `host/lib/raw-omp-config.bash`), so a change to it now lasts until the next setup run, not the next start. Removed in #90 (commit 54a418a1) with no replacement: the automatic `raw-omp` and `raw-models` checks (`scripts/probe-arena.sh`) and the warning `omp: warning: another omp is on PATH` (`host/bin/omp-arena`). Nothing checks this row now [inference from the removed code]. The fold of `~/.ug` into `~/.omp` must keep the logins apart.|handled, unchecked, pending the fold|
 |U15|The logins never enter the box; only the gateway bearer leaves the mac, and only inside the egress door. Tied to the same fold as U36.|handled, pending the fold|
 |U30|Unchanged: the gateway bearer authorizes every session for every served model (`adr/0005-model-auth-gateway.md`). No spend limit, by owner decision: subscription OAuth only (`adr/0013-agent-box.md`).|accepted|
 |U14|Unchanged: data can leave to an allowed site. Accepted while the repos are public (`adr/0001-accepted-risks.md`).|accepted|
@@ -47,6 +47,8 @@ The checklist that `../AGENTS.md`, "Redesign phase", asks for: each row of MVP 0
 |new: a taken-over box persists|A hijacked session can plant code in the shared home that later sessions load, until a rebuild (`adr/0015-box-layout.md`, Cost). The doors held against raw requests (U18). The rebuild: `container volume delete ug-box-home` for a clean home, or `host/bin/ug-box-restore <snapshot>` for a home from before the takeover; the image is rebuilt by setup from the pins.|handled by hand|
 
 ## underground: irreversible
+
+Note (2026-11-07): the srt wrapper (`host/bin/omp-arena`), its arena start step (`host/arena/init`), and its probes (`scripts/probe-arena.sh`, `scripts/probe-u1-u2.sh`) were removed in #90 (commit 54a418a1). The rows below describe that design; the box rows above describe the current one.
 
 |id|node|source|MVP|control|
 |---|---|---|---|---|

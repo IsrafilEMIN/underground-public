@@ -4,6 +4,8 @@ Date: 2026-11-07. Status: proposed. Owner decision on 2026-11-07, after the desi
 
 Amended by `0015-box-layout.md` (owner decision, 2026-11-07): the container per session is dropped as over-design, and with it the bubblewrap runtime, the relay per session, and the layers. The one long-running VM and its reason (Context) stay. The rest of this ADR is kept as the record of the runs.
 
+2026-11-07: the one long-running VM is built as a trial (`host/bin/ug-box`). No session container is built (`0015-box-layout.md`).
+
 ## Context
 
 `0013-agent-box.md` gave the box two jobs: be the wall between the agent and the mac, and be the unit that a session throws away. Apple `container` makes every container its own VM with its own kernel (`docs/volumes.md` and `docs/command-reference.md`, apple/container 1.7.1, read 2026-11-07), so a box per session would split omp's shared state across kernels, and omp's shared state needs one kernel:

@@ -54,6 +54,10 @@ Setup, added 2026-11-03: setup also writes the raw omp's `config.yml` before its
 
 `0013-agent-box.md` is proposed, not built. Until it is built, this ADR describes the system. Once built, the pinned `omp-darwin-arm64` still serves the auth broker, the auth gateway, and any raw omp on the host, but the agent runs a Linux omp in the box's pinned image, with its own pin. The srt pin stays: it now pins the egress proxy on the host, which imports a file of srt by path (`0013-agent-box.md`, "Egress by name only"), so an srt update needs the egress probe again. Setup no longer proves srt with the arena probe and no longer records the macOS build. The one `omp` on `PATH` becomes the command that starts the box. The raw omp's keyless providers amendment still holds: a raw omp on the host is outside the box.
 
+2026-11-07: built as a trial. The box image runs a Linux omp (`box/Containerfile`). The mac's pinned omp still serves the auth services. srt stays installed for the egress door (`host/egress/server.ts:27-29`).
+
 ## Amendment 2026-11-07: an installed copy of the host code (proposed)
 
 Owner decision, 2026-11-07 (`0015-box-layout.md`). Once the box is built, "underground runs from the owner's checkout" (Decision) goes: setup copies a merged `main` commit of underground into a folder that only setup writes, and the mac runs from that copy. `0015-box-layout.md` also proposes the same for the config repo, as a vetted copy. An update is `git pull`, then setup. `../SPEC.md`, B1 ("`git pull` updates its code"), describes today's system until then.
+
+2026-11-07: built. Setup installs the copy into `~/.ug/sys` (`install_ug_box`, `install_service_code`, `host/bin/ug-setup:199-225`); `ug-auth` joined it last, in PR #92 (commit 5338e47).
