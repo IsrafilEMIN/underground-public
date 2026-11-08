@@ -101,7 +101,7 @@ An omp that the owner starts as the owner, outside any session. The owner cannot
 _Avoid_: raw omp, plain omp, unwrapped session
 
 **ug-auth**:
-The owner's command for the auth services: it runs the agent home omp binary as the login user through `sudo`, limited to `auth-broker` and `auth-gateway`, for example `ug-auth auth-broker login anthropic`. Each run asks for the owner's password. Setup links it as `~/.local/bin/ug-auth`.
+The owner's command for the auth services: it runs the agent home omp binary as the login user through `sudo`, limited to `auth-broker` and `auth-gateway`, for example `ug-auth auth-broker login anthropic`. `ug-auth key ANTHROPIC_API_KEY` stores an API key: the login user's shell reads it hidden from the terminal and hands it to `omp auth-broker migrate --from-local --include-env` in its environment, so the key is in no argument, file, or shell history. Each run asks for the owner's password. Setup links it as `~/.local/bin/ug-auth`.
 _Avoid_: vanilla omp, admin omp
 
 **Agent home backup** (was the arena backup):
