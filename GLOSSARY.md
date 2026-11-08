@@ -119,7 +119,7 @@ _Avoid_: domain list, egress list
 ### GitHub and the merge
 
 **gh-broker**:
-The host service that does GitHub operations for the sessions (launchd `com.underground.gh-broker`). It holds the only GitHub credential that agents use. One socket, `/Library/Underground/run/gh-broker.sock` (`host/gh-broker/server.ts:73`), serves every session; the box reaches it at `/tmp/ug-gh-broker.sock` (`box/broker`, `host/bin/ug-box:17`), and the agent user reaches it through `/Library/Underground/bin/gh-broker`. The gh-broker has no roles and no list of repos: it serves each repo where the gh-broker app is installed (`docs/SPEC.md`, B7).
+The host service that does GitHub operations for the sessions (launchd `com.underground.gh-broker`). It holds the only GitHub credential that agents use. One socket, `/Library/Underground/run/gh-broker.sock` (`host/gh-broker/server.ts:73`), serves every session, and the agent user reaches it through `/Library/Underground/bin/gh-broker`. The gh-broker has no roles and no list of repos: it serves each repo where the gh-broker app is installed (`docs/SPEC.md`, B7).
 _Avoid_: broker (alone), agent-gh, proxy
 
 **Reviewer role**:

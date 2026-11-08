@@ -66,7 +66,7 @@ run_mac_only_tests() {
   cleanup+=("$tap")
   (cd "$src" && "$node_bin" --test --test-reporter=spec --test-reporter-destination=stdout \
     --test-reporter=tap --test-reporter-destination="$tap" --test-name-pattern='\[mac\]' \
-    tests/gh-broker/*.test.ts tests/host/*.test.ts) || status=$?
+    tests/broker/*.test.ts tests/host/*.test.ts) || status=$?
   if [[ $status -ne 0 ]] || ! grep -qx '# fail 0' "$tap" || ! grep -qx '# skipped 0' "$tap"; then
     grep -E '^# (tests|pass|fail|skipped) ' "$tap" >&2 || true
     die "a [mac] test, which only this mac can run, did not pass, so nothing is set up"
