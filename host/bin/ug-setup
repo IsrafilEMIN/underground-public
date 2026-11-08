@@ -24,15 +24,21 @@ addresses_file="$data/addresses"
 engine_default=100.64.0.99:8081
 tailscale_app=/Applications/Tailscale.app/Contents/MacOS/Tailscale
 
+green="" red="" yellow="" plain="" err_red="" err_plain=""
+if [[ -z ${NO_COLOR:-} && ${TERM:-dumb} != dumb ]]; then
+  [[ ! -t 1 ]] || { green=$'\e[32m' red=$'\e[31m' yellow=$'\e[33m' plain=$'\e[0m'; }
+  [[ ! -t 2 ]] || { err_red=$'\e[31m' err_plain=$'\e[0m'; }
+fi
+
 die() {
-  printf 'ug-setup: %s\n' "$*" >&2
+  printf '%sug-setup: %s%s\n' "$err_red" "$*" "$err_plain" >&2
   exit 1
 }
 
 stopped() {
   local status=$1 line=$2 command=$3
   (( BASH_SUBSHELL == 0 )) || return 0
-  printf 'ug-setup: stopped at line %s of host/bin/ug-setup: "%s" failed with exit %s. The steps above it are done, and nothing after it ran. Fix the cause, then run host/bin/ug-setup again.\n' "$line" "$command" "$status" >&2
+  printf '%sug-setup: stopped at line %s of host/bin/ug-setup: "%s" failed with exit %s. The steps above it are done, and nothing after it ran. Fix the cause, then run host/bin/ug-setup again.%s\n' "$err_red" "$line" "$command" "$status" "$err_plain" >&2
 }
 trap 'stopped $? $LINENO "$BASH_COMMAND"' ERR
 
@@ -83,7 +89,7 @@ run_mac_only_tests() {
   (cd "$src" && "$node_bin" --test --test-reporter=tap --test-reporter-destination="$report" \
     --test-name-pattern='\[mac\]' tests/broker/*.test.ts tests/host/*.test.ts) || status=$?
   [[ -f $report ]] || die "mac tests: node wrote no report (exit $status), so nothing is set up"
-  awk -f "$src/host/lib/mac-tests.awk" "$report"
+  awk -v pass="$green" -v fail="$red" -v skip="$yellow" -v off="$plain" -f "$src/host/lib/mac-tests.awk" "$report"
   fail=$(grep -cE '^not ok [0-9]+ - ' "$report") || true
   skip=$(grep -cE '^ok [0-9]+ - \[mac\] .* # SKIP' "$report") || true
   pass=$(grep -cE '^ok [0-9]+ - \[mac\] ' "$report") || true
@@ -95,7 +101,7 @@ run_mac_only_tests() {
     [[ -n $problems ]] || problems="node exited $status"
     die "mac tests: $problems, so nothing is set up; full report: $report"
   fi
-  printf 'mac tests: %s passed\n' "$pass"
+  printf '%smac tests: %s passed%s\n' "$green" "$pass" "$plain"
 }
 run_mac_only_tests
 
@@ -272,11 +278,14 @@ check_path() {
 
 finish() {
   if [[ ${#later[@]} -eq 0 ]]; then
-    printf 'ug-setup: done; nothing is left to do\n'
+    printf '%sug-setup: done; nothing is left to do%s\n' "$green" "$plain"
     return 0
   fi
-  printf 'ug-setup: done. still to do:\n'
-  printf '  - %s\n' "${later[@]}"
+  printf '%sug-setup: done.%s %sstill to do:%s\n' "$green" "$plain" "$yellow" "$plain"
+  local item
+  for item in "${later[@]}"; do
+    printf '  %s-%s %s\n' "$yellow" "$plain" "$item"
+  done
 }
 
 check_walls() {
