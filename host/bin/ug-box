@@ -135,10 +135,21 @@ boot() {
   done
 }
 
+backup_warning() {
+  local last
+  last=$(cat "$UG/host/backup/last" 2>/dev/null) || last=""
+  if [[ ! $last =~ ^[0-9]+$ ]]; then
+    echo "ug-box: warning: the backup has never run; see ~/.ug/host/backup/backup.log" >&2
+  elif (( $(date +%s) - last > 2 * 86400 )); then
+    echo "ug-box: warning: the last backup is $(( ($(date +%s) - last) / 86400 )) days old; see ~/.ug/host/backup/backup.log" >&2
+  fi
+}
+
 session() {
   local slug tag
   slug=$(repo_slug)
   tag=$(image_tag)
+  backup_warning
   container image list --quiet | grep -qE "(^|/)${tag}\$" ||
     die "the box image for the current pins is not built (${tag#ugbox:}).
 VERSIONS or the box files changed since the last setup. Run: host/bin/ug-setup"

@@ -148,6 +148,23 @@ test("a new box home gets a 64 GiB cap, and an uncapped home stops the start bef
   assert.ok(!(await s.log()).some((c) => c.startsWith("run ") || c.startsWith("exec ")));
 });
 
+test("each start warns when the backup never ran or is more than two days old, and still starts", async (t) => {
+  const s = await setup();
+  t.after(s.cleanup);
+  const last = join(s.root, "ug/host/backup/last");
+  let r = s.run();
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stderr, /backup has never run/);
+  await mkdir(join(s.root, "ug/host/backup"), { recursive: true });
+  await writeFile(last, String(Math.floor(Date.now() / 1000) - 3 * 86400));
+  r = s.run();
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stderr, /last backup is 3 days old/);
+  await writeFile(last, String(Math.floor(Date.now() / 1000) - 3600));
+  r = s.run();
+  assert.doesNotMatch(r.stderr, /backup/);
+});
+
 test("the box gets the config repo's last commit, only the config names, and none of its uncommitted work", async (t) => {
   const s = await setup();
   t.after(s.cleanup);
