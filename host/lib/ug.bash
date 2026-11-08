@@ -38,17 +38,20 @@ ug_repo_slug() {
   echo "${BASH_REMATCH[2]}/${BASH_REMATCH[3]}"
 }
 
-ug_restart_service() {
-  local domain=$1 label=$2 plist=$3 err i
-  launchctl bootout "$domain/$label" >/dev/null 2>&1 || true
+ug_stop_service() {
+  local target=$1 i
+  launchctl bootout "$target" >/dev/null 2>&1 || true
   for (( i = 0; i < 60; i++ )); do
-    launchctl print "$domain/$label" >/dev/null 2>&1 || break
+    launchctl print "$target" >/dev/null 2>&1 || return 0
     sleep 0.5
   done
-  if launchctl print "$domain/$label" >/dev/null 2>&1; then
-    printf '%s is still loaded 30 s after launchctl bootout, so its new version cannot load\n' "$label"
-    return 1
-  fi
+  printf '%s is still loaded 30 s after launchctl bootout, so its new version cannot load\n' "$target"
+  return 1
+}
+
+ug_restart_service() {
+  local domain=$1 label=$2 plist=$3 err i
+  ug_stop_service "$domain/$label" || return 1
   for (( i = 0; i < 5; i++ )); do
     err=$(launchctl bootstrap "$domain" "$plist" 2>&1) && return 0
     sleep 1

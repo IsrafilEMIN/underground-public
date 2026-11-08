@@ -294,7 +294,7 @@ start_login_services() {
       com.underground.auth-gateway) url=http://$gateway/healthz ;;
       com.underground.usage-broker) url=http://127.0.0.1:18765/v1/healthz ;;
     esac
-    launchctl bootout "gui/$owner_uid/$label" >/dev/null 2>&1 || true
+    err=$(ug_stop_service "gui/$owner_uid/$label") || die "$err"
     rm -f "$owner_home/Library/LaunchAgents/$label.plist"
     rendered=$(mktemp)
     cleanup+=("$rendered")
