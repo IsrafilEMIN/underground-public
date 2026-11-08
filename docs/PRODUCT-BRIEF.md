@@ -22,7 +22,7 @@ The first design drew the line between the agent and the owner as a list of path
 
 ## North star
 
-The agent works like a coworker. The owner and the agent do the design together; the agent turns each ready ticket into a merged change on its own. Whatever the agent does on its own, the owner can undo.
+The agent works like a coworker. The owner and the agent do the design together; the agent turns each ready ticket into a merged change on its own. Whatever the agent does without the owner's approval, in either way of working, the owner can undo.
 
 Before each decision, ask: does this stop an irreversible harm, or keep undo and work possible? If not, it waits.
 
@@ -30,10 +30,10 @@ Before each decision, ask: does this stop an irreversible harm, or keep undo and
 
 Owner decision, 2026-11-08. Until this date the brief assumed that every session runs unattended. The agent now works in two ways:
 
-- **Together.** Design, architecture, specs, ADRs, and the split of user stories into tickets. The owner works in the session with the agent and reads each step.
+- **Together.** Design, architecture, specs, ADRs, and the split of user stories into tickets. The owner works in the session with the agent and reads each step, but only after it has run: omp runs tool calls without approvals, so the owner's presence stops no call in time.
 - **On its own.** A ready ticket: the smallest unit of work, with no design decision left in it. The agent implements it, gets it merged, and reports back to the owner with the result. Only this part runs unattended.
 
-The threat model is to be checked again against these two ways (`THREAT-MODEL.md`).
+The threat model is to be checked again against these two ways (`THREAT-MODEL.md`). The check splits a threat by whether the owner approves a call before it runs, not by whether the owner is there. A leak, a force-push, or a write to the owner's files is as irreversible in a session together as in one on its own.
 
 ## Principles
 
