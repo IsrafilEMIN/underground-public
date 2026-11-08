@@ -139,6 +139,14 @@ test("ug-agent-setup refuses to run without root", async (t) => {
   assert.match(r.stderr, /run it as root/);
 });
 
+test("every group that ug-agent-setup gives a file is a macOS group or one that the script makes first", async () => {
+  const text = await readFile(SETUP, "utf8");
+  const made = new Set([...text.matchAll(/^make_group (\S+)/gm)].map((m) => m[1]));
+  const used = [...text.matchAll(/chown(?: -[Rh])? [^:\s]+:([A-Za-z_][\w-]*)/g), ...text.matchAll(/ -g ([A-Za-z_][\w-]*)/g)].map((m) => m[1]);
+  assert.ok(used.length > 0);
+  for (const group of used) assert.ok(group === "wheel" || group === "staff" || made.has(group), `group ${group} is neither a macOS group nor made by make_group`);
+});
+
 test("agent-home-tar leaves every config name out of the stream, so the gateway bearer never reaches the owner or a snapshot", async (t) => {
   const dir = await tempDir(join(tmpdir(), "ug-tar-"));
   t.after(() => rm(dir, { recursive: true, force: true }));
