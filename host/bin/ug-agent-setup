@@ -278,7 +278,7 @@ fi
 stage_config
 
 start_login_services() {
-  local owner_uid gateway engine label plist rendered left f
+  local owner_uid gateway engine label plist rendered left f url err
   owner_uid=$(id -u "$owner")
   gateway=$(sed -n 's/^gateway=//p' "$data/addresses")
   engine=$(sed -n 's/^engine=//p' "$data/addresses")
@@ -289,9 +289,13 @@ start_login_services() {
   done
   install -m 444 -o root -g wheel "$data/addresses" "$root/addresses"
   for label in com.underground.auth-broker com.underground.auth-gateway com.underground.usage-broker; do
-    launchctl bootout "gui/$owner_uid/$label" >/dev/null 2>&1 || true
+    case $label in
+      com.underground.auth-broker) url=http://127.0.0.1:8765/v1/healthz ;;
+      com.underground.auth-gateway) url=http://$gateway/healthz ;;
+      com.underground.usage-broker) url=http://127.0.0.1:18765/v1/healthz ;;
+    esac
+    err=$(ug_stop_service "gui/$owner_uid/$label") || die "$err"
     rm -f "$owner_home/Library/LaunchAgents/$label.plist"
-    launchctl bootout "system/$label" >/dev/null 2>&1 || true
     rendered=$(mktemp)
     cleanup+=("$rendered")
     sed -e "s|@OMP@|$omp_bin|g" -e "s|@GATEWAY@|$gateway|g" -e "s|@ENGINE@|$engine|g" "$src/host/agent/$label.plist" >"$rendered"
@@ -299,7 +303,9 @@ start_login_services() {
     [[ -z $left ]] || die "host/agent/$label.plist has an unknown placeholder $left"
     plist=/Library/LaunchDaemons/$label.plist
     install -m 644 -o root -g wheel "$rendered" "$plist"
-    launchctl bootstrap system "$plist" || die "launchctl could not load $plist"
+    err=$(ug_restart_service system "$label" "$plist") || die "$err"
+    ug_wait_http "$url" || die "$label does not answer at $url 30 s after it loaded; read /Users/ugauth/logs/${label#com.underground.}.log"
+    step "login service $label: answers at $url"
   done
   step "login services: auth-broker, auth-gateway, usage-broker run as ugauth from /Library/LaunchDaemons"
 }
