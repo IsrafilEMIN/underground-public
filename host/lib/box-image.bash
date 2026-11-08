@@ -1,7 +1,7 @@
 # shellcheck shell=bash
 
 box_image_tag() {
-  local src=$1 h
+  local src=$1 h LC_ALL=C
   h=$( { grep -E '^(box_omp|box_omp_sha256|ovnfs|ovnfs_sha256)=' "$src/VERSIONS"; cat "$src"/box/* "$src/host/broker/client.ts" "$src/host/broker/protocol.ts"; } | shasum -a 256 | cut -c1-16)
   echo "ugbox:$h"
 }

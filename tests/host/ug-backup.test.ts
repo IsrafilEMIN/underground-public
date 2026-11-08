@@ -129,7 +129,7 @@ async function restoreHome({ volume = true } = {}) {
   await withBox(home);
   await writeFile(join(home, ".ug/sys/box/VERSIONS"), `restic=${RESTIC_PIN}\n`);
   await exe(join(home, ".ug/sys/restic", RESTIC_PIN, "restic"), FAKE_RESTIC_RESTORE);
-  await writeFile(join(home, "snapshots.json"), JSON.stringify([{ id: "a".repeat(64), paths: ["/ug-box-home.tar"], tags: ["ug-box"] }]));
+  await writeFile(join(home, "snapshots.json"), JSON.stringify([{ id: "a".repeat(64), paths: ["/ug-box-home.tar"], tags: ["ug-box"], summary: { total_bytes_processed: 5 } }]));
   await exe(join(home, "fakebin/container"), FAKE_CONTAINER.replace('"volume list") [ ! -e "$HOME/no-volume" ] && echo ug-box-home ;;', '"volume list") [ ! -e "$HOME/no-volume" ] && echo ug-box-home ;;\n  "image list") echo docker.io/library/ugbox:test ;;\n  "run --rm") cat >"$HOME/restored" 2>/dev/null; echo TARDATA ;;'));
   if (!volume) await writeFile(join(home, "no-volume"), "");
   return home;
@@ -178,8 +178,12 @@ test("ug-box-restore deletes nothing when the old home does not reach the repo, 
 test("ug-box-restore refuses a snapshot that holds no box home, and a repo that does not open, before any change", async (t) => {
   const home = await restoreHome();
   t.after(() => rm(home, { recursive: true, force: true }));
-  await writeFile(join(home, "snapshots.json"), JSON.stringify([{ id: "b".repeat(64), paths: [join(home, ".ug/home")], tags: ["ug"] }]));
+  await writeFile(join(home, "snapshots.json"), JSON.stringify([{ id: "b".repeat(64), paths: [join(home, ".ug/home")], tags: ["ug"], summary: { total_bytes_processed: 5 } }]));
   let r = restore(home);
+  assert.notEqual(r.status, 0);
+  assert.match(r.stderr, /holds ug-box-home.tar/);
+  await writeFile(join(home, "snapshots.json"), JSON.stringify([{ id: "c".repeat(64), paths: ["/ug-box-home.tar"], tags: ["ug-box"], summary: { total_bytes_processed: 0 } }]));
+  r = restore(home);
   assert.notEqual(r.status, 0);
   assert.match(r.stderr, /holds ug-box-home.tar/);
   await writeFile(join(home, "repo-closed"), "");

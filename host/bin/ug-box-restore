@@ -37,7 +37,7 @@ trap 'rm -rf "$lock"' EXIT
 id=$("$restic_bin" -r "$repo" snapshots --tag ug-box --json "$snapshot" | "$node" -e '
   let d = "";
   process.stdin.on("data", (c) => (d += c)).on("end", () => {
-    const s = JSON.parse(d).find((x) => x.paths?.includes("/ug-box-home.tar"));
+    const s = JSON.parse(d).find((x) => x.paths?.includes("/ug-box-home.tar") && (x.summary?.total_bytes_processed ?? 0) > 0);
     if (s) console.log(s.id);
   });')
 [[ -n $id ]] || die "no box snapshot $snapshot in $repo holds ug-box-home.tar"
