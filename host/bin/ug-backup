@@ -45,7 +45,7 @@ fi
 if [[ $status -ne 0 ]]; then
   log "the repo $repo does not open (restic exit $status)"
 elif [[ ! -x $agent_tar ]]; then
-  log "the agent home reader $agent_tar is missing; run: sudo host/bin/ug-agent-setup"
+  log "the agent home reader $agent_tar is missing; run: host/bin/ug-setup"
   status=1
 else
   "$restic_bin" -r "$repo" backup --quiet --tag ug-agent --stdin-filename ug-agent-home.tar --stdin-from-command -- sudo -n "$agent_tar"
