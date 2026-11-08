@@ -10,7 +10,9 @@ const SETUP = join(import.meta.dirname, "../../host/bin/ug-setup");
 
 async function copyAt(root: string): Promise<string> {
   await mkdir(join(root, "host/bin"), { recursive: true });
+  await mkdir(join(root, "host/lib"), { recursive: true });
   await copyFile(SETUP, join(root, "host/bin/ug-setup"));
+  await copyFile(join(import.meta.dirname, "../../host/lib/ug.bash"), join(root, "host/lib/ug.bash"));
   return join(root, "host/bin/ug-setup");
 }
 

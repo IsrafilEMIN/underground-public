@@ -23,8 +23,12 @@ The folder `~/.ug/sys`: the pinned omp binary, the pinned srt, and `bin/omp`, th
 _Avoid_: install dir, owner part
 
 **Sockets folder**:
-The folder `~/.ug/run`: the broker socket `broker.sock` and the egress socket `egress.sock` (`host/bin/ug-box:16-17`). The box can use only these two sockets, and cannot write the folder, so it cannot plant a socket or a link here.
+The folder `~/.ug/run`: the egress socket `egress.sock` (`host/bin/ug-box:16-17`). The box can use only the two sockets it is given, and cannot write the folder, so it cannot plant a socket or a link here. The broker socket is not here; it is in `/Library/Underground/run`.
 _Avoid_: run dir, socket dir
+
+**Agent user**:
+The macOS user `ugagent`, standard and hidden, that runs omp for the sessions after the box is removed. Its home `/Users/ugagent` is its own, and its login is an sshd of its own on `127.0.0.1:2222` (`docs/adr/0016-agent-user.md`, `host/bin/ug-agent-setup`).
+_Avoid_: agent account, bot user
 
 **Host zone**:
 The folder `~/.ug/host`: everything the sandbox gets nothing of. The broker app's private key, the auth broker's own root with the model logins, the broker's records, and the owner's hand-edited broker files, such as the addresses file (owner decision, 2026-11-03). Setup moved them there from `~/.agents/broker`, `~/.config/underground-broker`, and `~/.omp` (`docs/SPEC.md`, B6 and B7).
@@ -115,7 +119,7 @@ _Avoid_: domain list, egress list
 ### GitHub and the merge
 
 **Broker**:
-The host service that does GitHub operations for the sessions (launchd `com.underground.broker`). It holds the only GitHub credential that agents use. One socket, `~/.ug/run/broker.sock`, serves every session; the box reaches it at `/tmp/ug-broker.sock` (`box/broker`, `host/bin/ug-box:16-17`). The broker has no roles and no list of repos: it serves each repo where the broker app is installed (`docs/SPEC.md`, B7).
+The host service that does GitHub operations for the sessions (launchd `com.underground.broker`). It holds the only GitHub credential that agents use. One socket, `/Library/Underground/run/broker.sock` (`host/broker/server.ts:73`), serves every session; the box reaches it at `/tmp/ug-broker.sock` (`box/broker`, `host/bin/ug-box:17`), and the agent user reaches it through `/Library/Underground/bin/broker`. The broker has no roles and no list of repos: it serves each repo where the broker app is installed (`docs/SPEC.md`, B7).
 _Avoid_: gh-broker, agent-gh, proxy
 
 **Reviewer role**:

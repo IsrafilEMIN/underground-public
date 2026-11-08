@@ -41,10 +41,15 @@ Around the base:
 
 ## Open
 
-- The login: ssh needs Remote Login, which listens on every interface by default [inference]; it must listen on loopback only, and accept only the agent user, by key. The test run added the user to `com.apple.access_ssh`, which Remote Login checks (`Connection closed by ::1 port 22` before the add, a login after it).
-- A full omp session under the profile, with a model, the broker, and subagents.
-- The broker socket moves out of the owner's home to a folder the agent user can use but not write.
-- The model door: with no network wall, the egress proxy limits nothing; the agent's `models.yml` then names the gateway and its bearer.
+- The login is built, not run on a mac. `host/bin/ug-agent-setup` runs the agent's own sshd (`host/agent/sshd_config`, LaunchDaemon `com.underground.agent-sshd`) on `127.0.0.1:2222`, key only, forced to `agent-session`. This build had no mac, so the test is open.
+- `ug-agent` refuses while the system Remote Login runs, because the agent could log in with a key it writes itself. The check is `launchctl print system/com.openssh.sshd`.
+- Setup adds `ugagent` to `com.apple.access_ssh`, which the system sshd needed in the owner's run (`Connection closed by ::1 port 22` before the add). Whether the agent's sshd checks the group is [inference]; setup adds it anyway.
+- `/Users/ugagent/.ssh` is root-owned and holds an empty `authorized_keys`, for the system sshd. The agent's own sshd reads keys only from `/Library/Underground/authorized_keys` (`host/agent/sshd_config`). The pin denies writes under `~/.ssh` (`host/agent/pin.sb`), so a pinned session cannot rename or replace it [inference: a rename is checked on the source path; not run].
+- Code before the pin: the agent's login shell is `/bin/sh`, which reads no start file when sshd runs it with `-c` [inference, bash manual: a non-interactive shell invoked as `sh` reads no startup files; on macOS `/bin/sh` runs the shell named in `/private/var/select/sh`]. The pin also denies writes to the zsh and bash start files in the home, and `PermitUserRC no` stops sshd from running `~/.ssh/rc` (`host/agent/sshd_config`).
+- launchd: the pin denies `/bin/launchctl`, `/usr/bin/at`, `/usr/bin/crontab`, `/usr/bin/batch` (`host/agent/pin.sb`). The mach route to launchd stays open [inference]. Owner test under the pin over ssh: `launchctl submit -l ugx -- /bin/sh -c 'head -c1 /tmp/ug-pin-test > ~/esc'`, then check whether `~/esc` exists.
+- A full omp session under the profile, with a model, the broker, and subagents: not run.
+- The broker socket moved to `/Library/Underground/run/broker.sock` (`host/broker/server.ts:73`), 0666 after it listens (`host/broker/server.ts:661`). The folder `run/` is owned by the owner, mode 0711. Built; not run on a mac.
+- The model door: setup writes `/Library/Underground/config` with the gateway's real address and bearer in `models.yml`. The bearer sits in a file the agent can read [it already could use the gateway; U30 accepted].
 - The disk cap (U22) and the backup of the agent's home (U37).
 - The owner's leftover files in `/tmp`: the tool that writes each fixed name moves to a private folder before the files are deleted, so the agent cannot plant one at the same name. With the pin, the agent cannot write `/tmp` at all.
 

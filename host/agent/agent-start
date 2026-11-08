@@ -1,0 +1,49 @@
+#!/bin/bash
+set -eo pipefail
+
+export HOME=/Users/ugagent TMPDIR="$(getconf DARWIN_USER_TEMP_DIR)" PATH=/Library/Underground/bin:/usr/bin:/bin:/usr/sbin:/sbin
+
+root=/Library/Underground
+agent=$HOME/.omp/agent
+
+die() {
+  printf 'agent-start: %s\n' "$*" >&2
+  exit 1
+}
+
+for dir in "$HOME/.omp" "$agent"; do
+  if [[ -L $dir || ( -e $dir && ! -d $dir ) ]]; then rm -f "$dir"; fi
+  mkdir -p "$dir"
+done
+
+while IFS= read -r name; do
+  [[ -n $name ]] || continue
+  rm -rf "$agent/$name"
+  if [[ -e $root/config/$name ]]; then cp -R "$root/config/$name" "$agent/$name"; fi
+done <"$root/config-names"
+
+if [[ -z ${UG_REPO:-} ]]; then
+  mkdir -p "$HOME/scratch"
+  cd "$HOME/scratch"
+  exec omp "$@"
+fi
+[[ $UG_REPO =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || die "UG_REPO has a value that is not owner/name"
+
+clone=$HOME/work/$UG_REPO
+if [[ ! -d $clone/.git ]]; then
+  rm -rf "$clone"
+  mkdir -p "$clone"
+  git -C "$clone" init -q
+  git -C "$clone" remote add origin "https://github.com/$UG_REPO.git"
+fi
+cd "$clone"
+
+synced=$(/usr/bin/lockf -k .git/ug-sync.lock "$root/bin/broker" sync "$UG_REPO") || {
+  printf 'agent-start: broker sync %s failed; is the broker app installed on it?\n' "$UG_REPO" >&2
+  exit 69
+}
+base=$(printf '%s\n' "$synced" | sed -n 's|^origin/\([^ ]*\) is now .*|\1|p')
+[[ -n $base ]] || die "broker sync gave no branch: $synced"
+
+/usr/bin/lockf -k .git/ug-sync.lock git checkout -q --detach "origin/$base"
+exec omp "$@"

@@ -1,0 +1,194 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ $# -ne 0 ]]; then
+  printf 'usage: sudo host/bin/ug-agent-setup\n' >&2
+  exit 64
+fi
+
+die() {
+  printf 'ug-agent-setup: %s\n' "$*" >&2
+  exit 1
+}
+
+step() { printf '%s\n' "$*"; }
+
+[[ $(id -u) -eq 0 ]] || die "run it as root: sudo host/bin/ug-agent-setup"
+owner=${SUDO_USER:-}
+[[ -n $owner && $owner != root ]] || die "SUDO_USER is not set; run it with sudo from your own login"
+owner_home=/Users/$owner
+[[ -d $owner_home && ! -L $owner_home ]] || die "the home $owner_home is not a folder"
+
+src=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)
+# shellcheck source=host/lib/ug.bash disable=SC1091
+source "$src/host/lib/ug.bash"
+ug_check_checkout "$src" ug-agent-setup || exit 1
+
+root=/Library/Underground
+host_zone=$owner_home/.ug/host
+sys=$owner_home/.ug/sys
+key_dir=$host_zone/agent-ssh
+owner_key=$key_dir/id_ed25519
+known_hosts=$key_dir/known_hosts
+omp_pin=$(ug_pin "$src/VERSIONS" omp)
+omp_sha=$(ug_pin "$src/VERSIONS" omp_sha256)
+[[ $omp_pin =~ ^[0-9A-Za-z.+-]+$ ]] || die "VERSIONS has no omp pin"
+[[ $omp_sha =~ ^[0-9a-f]{64}$ ]] || die "VERSIONS has no omp_sha256 pin"
+
+sha256() {
+  local out
+  out=$(shasum -a 256 "$1") || return 1
+  printf '%s\n' "${out%% *}"
+}
+
+cleanup=()
+trap '[[ ${#cleanup[@]} -eq 0 ]] || rm -rf "${cleanup[@]}"' EXIT
+
+chmod 700 "$owner_home"
+[[ -n $(find "$owner_home" -maxdepth 0 -perm 700 2>/dev/null) ]] || die "$owner_home is not mode 700 and would not stay so; nothing else is set up"
+step "owner home $owner_home: mode 700"
+
+if dscl . -read /Users/ugagent UniqueID >/dev/null 2>&1; then
+  step "user ugagent: exists"
+else
+  uid=$(dscl . -list /Users UniqueID | sed -n 's/.* //p' | sort -n | tail -1) || true
+  uid=${uid:-0}
+  uid=$(( uid < 400 ? 400 : uid + 1 ))
+  pw=$(openssl rand -hex 24)
+  dscl . -create /Users/ugagent
+  dscl . -create /Users/ugagent UniqueID "$uid"
+  dscl . -create /Users/ugagent PrimaryGroupID 20
+  dscl . -create /Users/ugagent RealName "Underground agent"
+  dscl . -create /Users/ugagent NFSHomeDirectory /Users/ugagent
+  dscl . -passwd /Users/ugagent "$pw"
+  unset pw
+  step "user ugagent: created, uid $uid, random password never shown"
+fi
+dscl . -create /Users/ugagent UserShell /bin/sh
+dscl . -create /Users/ugagent IsHidden 1
+[[ " $(dscl . -read /Groups/admin GroupMembership 2>/dev/null) " != *" ugagent "* ]] ||
+  die "ugagent is in the group admin; remove it: sudo dseditgroup -o edit -d ugagent -t user admin"
+install -d -m 700 -o ugagent -g staff /Users/ugagent
+step "user ugagent: standard, hidden, /bin/sh, home /Users/ugagent mode 700"
+
+if [[ " $(dscl . -read /Groups/com.apple.access_ssh GroupMembership 2>/dev/null) " != *" ugagent "* ]]; then
+  dscl . -append /Groups/com.apple.access_ssh GroupMembership ugagent
+  step "group com.apple.access_ssh: ugagent added"
+else
+  step "group com.apple.access_ssh: ugagent in place"
+fi
+
+# The system sshd reads /Users/ugagent/.ssh/authorized_keys. Its folder and file are root's and empty,
+# so the agent cannot add a key there. [inference] This holds only while nothing else replaces the folder.
+install -d -m 755 -o root -g wheel /Users/ugagent/.ssh
+install -m 444 -o root -g wheel /dev/null /Users/ugagent/.ssh/authorized_keys
+step "/Users/ugagent/.ssh: root-owned, empty authorized_keys"
+
+[[ -f $sys/omp/$omp_pin/omp && ! -L $sys/omp/$omp_pin/omp ]] || die "no omp $omp_pin under $sys; run host/bin/ug-setup first"
+[[ $(sha256 "$sys/omp/$omp_pin/omp") == "$omp_sha" ]] || die "the omp under $sys does not have the pinned SHA-256; run host/bin/ug-setup first"
+
+install -d -m 755 -o root -g wheel "$root" "$root/omp" "$root/omp/$omp_pin" "$root/bin" "$root/broker" "$root/authorized_keys"
+install -m 555 -o root -g wheel "$sys/omp/$omp_pin/omp" "$root/omp/$omp_pin/omp"
+[[ $(sha256 "$root/omp/$omp_pin/omp") == "$omp_sha" ]] || die "the copy of omp in $root does not have the pinned SHA-256"
+ln -sfn "$root/omp/$omp_pin/omp" "$root/bin/omp"
+cat >"$root/bin/broker.tmp" <<EOF
+#!/bin/sh
+BUN_BE_BUN=1 UG_BROKER_SOCKET=$root/run/broker.sock exec $root/omp/$omp_pin/omp $root/broker/client.ts "\$@"
+EOF
+install -m 555 -o root -g wheel "$root/bin/broker.tmp" "$root/bin/broker"
+rm -f "$root/bin/broker.tmp"
+install -m 444 -o root -g wheel "$src/host/broker/client.ts" "$root/broker/client.ts"
+install -m 444 -o root -g wheel "$src/host/broker/protocol.ts" "$root/broker/protocol.ts"
+install -m 444 -o root -g wheel "$src/host/agent/pin.sb" "$root/pin.sb"
+install -m 555 -o root -g wheel "$src/host/agent/agent-session" "$root/agent-session"
+install -m 555 -o root -g wheel "$src/host/agent/agent-start" "$root/agent-start"
+install -m 444 -o root -g wheel "$src/host/agent/sshd_config" "$root/sshd_config"
+install -m 444 -o root -g wheel "$src/box/config-names" "$root/config-names"
+step "$root: omp $omp_pin, pin.sb, bin/, broker, agent-session, agent-start, sshd_config installed"
+
+install -d -m 711 -o "$owner" -g wheel "$root/run"
+
+if [[ ! -f $root/ssh_host_ed25519_key ]]; then
+  ssh-keygen -q -t ed25519 -N '' -f "$root/ssh_host_ed25519_key"
+fi
+chown root:wheel "$root/ssh_host_ed25519_key" "$root/ssh_host_ed25519_key.pub"
+chmod 600 "$root/ssh_host_ed25519_key"
+chmod 644 "$root/ssh_host_ed25519_key.pub"
+step "agent sshd host key: $root/ssh_host_ed25519_key"
+
+[[ -d $host_zone ]] || die "$host_zone does not exist; run host/bin/ug-setup first"
+install -d -m 700 -o "$owner" -g staff "$key_dir"
+if [[ ! -f $owner_key ]]; then
+  ssh-keygen -q -t ed25519 -N '' -C ug-agent -f "$owner_key"
+fi
+chown "$owner" "$owner_key" "$owner_key.pub"
+chmod 600 "$owner_key"
+step "owner key for the agent login: $owner_key"
+
+{ cut -d ' ' -f 1,2 "$owner_key.pub"; } >"$root/authorized_keys/ugagent.tmp"
+install -m 444 -o root -g wheel "$root/authorized_keys/ugagent.tmp" "$root/authorized_keys/ugagent"
+rm -f "$root/authorized_keys/ugagent.tmp"
+
+host_key=$(cut -d ' ' -f 1,2 "$root/ssh_host_ed25519_key.pub")
+printf '[127.0.0.1]:2222 %s\n' "$host_key" >"$known_hosts.tmp"
+install -m 600 -o "$owner" -g staff "$known_hosts.tmp" "$known_hosts"
+rm -f "$known_hosts.tmp"
+step "known_hosts for 127.0.0.1:2222: $known_hosts"
+
+stage_config() {
+  local cfg gateway gateway_token stage name item odd leak secrets value token_file
+  cfg=$(sed -n '1p' "$host_zone/config-repo" 2>/dev/null) || true
+  [[ -n $cfg ]] || die "no config repo: $host_zone/config-repo names none"
+  cfg=${cfg/#\~/$owner_home}
+  [[ -d $cfg && ! -L $cfg ]] || die "the config repo $cfg is not a folder"
+  gateway=$(sed -n 's/^gateway=//p' "$host_zone/addresses" 2>/dev/null) || true
+  [[ $gateway == *:* ]] || die "the addresses file $host_zone/addresses has no gateway=<address>:<port> line"
+  gateway_token=$({ tr -d '[:space:]' <"$host_zone/auth/auth-gateway.token"; } 2>/dev/null) || gateway_token=""
+  [[ $gateway_token =~ ^[A-Za-z0-9._~+=-]{12,}$ ]] || die "$host_zone/auth/auth-gateway.token is missing or has characters the config cannot hold"
+  stage=$(mktemp -d) || die "cannot make a temp folder for the config"
+  cleanup+=("$stage")
+  mkdir "$stage/repo" "$stage/out"
+  git -c "safe.directory=$cfg" -C "$cfg" archive --format=tar HEAD | tar -x -C "$stage/repo" || die "cannot read the last commit of the config repo $cfg"
+  secrets=$stage/secrets
+  : >"$secrets"
+  for token_file in "$host_zone/auth/auth-broker.token" "$host_zone/auth/auth-gateway.token"; do
+    value=$({ tr -d '[:space:]' <"$token_file"; } 2>/dev/null) || value=""
+    [[ ${#value} -lt 12 ]] || printf '%s\n' "$value" >>"$secrets"
+  done
+  while IFS= read -r name; do
+    item=$stage/repo/$name
+    [[ -e $item || -L $item ]] || continue
+    odd=$(find "$item" \( -type l -o ! -type f ! -type d \) -print 2>/dev/null | head -1) || true
+    [[ -z $odd ]] || die "the config repo has a link or a special file, which the agent must not get: ${odd#"$stage/repo/"}"
+    leak=$(grep -r -l -a -E -f "$src/host/secret-patterns" "$item" 2>/dev/null | head -1) || true
+    [[ -n $leak || ! -s $secrets ]] || leak=$(grep -r -l -a -F -f "$secrets" "$item" 2>/dev/null | head -1) || true
+    [[ -z $leak ]] || die "the config repo file ${leak#"$stage/repo/"} holds a token or a key; the agent reads every config file, so take it out"
+    [[ $name != models.yaml ]] || die "the config repo has models.yaml; name it models.yml"
+    cp -R "$item" "$stage/out/$name"
+  done <"$src/box/config-names"
+  [[ -f $stage/out/models.yml ]] || die "the last commit of the config repo $cfg has no models.yml"
+  sed -i.bak -e "s/@GATEWAY@/$gateway/g" -e "s/@GATEWAY_TOKEN@/$gateway_token/g" "$stage/out/models.yml"
+  rm -f "$stage/out/models.yml.bak"
+  if grep -qE '@[A-Z_]+@' "$stage/out/models.yml"; then die "models.yml of the config repo has an unknown placeholder"; fi
+  rm -rf "$root/config"
+  cp -R "$stage/out" "$root/config"
+  chown -R root:wheel "$root/config"
+  chmod -R go-w "$root/config"
+  step "agent config: $root/config from $cfg, gateway $gateway"
+}
+stage_config
+
+plist=/Library/LaunchDaemons/com.underground.agent-sshd.plist
+install -m 644 -o root -g wheel "$src/host/agent/com.underground.agent-sshd.plist" "$plist"
+/usr/sbin/sshd -t -f "$root/sshd_config" || die "sshd rejects $root/sshd_config; nothing was loaded"
+launchctl bootout system/com.underground.agent-sshd >/dev/null 2>&1 || true
+launchctl bootstrap system "$plist" || die "launchctl could not load $plist"
+step "agent sshd: 127.0.0.1:2222, loaded from $plist"
+
+agent_dir=$sys/agent
+install -d -m 700 -o "$owner" -g staff "$agent_dir" "$agent_dir/bin" "$agent_dir/lib" "$sys/bin"
+install -m 555 -o "$owner" -g staff "$src/host/bin/ug-agent" "$agent_dir/bin/ug-agent"
+install -m 444 -o "$owner" -g staff "$src/host/lib/ug.bash" "$agent_dir/lib/ug.bash"
+ln -sfn "$agent_dir/bin/ug-agent" "$sys/bin/ug-agent"
+chown -h "$owner" "$sys/bin/ug-agent"
+step "ug-agent: on PATH as $sys/bin/ug-agent"

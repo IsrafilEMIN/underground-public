@@ -70,7 +70,7 @@ function defaultGitPath(): string {
 export function defaultConfig(): ServerConfig {
   const host = join(HOME, ".ug/host");
   return {
-    socketPath: join(HOME, ".ug/run/broker.sock"),
+    socketPath: "/Library/Underground/run/broker.sock",
     reposRoot: join(host, "broker/repos"),
     reviewsDir: join(host, "broker/reviews"),
     pushesDir: join(host, "broker/pushes"),
@@ -638,7 +638,6 @@ const openSockets = new WeakMap<Server, Set<Socket>>();
 async function listenUnix(path: string, handle: Handler): Promise<Server> {
   const dir = dirname(path);
   await mkdir(dir, { recursive: true, mode: 0o700 });
-  await chmod(dir, 0o700);
   await removeStaleSocket(path);
   const sockets = new Set<Socket>();
   const server = createServer({ allowHalfOpen: true }, (socket) => {
@@ -659,7 +658,7 @@ async function listenUnix(path: string, handle: Handler): Promise<Server> {
   } finally {
     process.umask(previousUmask);
   }
-  await chmod(path, 0o600);
+  await chmod(path, 0o666);
   process.stdout.write(`${new Date().toISOString()} listening on ${path}\n`);
   return server;
 }
