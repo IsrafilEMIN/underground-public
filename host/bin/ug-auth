@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+usage() {
+  printf 'usage: ug-auth auth-broker|auth-gateway <args>\n       ug-auth key <NAME>_API_KEY\n' >&2
+  exit 64
+}
+
 case ${1:-} in
   auth-broker | auth-gateway) ;;
-  *)
-    printf 'usage: ug-auth auth-broker|auth-gateway <args>\n' >&2
-    exit 64
-    ;;
+  key) [[ $# -eq 2 && $2 =~ ^[A-Z][A-Z0-9_]*_API_KEY$ ]] || usage ;;
+  *) usage ;;
 esac
 
 self=${BASH_SOURCE[0]}
@@ -24,4 +27,12 @@ broker=()
 [[ $1 != auth-gateway ]] || broker=(OMP_AUTH_BROKER_URL=http://127.0.0.1:8765)
 
 cd /
+if [[ $1 == key ]]; then
+  exec sudo -u ugauth -H /usr/bin/env -i HOME=/Users/ugauth PATH=/usr/bin:/bin OMP_AUTH_BROKER_URL=http://127.0.0.1:8765 UG_KEY_NAME="$2" \
+    /bin/sh -c 'printf "paste %s, then enter (not shown): " "$UG_KEY_NAME" >&2
+stty -echo 2>/dev/null; IFS= read -r k; stty echo 2>/dev/null; printf "\n" >&2
+[ -n "$k" ] || { echo "ug-auth: no key given, nothing stored" >&2; exit 1; }
+export "$UG_KEY_NAME=$k"; unset k UG_KEY_NAME
+exec "$0" auth-broker migrate --from-local --include-env' "$omp"
+fi
 exec sudo -u ugauth -H /usr/bin/env -i HOME=/Users/ugauth PATH=/usr/bin:/bin ${broker[@]+"${broker[@]}"} "$omp" "$@"
