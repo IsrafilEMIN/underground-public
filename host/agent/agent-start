@@ -1,7 +1,8 @@
 #!/bin/bash
 set -eo pipefail
 
-export HOME=/Users/ugagent TMPDIR="$(getconf DARWIN_USER_TEMP_DIR)" PATH=/Library/Underground/bin:/usr/bin:/bin:/usr/sbin:/sbin
+TMPDIR=$(getconf DARWIN_USER_TEMP_DIR)
+export HOME=/Users/ugagent TMPDIR PATH=/Library/Underground/bin:/usr/bin:/bin:/usr/sbin:/sbin
 
 root=/Library/Underground
 agent=$HOME/.omp/agent
@@ -18,7 +19,7 @@ done
 
 while IFS= read -r name; do
   [[ -n $name ]] || continue
-  rm -rf "$agent/$name"
+  rm -rf "${agent:?}/${name:?}"
   if [[ -e $root/config/$name ]]; then cp -R "$root/config/$name" "$agent/$name"; fi
 done <"$root/config-names"
 
