@@ -4,7 +4,7 @@ ARG OMP_SHA256
 ARG OVNFS_VERSION
 ARG OVNFS_SHA256
 RUN apt-get update -qq \
- && apt-get install -y -qq --no-install-recommends fuse3 git ca-certificates curl util-linux socat >/dev/null \
+ && apt-get install -y -qq --no-install-recommends fuse3 git ca-certificates curl util-linux socat tzdata >/dev/null \
  && rm -rf /var/lib/apt/lists/*
 RUN cd /tmp \
  && curl -fsSLO "https://github.com/stencil-hq/ovnfs/releases/download/v${OVNFS_VERSION}/ovnfs_${OVNFS_VERSION}_linux_arm64.tar.gz" \

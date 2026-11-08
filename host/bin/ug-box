@@ -190,8 +190,10 @@ To start on the new image: quit those sessions, then run ug-box again."
   rm -rf "$STAGE"
 
   trap 'finish; exit 130' INT TERM HUP
-  local status=0
-  container exec --interactive --tty --uid 1000 --gid 1000 --env HOME=/home/agent --env "UG_REPO=$slug" \
+  local status=0 tz
+  tz=$(readlink /etc/localtime 2>/dev/null | sed -n 's|^.*/zoneinfo/||p')
+  [[ $tz =~ ^[A-Za-z][A-Za-z0-9_+-]*(/[A-Za-z0-9_+-]+)*$ ]] || tz=UTC
+  container exec --interactive --tty --uid 1000 --gid 1000 --env HOME=/home/agent --env "TZ=$tz" --env "UG_REPO=$slug" \
     --env "PI_PROXY=$PROXY" --env "HTTPS_PROXY=$PROXY" --env "HTTP_PROXY=$PROXY" \
     --env OMP_AUTH_BROKER_URL=http://usage.internal:18765 --env OMP_AUTH_BROKER_TOKEN=usage-only "$NAME" \
     nsenter --target 1 --user --mount --preserve-credentials -- /usr/local/bin/ug-session "$@" || status=$?

@@ -128,6 +128,7 @@ test("the first session boots a box with no network, a read-only root, and only 
   const session = calls.find((c) => c.includes("ug-session")) ?? "";
   assert.match(session, /UG_REPO=owner\/app /);
   assert.match(session, /PI_PROXY=http:\/\/127\.0\.0\.1:3128/);
+  assert.match(session, / TZ=[A-Za-z][A-Za-z0-9_+\/-]* /, "the session counts days in UTC, not the mac's zone");
   const models = await readFile(join(s.fake, "config/models.yml"), "utf8");
   assert.match(models, /baseUrl: "http:\/\/gateway\.internal:4000"/);
   assert.match(models, /apiKey: "ug-placeholder"/);
