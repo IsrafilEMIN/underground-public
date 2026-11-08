@@ -4,21 +4,27 @@
 <dict>
   <key>Label</key>
   <string>com.underground.usage-broker</string>
+  <key>UserName</key>
+  <string>ugauth</string>
   <key>ProgramArguments</key>
   <array>
     <string>/opt/homebrew/bin/node</string>
-    <string>@DATA@/services/host/gh-broker/usage-broker.ts</string>
+    <string>/Library/Underground/usage-broker/usage-broker.ts</string>
   </array>
+  <key>WorkingDirectory</key>
+  <string>/Users/ugauth</string>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
   <true/>
   <key>StandardOutPath</key>
-  <string>@DATA@/usage-broker.log</string>
+  <string>/Users/ugauth/logs/usage-broker.log</string>
   <key>StandardErrorPath</key>
-  <string>@DATA@/usage-broker.log</string>
+  <string>/Users/ugauth/logs/usage-broker.log</string>
   <key>EnvironmentVariables</key>
   <dict>
+    <key>HOME</key>
+    <string>/Users/ugauth</string>
     <key>PATH</key>
     <string>/opt/homebrew/bin:/usr/bin:/bin</string>
   </dict>

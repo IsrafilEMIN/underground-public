@@ -19,7 +19,7 @@ The agent's one home under the srt design, `~/.ug/home`. Commit 54a418a1 removed
 _Avoid_: workspace, sandbox dir, role home, write area
 
 **Agent home omp binary**:
-The one omp binary on the mac, `/Library/Underground/omp/<pin>/omp`, root-owned, mode 555, with its pinned SHA-256 in `omp.sha256` beside it. Setup downloads it as the owner and `ug-agent-setup` installs it as root. It serves the agent sessions, which check its hash at each start (`host/agent/agent-start`), the auth services, `ug-auth`, and vanilla omp (`docs/adr/0017-one-omp-binary-and-no-ug-folder.md`).
+The one omp binary on the mac, `/Library/Underground/omp/<pin>/omp`, `root:ugomp`, mode 550, so only the agent user and the login user can run it, with its pinned SHA-256 in `omp.sha256` beside it. Setup downloads it as the owner and `ug-agent-setup` installs it as root. It serves the agent sessions, which check its hash at each start (`host/agent/agent-start`), and the login services (`docs/adr/0018-login-user.md`).
 _Avoid_: omp copy, owner zone
 
 **omp launcher**:
@@ -31,15 +31,15 @@ The macOS user `ugagent`, standard and hidden, that runs omp for the sessions af
 _Avoid_: agent account, bot user
 
 **Data folder**:
-The folder `~/.local/share/underground`, mode 700: the gh-broker app's key and config, the gh-broker's records, the protected-paths lists, the backup settings and password, the agent's ssh key, the addresses file, `config-repo`, the pinned restic, and setup's copy of the service code. Setup moved it there from `~/.ug/host` on 2026-11-08 (`docs/adr/0017-one-omp-binary-and-no-ug-folder.md`). The model logins are not here; they are in the ug-auth profile.
+The folder `~/.local/share/underground`, mode 700: the gh-broker app's key and config, the gh-broker's records, the protected-paths lists, the backup settings and password, the agent's ssh key, the addresses file, `config-repo`, the pinned restic, and setup's copy of the service code. Setup moved it there from `~/.ug/host` on 2026-11-08 (`docs/adr/0017-one-omp-binary-and-no-ug-folder.md`). The model logins are not here; they are the login user's.
 _Avoid_: host zone, vault, keys dir
 
-**ug-auth profile**:
-The omp profile `~/.omp/profiles/ug-auth`, which holds the model logins, `auth-broker.token`, and `auth-gateway.token`. The auth services and `ug-auth` select it with `OMP_PROFILE=ug-auth`. Vanilla omp runs on the default profile and does not read it, unless it is started with `--profile ug-auth`.
-_Avoid_: auth root, host zone
+**Login user**:
+The hidden macOS user `ugauth`, which owns the model logins, `auth-broker.token`, and `auth-gateway.token` in its home `/Users/ugauth` (mode 700), and runs the auth broker, the auth gateway, and the usage broker as LaunchDaemons. The owner's user cannot read its home (`docs/adr/0018-login-user.md`).
+_Avoid_: auth root, host zone, ug-auth profile
 
 **Owner's zone**:
-The owner's home outside the data folder and the ug-auth profile: the owner's checkouts, the config repo, `~/.ssh`, `~/Library`, and the rest. The agent user cannot read the owner's home (mode 700).
+The owner's home outside the data folder: the owner's checkouts, the config repo, `~/.ssh`, `~/Library`, and the rest. The agent user and the login user cannot read the owner's home (mode 700).
 _Avoid_: host files, user space
 
 **Owner's checkout**:
@@ -97,11 +97,11 @@ A version and a SHA-256 in `VERSIONS`. The omp pin names the release file `omp-d
 _Avoid_: lock, current version
 
 **Vanilla omp**:
-The agent home omp binary started by the owner by its full path, as the owner, outside any session. Its default profile in `~/.omp` holds no login and no token: the logins sit in the ug-auth profile. So it cannot call a model with a login. It still finds the keyless built-in providers (`apple`, and a local `lm-studio`, `ollama`, or `llama.cpp` server), unless `~/.omp/agent/config.yml` turns them off. Setup wrote that file from the config repo's `raw-omp/config.yml` until 2026-11-08, and now leaves it as it is (`docs/adr/0012-pinned-omp-and-setup.md`, amendment 2026-11-08). The agent user cannot start it as the owner, because the owner's home is mode 700 (`host/bin/ug-agent-setup:47`).
+An omp that the owner starts as the owner, outside any session. The owner cannot run the agent home omp binary, so only a copy the owner downloads or Tern's can start. It finds no login and no gateway bearer, because both belong to other users. It still finds the keyless built-in providers (`apple`, and a local `lm-studio`, `ollama`, or `llama.cpp` server), unless `~/.omp/agent/config.yml` turns them off (`docs/adr/0018-login-user.md`, "Not covered").
 _Avoid_: raw omp, plain omp, unwrapped session
 
 **ug-auth**:
-The owner's command for the auth services: the agent home omp binary in the ug-auth profile, limited to `auth-broker` and `auth-gateway`, for example `ug-auth auth-broker login anthropic` or `ug-auth auth-broker token --regenerate`. Setup links it as `~/.local/bin/ug-auth`.
+The owner's command for the auth services: it runs the agent home omp binary as the login user through `sudo`, limited to `auth-broker` and `auth-gateway`, for example `ug-auth auth-broker login anthropic`. Each run asks for the owner's password. Setup links it as `~/.local/bin/ug-auth`.
 _Avoid_: vanilla omp, admin omp
 
 **Agent home backup** (was the arena backup):
@@ -109,7 +109,7 @@ The daily restic snapshot of the agent home `/Users/ugagent`, minus `.cache` and
 _Avoid_: archive, sync, Time Machine
 
 **Setup**:
-The host script that does what `git pull` cannot: download the pinned omp and restic, make the data folder and the ug-auth profile, make the backup password, run `sudo host/bin/ug-agent-setup` (which asks for the owner's password and installs the agent home omp binary, the agent user, the omp launcher, and the backup helper), then register and restart the launchd services. It runs the `[mac]` tests first. It runs when a pin changes, a host service changes, or macOS updates. It replaces the install (`docs/adr/0012-pinned-omp-and-setup.md`).
+The host script that does what `git pull` cannot: download the pinned omp and restic, make the data folder and the backup password, run `sudo host/bin/ug-agent-setup` (which asks for the owner's password and installs the agent home omp binary, the agent user, the login user and its services, the omp launcher, and the backup helper), restart the gh-broker and the backup, and check as the owner that the owner cannot run omp or read a login or the bearer. It runs the `[mac]` tests first. It runs when a pin changes, a host service changes, or macOS updates. It replaces the install (`docs/adr/0012-pinned-omp-and-setup.md`).
 _Avoid_: install, installer, bootstrap
 
 **Preflight** (removed, #90):
@@ -173,7 +173,7 @@ _Avoid_: onboarding list, repo setup
 ### Models
 
 **Auth broker**:
-The host service `omp auth-broker serve` (launchd `com.underground.auth-broker`, on `127.0.0.1:8765`). It holds the owner's model logins in the ug-auth profile `~/.omp/profiles/ug-auth` (`OMP_PROFILE=ug-auth` in its plist), and does every OAuth refresh. The owner reaches it with `ug-auth`. Only the auth gateway talks to it; no session is a broker client, because a broker client receives access tokens and API keys.
+The host service `omp auth-broker serve` (LaunchDaemon `com.underground.auth-broker`, run as the login user, on `127.0.0.1:8765`). It holds the owner's model logins in the login user's home, and does every OAuth refresh. The owner reaches it with `ug-auth`. Only the auth gateway talks to it; no session is a broker client, because a broker client receives access tokens and API keys.
 _Avoid_: credential store, vault
 
 **Auth gateway**:

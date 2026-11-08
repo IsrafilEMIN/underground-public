@@ -4,6 +4,8 @@
 <dict>
   <key>Label</key>
   <string>com.underground.auth-broker</string>
+  <key>UserName</key>
+  <string>ugauth</string>
   <key>ProgramArguments</key>
   <array>
     <string>@OMP@</string>
@@ -11,20 +13,22 @@
     <string>serve</string>
     <string>--bind=127.0.0.1:8765</string>
   </array>
+  <key>WorkingDirectory</key>
+  <string>/Users/ugauth</string>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
   <true/>
   <key>StandardOutPath</key>
-  <string>@HOME@/.omp/profiles/ug-auth/auth-broker.log</string>
+  <string>/Users/ugauth/logs/auth-broker.log</string>
   <key>StandardErrorPath</key>
-  <string>@HOME@/.omp/profiles/ug-auth/auth-broker.log</string>
+  <string>/Users/ugauth/logs/auth-broker.log</string>
   <key>EnvironmentVariables</key>
   <dict>
+    <key>HOME</key>
+    <string>/Users/ugauth</string>
     <key>PATH</key>
     <string>/opt/homebrew/bin:/usr/bin:/bin</string>
-    <key>OMP_PROFILE</key>
-    <string>ug-auth</string>
   </dict>
 </dict>
 </plist>

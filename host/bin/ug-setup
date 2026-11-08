@@ -8,24 +8,19 @@ fi
 
 src=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)
 data="$HOME/.local/share/underground"
-old_ug="$HOME/.ug"
-for dir in "$data" "$old_ug"; do
-  real=$(cd "$dir" 2>/dev/null && pwd -P) || real=$dir
-  case $src/ in
-    "$dir/"* | "$real/"*)
-      printf 'ug-setup: %s is inside %s, which setup itself writes; run setup from your own checkout\n' "$src" "$dir" >&2
-      exit 64
-      ;;
-  esac
-done
+real=$(cd "$data" 2>/dev/null && pwd -P) || real=$data
+case $src/ in
+  "$data/"* | "$real/"*)
+    printf 'ug-setup: %s is inside %s, which setup itself writes; run setup from your own checkout\n' "$src" "$data" >&2
+    exit 64
+    ;;
+esac
 bin_dir="$HOME/.local/bin"
 root=/Library/Underground
 node_bin=/opt/homebrew/bin/node
-labels="com.underground.gh-broker com.underground.auth-broker com.underground.auth-gateway com.underground.usage-broker com.underground.backup"
+labels="com.underground.gh-broker com.underground.backup"
 agents_dir="$HOME/Library/LaunchAgents"
 addresses_file="$data/addresses"
-auth_root="$HOME/.omp/profiles/ug-auth"
-gateway_token_file="$auth_root/auth-gateway.token"
 engine_default=100.64.0.99:8081
 tailscale_app=/Applications/Tailscale.app/Contents/MacOS/Tailscale
 
@@ -81,55 +76,10 @@ run_mac_only_tests() {
 }
 run_mac_only_tests
 
-stop_services() {
-  local label
-  for label in $labels; do
-    launchctl bootout "gui/$UID/$label" >/dev/null 2>&1 || true
-  done
-}
-
-migrate_ug() {
-  [[ -e $old_ug || -L $old_ug ]] || return 0
-  [[ -d $old_ug && ! -L $old_ug ]] || die "$old_ug is not a folder; move it away, then run setup again"
-  if [[ -e $old_ug/host/auth || -L $old_ug/host/auth ]] && [[ -e $auth_root || -L $auth_root ]]; then
-    die "both $old_ug/host/auth and $auth_root exist; keep the one with your logins, then run setup again"
-  fi
-  if [[ -e $old_ug/host || -L $old_ug/host ]] && [[ -e $data || -L $data ]]; then
-    die "both $old_ug/host and $data exist; keep the one with the current records, then run setup again"
-  fi
-  stop_services
-  if [[ -e $old_ug/host/auth || -L $old_ug/host/auth ]]; then
-    [[ -d $HOME/.omp ]] || install -d -m 700 "$HOME/.omp"
-    [[ -d $HOME/.omp/profiles ]] || install -d -m 700 "$HOME/.omp/profiles"
-    mv "$old_ug/host/auth" "$auth_root"
-    printf 'moved: %s to %s\n' "$old_ug/host/auth" "$auth_root"
-  fi
-  if [[ -e $old_ug/host || -L $old_ug/host ]]; then
-    mkdir -p "$(dirname "$data")"
-    mv "$old_ug/host" "$data"
-    printf 'moved: %s to %s\n' "$old_ug/host" "$data"
-  fi
-  if [[ -d $old_ug/sys/restic && ! -e $data/restic ]]; then
-    mv "$old_ug/sys/restic" "$data/restic"
-  fi
-}
-
-remove_old_ug() {
-  local left
-  [[ -d $old_ug && ! -L $old_ug ]] || return 0
-  rm -rf "$old_ug/sys" "$old_ug/run"
-  if rmdir "$old_ug" 2>/dev/null; then
-    printf 'removed: %s\n' "$old_ug"
-  else
-    left=$(ls -A "$old_ug")
-    printf 'ug-setup: warning: %s still holds files that setup did not write: %s; delete them by hand when you no longer need them\n' "$old_ug" "${left//$'\n'/ }" >&2
-  fi
-}
-
 omp_stage=""
 stage_omp() {
   local dest="$root/omp/$omp_pin/omp" have url
-  if [[ -f $dest && ! -L $dest ]] && [[ $(sha256 "$dest") == "$omp_sha" ]]; then
+  if [[ -f $dest.sha256 && $(<"$dest.sha256") == "$omp_sha" ]]; then
     printf 'omp %s: in place in %s\n' "$omp_pin" "$dest"
     return 0
   fi
@@ -143,7 +93,6 @@ stage_omp() {
 }
 
 stage_omp
-migrate_ug
 install -d -m 700 "$data" "$data/restic"
 [[ -d $bin_dir ]] || install -d -m 755 "$bin_dir"
 
@@ -258,27 +207,17 @@ restart_service() {
 }
 
 prepare_services() {
-  [[ -d $HOME/.omp ]] || install -d -m 700 "$HOME/.omp"
-  [[ -d $HOME/.omp/profiles ]] || install -d -m 700 "$HOME/.omp/profiles"
-  install -d -m 700 "$auth_root" "$auth_root/agent" "$data/gh-broker" "$data/gh-broker/repos" \
-    "$data/gh-broker/tmp" "$data/gh-broker/reviews" "$data/gh-broker/pushes"
+  install -d -m 700 "$data/gh-broker" "$data/gh-broker/repos" "$data/gh-broker/tmp" "$data/gh-broker/reviews" "$data/gh-broker/pushes"
   write_addresses
-  if [[ ! -s $gateway_token_file ]]; then
-    (umask 077 && openssl rand -hex 32 >"$gateway_token_file") || die "cannot write $gateway_token_file"
-  fi
 }
 
 start_services() {
-  local gateway engine label rendered left
+  local label rendered left
   install -d "$agents_dir"
-  gateway=$(sed -n 's/^gateway=//p' "$addresses_file")
-  engine=$(sed -n 's/^engine=//p' "$addresses_file")
-  [[ -n $gateway && -n $engine ]] || die "$addresses_file needs a gateway= and an engine= line"
   for label in $labels; do
     rendered=$(mktemp "$agents_dir/.$label.XXXXXX")
     cleanup+=("$rendered")
-    sed -e "s|@OMP@|$root/omp/$omp_pin/omp|g" -e "s|@DATA@|$data|g" -e "s|@HOME@|$HOME|g" \
-      -e "s|@GATEWAY@|$gateway|g" -e "s|@ENGINE@|$engine|g" "$src/host/launchd/$label.plist" >"$rendered"
+    sed -e "s|@DATA@|$data|g" -e "s|@HOME@|$HOME|g" "$src/host/launchd/$label.plist" >"$rendered"
     left=$(grep -o '@[A-Z_]*@' "$rendered" | head -1) || true
     [[ -z $left ]] || die "host/launchd/$label.plist has an unknown placeholder $left"
     put "$rendered" "$agents_dir/$label.plist" 644
@@ -298,9 +237,18 @@ check_path() {
   elif [[ ${#found[@]} -gt 1 ]]; then
     printf 'ug-setup: warning: more than one omp is on PATH: %s; only %s should be, so remove the others\n' "${found[*]}" "$bin_dir/omp" >&2
   fi
-  case :$PATH: in
-    *":$old_ug/"*) printf 'ug-setup: warning: PATH still names %s; remove that line from your zsh files\n' "$old_ug/sys/bin" >&2 ;;
-  esac
+}
+
+check_walls() {
+  local bad=()
+  [[ ! -x $root/omp/$omp_pin/omp ]] || bad+=("you can run $root/omp/$omp_pin/omp")
+  [[ ! -r $root/config/models.yml ]] || bad+=("you can read the gateway bearer in $root/config/models.yml")
+  ! ls /Users/ugauth >/dev/null 2>&1 || bad+=("you can read the login user's home /Users/ugauth")
+  [[ ${#bad[@]} -eq 0 ]] || die "a wall is open: ${bad[*]}"
+  printf 'walls: you cannot run omp, read the bearer, or read the logins\n'
+  if [[ -e $HOME/.omp/profiles/ug-auth ]]; then
+    printf 'ug-setup: warning: %s still holds old logins; log in again with ug-auth, sign out of the old sessions at each provider, then delete it\n' "$HOME/.omp/profiles/ug-auth" >&2
+  fi
 }
 
 install_restic
@@ -311,5 +259,5 @@ prepare_services
 printf 'agent user: running sudo host/bin/ug-agent-setup, which asks for your password\n'
 sudo "$src/host/bin/ug-agent-setup" ${omp_stage:+"$omp_stage"} || die "ug-agent-setup failed, so the agent user is not up to date; fix its error and run host/bin/ug-setup again"
 start_services
-remove_old_ug
+check_walls
 check_path

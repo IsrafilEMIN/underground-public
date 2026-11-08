@@ -3,7 +3,14 @@ if [ "$#" -ne 0 ]; then
   echo "usage: agent-home-tar" >&2
   exit 64
 fi
-/usr/bin/tar -C /Users/ugagent -c --no-xattrs --exclude ./.cache --exclude ./.omp/run --exclude ./Library --exclude node_modules .
+names=/Library/Underground/config-names
+home=/Users/ugagent
+[ -f "$names" ] || { echo "agent-home-tar: no $names, so the agent's config cannot be left out" >&2; exit 1; }
+set -- --exclude ./.cache --exclude ./.omp/run --exclude ./Library --exclude node_modules
+while IFS= read -r name || [ -n "$name" ]; do
+  [ -n "$name" ] && set -- "$@" --exclude "./.omp/agent/$name"
+done <"$names"
+/usr/bin/tar -C "$home" -c --no-xattrs "$@" .
 status=$?
 if [ "$status" -gt 1 ]; then
   exit "$status"

@@ -27,7 +27,6 @@ ug_check_checkout "$src" ug-agent-setup || exit 1
 
 root=/Library/Underground
 data=$owner_home/.local/share/underground
-auth_root=$owner_home/.omp/profiles/ug-auth
 bin_dir=$owner_home/.local/bin
 key_dir=$data/agent-ssh
 owner_key=$key_dir/id_ed25519
@@ -50,28 +49,48 @@ chmod 700 "$owner_home"
 [[ -n $(find "$owner_home" -maxdepth 0 -perm 700 2>/dev/null) ]] || die "$owner_home is not mode 700 and would not stay so; nothing else is set up"
 step "owner home $owner_home: mode 700"
 
-if dscl . -read /Users/ugagent UniqueID >/dev/null 2>&1; then
-  step "user ugagent: exists"
-else
+next_uid() {
+  local uid
   uid=$(dscl . -list /Users UniqueID | sed -n 's/.* //p' | sort -n | tail -1) || true
   uid=${uid:-0}
-  uid=$(( uid < 400 ? 400 : uid + 1 ))
-  pw=$(openssl rand -hex 24)
-  dscl . -create /Users/ugagent
-  dscl . -create /Users/ugagent UniqueID "$uid"
-  dscl . -create /Users/ugagent PrimaryGroupID 20
-  dscl . -create /Users/ugagent RealName "Underground agent"
-  dscl . -create /Users/ugagent NFSHomeDirectory /Users/ugagent
-  dscl . -passwd /Users/ugagent "$pw"
-  unset pw
-  step "user ugagent: created, uid $uid, random password never shown"
+  printf '%s\n' $(( uid < 400 ? 400 : uid + 1 ))
+}
+
+make_user() {
+  local name=$1 real=$2 shell=$3 uid pw
+  if dscl . -read "/Users/$name" UniqueID >/dev/null 2>&1; then
+    step "user $name: exists"
+  else
+    uid=$(next_uid)
+    pw=$(openssl rand -hex 24)
+    dscl . -create "/Users/$name"
+    dscl . -create "/Users/$name" UniqueID "$uid"
+    dscl . -create "/Users/$name" PrimaryGroupID 20
+    dscl . -create "/Users/$name" RealName "$real"
+    dscl . -create "/Users/$name" NFSHomeDirectory "/Users/$name"
+    dscl . -passwd "/Users/$name" "$pw"
+    unset pw
+    step "user $name: created, uid $uid, random password never shown"
+  fi
+  dscl . -create "/Users/$name" UserShell "$shell"
+  dscl . -create "/Users/$name" IsHidden 1
+  [[ " $(dscl . -read /Groups/admin GroupMembership 2>/dev/null) " != *" $name "* ]] ||
+    die "$name is in the group admin; remove it: sudo dseditgroup -o edit -d $name -t user admin"
+  install -d -m 700 -o "$name" -g staff "/Users/$name"
+  step "user $name: standard, hidden, $shell, home /Users/$name mode 700"
+}
+
+make_user ugagent "Underground agent" /bin/sh
+make_user ugauth "Underground logins" /usr/bin/false
+
+dscl . -read /Groups/ugomp PrimaryGroupID >/dev/null 2>&1 || dseditgroup -o create -r "Underground omp" ugomp
+for name in ugagent ugauth; do
+  dseditgroup -o checkmember -m "$name" ugomp >/dev/null 2>&1 || dseditgroup -o edit -a "$name" -t user ugomp
+done
+if dseditgroup -o checkmember -m "$owner" ugomp >/dev/null 2>&1; then
+  dseditgroup -o edit -d "$owner" -t user ugomp
 fi
-dscl . -create /Users/ugagent UserShell /bin/sh
-dscl . -create /Users/ugagent IsHidden 1
-[[ " $(dscl . -read /Groups/admin GroupMembership 2>/dev/null) " != *" ugagent "* ]] ||
-  die "ugagent is in the group admin; remove it: sudo dseditgroup -o edit -d ugagent -t user admin"
-install -d -m 700 -o ugagent -g staff /Users/ugagent
-step "user ugagent: standard, hidden, /bin/sh, home /Users/ugagent mode 700"
+step "group ugomp: ugagent and ugauth, not $owner"
 
 if [[ " $(dscl . -read /Groups/com.apple.access_ssh GroupMembership 2>/dev/null) " != *" ugagent "* ]]; then
   dscl . -append /Groups/com.apple.access_ssh GroupMembership ugagent
@@ -93,12 +112,14 @@ if [[ -n $staged ]]; then
   cleanup+=("$omp_tmp")
   cat "$staged" >"$omp_tmp"
   [[ $(sha256 "$omp_tmp") == "$omp_sha" ]] || die "the downloaded omp does not have the pinned SHA-256; nothing changed"
-  chown root:wheel "$omp_tmp"
-  chmod 555 "$omp_tmp"
+  chown root:ugomp "$omp_tmp"
+  chmod 550 "$omp_tmp"
   mv -f "$omp_tmp" "$omp_bin"
 fi
 [[ -f $omp_bin && ! -L $omp_bin ]] || die "no omp $omp_pin in $omp_dir; run host/bin/ug-setup, which downloads it"
 [[ $(sha256 "$omp_bin") == "$omp_sha" ]] || die "$omp_bin does not have the pinned SHA-256; run host/bin/ug-setup, which downloads it again"
+chown root:ugomp "$omp_bin"
+chmod 550 "$omp_bin"
 printf '%s\n' "$omp_sha" >"$omp_dir/.omp.sha256.tmp"
 install -m 444 -o root -g wheel "$omp_dir/.omp.sha256.tmp" "$omp_bin.sha256"
 rm -f "$omp_dir/.omp.sha256.tmp"
@@ -178,15 +199,15 @@ stage_config() {
   [[ -d $cfg && ! -L $cfg ]] || die "the config repo $cfg is not a folder"
   gateway=$(sed -n 's/^gateway=//p' "$data/addresses" 2>/dev/null) || true
   [[ $gateway == *:* ]] || die "the addresses file $data/addresses has no gateway=<address>:<port> line"
-  gateway_token=$({ tr -d '[:space:]' <"$auth_root/auth-gateway.token"; } 2>/dev/null) || gateway_token=""
-  [[ $gateway_token =~ ^[A-Za-z0-9._~+=-]{12,}$ ]] || die "$auth_root/auth-gateway.token is missing or has characters the config cannot hold"
+  gateway_token=$({ tr -d '[:space:]' <"$auth_home/.omp/auth-gateway.token"; } 2>/dev/null) || gateway_token=""
+  [[ $gateway_token =~ ^[A-Za-z0-9._~+=-]{12,}$ ]] || die "$auth_home/.omp/auth-gateway.token is missing or has characters the config cannot hold"
   stage=$(mktemp -d) || die "cannot make a temp folder for the config"
   cleanup+=("$stage")
   mkdir "$stage/repo" "$stage/out"
   git -c "safe.directory=$cfg" -C "$cfg" archive --format=tar HEAD | tar -x -C "$stage/repo" || die "cannot read the last commit of the config repo $cfg"
   secrets=$stage/secrets
   : >"$secrets"
-  for token_file in "$auth_root/auth-broker.token" "$auth_root/auth-gateway.token"; do
+  for token_file in "$auth_home/.omp/auth-broker.token" "$auth_home/.omp/auth-gateway.token"; do
     value=$({ tr -d '[:space:]' <"$token_file"; } 2>/dev/null) || value=""
     [[ ${#value} -lt 12 ]] || printf '%s\n' "$value" >>"$secrets"
   done
@@ -233,11 +254,49 @@ stage_config() {
   if grep -qE '@[A-Z_]+@' "$stage/out/models.yml"; then die "models.yml of the config repo has an unknown placeholder"; fi
   rm -rf "$root/config"
   cp -R "$stage/out" "$root/config"
-  chown -R root:wheel "$root/config"
-  chmod -R go-w "$root/config"
+  chown -R root:ugagent "$root/config"
+  chmod -R u=rwX,g=rX,o= "$root/config"
   step "agent config: $root/config from $cfg, gateway $gateway"
 }
+
+auth_home=/Users/ugauth
+install -d -m 700 -o ugauth -g staff "$auth_home/.omp" "$auth_home/logs"
+if [[ ! -s $auth_home/.omp/auth-gateway.token ]]; then
+  token_tmp=$(mktemp)
+  cleanup+=("$token_tmp")
+  openssl rand -hex 32 >"$token_tmp"
+  install -m 600 -o ugauth -g staff "$token_tmp" "$auth_home/.omp/auth-gateway.token"
+  step "gateway bearer: new, in $auth_home/.omp/auth-gateway.token"
+fi
 stage_config
+
+start_login_services() {
+  local owner_uid gateway engine label plist rendered left f
+  owner_uid=$(id -u "$owner")
+  gateway=$(sed -n 's/^gateway=//p' "$data/addresses")
+  engine=$(sed -n 's/^engine=//p' "$data/addresses")
+  [[ -n $gateway && -n $engine ]] || die "$data/addresses needs a gateway= and an engine= line"
+  install -d -m 755 -o root -g wheel "$root/usage-broker"
+  for f in usage-broker.ts addresses.ts protocol.ts; do
+    install -m 444 -o root -g wheel "$src/host/gh-broker/$f" "$root/usage-broker/$f"
+  done
+  install -m 444 -o root -g wheel "$data/addresses" "$root/addresses"
+  for label in com.underground.auth-broker com.underground.auth-gateway com.underground.usage-broker; do
+    launchctl bootout "gui/$owner_uid/$label" >/dev/null 2>&1 || true
+    rm -f "$owner_home/Library/LaunchAgents/$label.plist"
+    launchctl bootout "system/$label" >/dev/null 2>&1 || true
+    rendered=$(mktemp)
+    cleanup+=("$rendered")
+    sed -e "s|@OMP@|$omp_bin|g" -e "s|@GATEWAY@|$gateway|g" -e "s|@ENGINE@|$engine|g" "$src/host/agent/$label.plist" >"$rendered"
+    left=$(grep -o '@[A-Z_]*@' "$rendered" | head -1) || true
+    [[ -z $left ]] || die "host/agent/$label.plist has an unknown placeholder $left"
+    plist=/Library/LaunchDaemons/$label.plist
+    install -m 644 -o root -g wheel "$rendered" "$plist"
+    launchctl bootstrap system "$plist" || die "launchctl could not load $plist"
+  done
+  step "login services: auth-broker, auth-gateway, usage-broker run as ugauth from /Library/LaunchDaemons"
+}
+start_login_services
 
 plist=/Library/LaunchDaemons/com.underground.agent-sshd.plist
 install -m 644 -o root -g wheel "$src/host/agent/com.underground.agent-sshd.plist" "$plist"
