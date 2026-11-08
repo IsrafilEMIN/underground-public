@@ -105,7 +105,7 @@ The host script that does what `git pull` cannot: install the pinned omp and res
 _Avoid_: install, installer, bootstrap
 
 **Preflight** (removed, #90):
-The macOS build check of the removed wrapper: at each start, the build must be the one that setup recorded (commit 54a418a1). Setup now removes the leftover `~/.ug/sys/macos-build` (`host/bin/ug-setup:186`).
+The macOS build check of the removed wrapper: at each start, the build must be the one that setup recorded (commit 54a418a1). Setup removed the leftover `~/.ug/sys/macos-build` in a one-time step, which is gone since the owner's mac ran it (owner, 2026-11-08).
 _Avoid_: health check, doctor, self-test
 
 **Crossing**:
