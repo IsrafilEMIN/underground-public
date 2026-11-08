@@ -108,7 +108,7 @@ To uninstall: delete `~/.ug` and the launchd files.
 
 - Inside the sandbox: impossible. Every child of the sandbox (`host/agent/agent-session:15`) stays in it.
 - From the owner's shell: only the launcher `ug-agent` (`host/bin/ug-agent:44`) is on `PATH`.
-- By full path: the raw omp finds no login, so it cannot work.
+- By full path: only the owner can start the raw omp, because the owner's home is mode 700 (`host/bin/ug-agent-setup:47`). It finds no login; it still finds the keyless providers that omp adds by itself (`adr/0012-pinned-omp-and-setup.md`, amendment 2026-11-08).
 
 ## Updates
 
