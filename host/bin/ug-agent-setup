@@ -83,14 +83,21 @@ make_user() {
 make_user ugagent "Underground agent" /bin/sh
 make_user ugauth "Underground logins" /usr/bin/false
 
-dscl . -read /Groups/ugomp PrimaryGroupID >/dev/null 2>&1 || dseditgroup -o create -r "Underground omp" ugomp
-for name in ugagent ugauth; do
-  dseditgroup -o checkmember -m "$name" ugomp >/dev/null 2>&1 || dseditgroup -o edit -a "$name" -t user ugomp
-done
-if dseditgroup -o checkmember -m "$owner" ugomp >/dev/null 2>&1; then
-  dseditgroup -o edit -d "$owner" -t user ugomp
-fi
-step "group ugomp: ugagent and ugauth, not $owner"
+make_group() {
+  local group=$1 real=$2 name
+  shift 2
+  dscl . -read "/Groups/$group" PrimaryGroupID >/dev/null 2>&1 || dseditgroup -o create -r "$real" "$group"
+  for name in "$@"; do
+    dseditgroup -o checkmember -m "$name" "$group" >/dev/null 2>&1 || dseditgroup -o edit -a "$name" -t user "$group"
+  done
+  if dseditgroup -o checkmember -m "$owner" "$group" >/dev/null 2>&1; then
+    dseditgroup -o edit -d "$owner" -t user "$group"
+  fi
+  step "group $group: $*, not $owner"
+}
+
+make_group ugomp "Underground omp" ugagent ugauth
+make_group ugagent "Underground agent config" ugagent
 
 if [[ " $(dscl . -read /Groups/com.apple.access_ssh GroupMembership 2>/dev/null) " != *" ugagent "* ]]; then
   dscl . -append /Groups/com.apple.access_ssh GroupMembership ugagent
