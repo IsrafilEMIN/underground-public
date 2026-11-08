@@ -85,25 +85,26 @@ step "/Users/ugagent/.ssh: root-owned, empty authorized_keys"
 [[ -f $sys/omp/$omp_pin/omp && ! -L $sys/omp/$omp_pin/omp ]] || die "no omp $omp_pin under $sys; run host/bin/ug-setup first"
 [[ $(sha256 "$sys/omp/$omp_pin/omp") == "$omp_sha" ]] || die "the omp under $sys does not have the pinned SHA-256; run host/bin/ug-setup first"
 
-install -d -m 755 -o root -g wheel "$root" "$root/omp" "$root/omp/$omp_pin" "$root/bin" "$root/broker" "$root/authorized_keys"
+install -d -m 755 -o root -g wheel "$root" "$root/omp" "$root/omp/$omp_pin" "$root/bin" "$root/gh-broker" "$root/authorized_keys"
 install -m 555 -o root -g wheel "$sys/omp/$omp_pin/omp" "$root/omp/$omp_pin/omp"
 [[ $(sha256 "$root/omp/$omp_pin/omp") == "$omp_sha" ]] || die "the copy of omp in $root does not have the pinned SHA-256"
 ln -sfn "$root/omp/$omp_pin/omp" "$root/bin/omp"
-cat >"$root/bin/broker.tmp" <<EOF
+cat >"$root/bin/gh-broker.tmp" <<EOF
 #!/bin/sh
-BUN_BE_BUN=1 UG_BROKER_SOCKET=$root/run/broker.sock exec $root/omp/$omp_pin/omp $root/broker/client.ts "\$@"
+BUN_BE_BUN=1 UG_GH_BROKER_SOCKET=$root/run/gh-broker.sock exec $root/omp/$omp_pin/omp $root/gh-broker/client.ts "\$@"
 EOF
-install -m 555 -o root -g wheel "$root/bin/broker.tmp" "$root/bin/broker"
-rm -f "$root/bin/broker.tmp"
-install -m 444 -o root -g wheel "$src/host/broker/client.ts" "$root/broker/client.ts"
-install -m 444 -o root -g wheel "$src/host/broker/protocol.ts" "$root/broker/protocol.ts"
+install -m 555 -o root -g wheel "$root/bin/gh-broker.tmp" "$root/bin/gh-broker"
+rm -f "$root/bin/gh-broker.tmp"
+install -m 444 -o root -g wheel "$src/host/gh-broker/client.ts" "$root/gh-broker/client.ts"
+install -m 444 -o root -g wheel "$src/host/gh-broker/protocol.ts" "$root/gh-broker/protocol.ts"
+rm -rf "$root/broker" "$root/bin/broker" "$root/run/broker.sock"
 /usr/bin/sandbox-exec -f "$src/host/agent/pin.sb" /usr/bin/true || die "host/agent/pin.sb does not load under sandbox-exec; the installed pin is unchanged"
 install -m 444 -o root -g wheel "$src/host/agent/pin.sb" "$root/pin.sb"
 install -m 555 -o root -g wheel "$src/host/agent/agent-session" "$root/agent-session"
 install -m 555 -o root -g wheel "$src/host/agent/agent-start" "$root/agent-start"
 install -m 444 -o root -g wheel "$src/host/agent/sshd_config" "$root/sshd_config"
 install -m 444 -o root -g wheel "$src/host/agent/config-names" "$root/config-names"
-step "$root: omp $omp_pin, pin.sb, bin/, broker, agent-session, agent-start, sshd_config installed"
+step "$root: omp $omp_pin, pin.sb, bin/, gh-broker, agent-session, agent-start, sshd_config installed"
 
 install -d -m 711 -o "$owner" -g wheel "$root/run"
 

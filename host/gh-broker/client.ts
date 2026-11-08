@@ -20,20 +20,20 @@ import {
 } from "./protocol.ts";
 import type { MergeReply, Reply, Request, SyncPrReply, SyncReply } from "./protocol.ts";
 
-export const SOCKET_ENV = "UG_BROKER_SOCKET";
+export const SOCKET_ENV = "UG_GH_BROKER_SOCKET";
 
 const EXIT_USAGE = 64;
 const EXIT_REFUSED = 2;
 const EXIT_UNAVAILABLE = 69;
 
 const USAGE = `usage:
-  broker sync <owner/repo> [--pr <n>]
-  broker push <owner/repo> <agent/branch>
-  broker pr-create <owner/repo> <agent/branch> <title> <body>
-  broker pr-status <owner/repo> <n>
-  broker ci-log <owner/repo> <n>
-  broker review <owner/repo> <n> <sha> code-review|security-review|risk-review pass|manual|block [reason]
-  broker merge <owner/repo> <n>
+  gh-broker sync <owner/repo> [--pr <n>]
+  gh-broker push <owner/repo> <agent/branch>
+  gh-broker pr-create <owner/repo> <agent/branch> <title> <body>
+  gh-broker pr-status <owner/repo> <n>
+  gh-broker ci-log <owner/repo> <n>
+  gh-broker review <owner/repo> <n> <sha> code-review|security-review|risk-review pass|manual|block [reason]
+  gh-broker merge <owner/repo> <n>
 `;
 
 const execFileAsync = promisify(execFile);
@@ -77,43 +77,43 @@ export async function cleanUpLocal(merged: MergeReply["merged"], cwd: string = p
   const ref = `refs/heads/${merged.branch}`;
   const listed = await runGit(["worktree", "list", "--porcelain", "-z"], cwd);
   if (!listed.ok) {
-    process.stderr.write(`broker: merged, but cannot list the local worktrees: ${listed.stderr}\n`);
+    process.stderr.write(`gh-broker: merged, but cannot list the local worktrees: ${listed.stderr}\n`);
     return 1;
   }
   const [main, ...linked] = parseWorktrees(listed.stdout);
   if (main === undefined) {
-    process.stderr.write("broker: merged, but git lists no main worktree\n");
+    process.stderr.write("gh-broker: merged, but git lists no main worktree\n");
     return 1;
   }
   const tip = await runGit(["rev-parse", "--verify", "--quiet", `${ref}^{commit}`], main.path);
   if (!tip.ok) {
-    process.stdout.write(`broker: no local branch ${merged.branch}\n`);
+    process.stdout.write(`gh-broker: no local branch ${merged.branch}\n`);
     return 0;
   }
   const sha = tip.stdout.trim();
   if (sha !== merged.head) {
-    process.stdout.write(`broker: kept local branch ${merged.branch} and its worktree: it moved from the merged commit ${merged.head} to ${sha}\n`);
+    process.stdout.write(`gh-broker: kept local branch ${merged.branch} and its worktree: it moved from the merged commit ${merged.head} to ${sha}\n`);
     return 0;
   }
   if (main.branch === ref) {
-    process.stdout.write(`broker: kept local branch ${merged.branch}: the main worktree ${main.path} has it checked out\n`);
+    process.stdout.write(`gh-broker: kept local branch ${merged.branch}: the main worktree ${main.path} has it checked out\n`);
     return 0;
   }
   const tree = linked.find((t) => t.branch === ref);
   if (tree !== undefined) {
     const removed = await runGit(["worktree", "remove", tree.path], main.path);
     if (!removed.ok) {
-      process.stderr.write(`broker: merged, but kept worktree ${tree.path} and local branch ${merged.branch}: ${removed.stderr}\n`);
+      process.stderr.write(`gh-broker: merged, but kept worktree ${tree.path} and local branch ${merged.branch}: ${removed.stderr}\n`);
       return 1;
     }
-    process.stdout.write(`broker: removed worktree ${tree.path}\n`);
+    process.stdout.write(`gh-broker: removed worktree ${tree.path}\n`);
   }
   const deleted = await runGit(["update-ref", "-d", ref, merged.head], main.path);
   if (!deleted.ok) {
-    process.stderr.write(`broker: merged, but cannot delete local branch ${merged.branch}: ${deleted.stderr}\n`);
+    process.stderr.write(`gh-broker: merged, but cannot delete local branch ${merged.branch}: ${deleted.stderr}\n`);
     return 1;
   }
-  process.stdout.write(`broker: deleted local branch ${merged.branch}\n`);
+  process.stdout.write(`gh-broker: deleted local branch ${merged.branch}\n`);
   return 0;
 }
 
@@ -197,7 +197,7 @@ export function send(socketPath: string, request: Request): Promise<Reply> {
 }
 
 async function importSync(reply: SyncReply): Promise<number> {
-  const tempDir = await mkdtemp(join(tmpdir(), "broker-sync-"));
+  const tempDir = await mkdtemp(join(tmpdir(), "gh-broker-sync-"));
   try {
     const bundlePath = join(tempDir, "sync.bundle");
     await writeFile(bundlePath, Buffer.from(reply.bundle_b64, "base64"), { mode: 0o600 });
@@ -214,7 +214,7 @@ async function importSync(reply: SyncReply): Promise<number> {
 async function importPr(reply: SyncPrReply, cwd: string = process.cwd()): Promise<number> {
   const git = async (args: string[]): Promise<string> => (await execFileAsync("git", args, { cwd, encoding: "utf8" })).stdout.trim();
   const ref = `refs/remotes/origin/pr/${reply.pr}`;
-  const tempDir = await mkdtemp(join(tmpdir(), "broker-sync-"));
+  const tempDir = await mkdtemp(join(tmpdir(), "gh-broker-sync-"));
   try {
     const bundlePath = join(tempDir, "pr.bundle");
     await writeFile(bundlePath, Buffer.from(reply.bundle_b64, "base64"), { mode: 0o600 });
@@ -242,21 +242,21 @@ export async function main(argv: string[], socketPath: string | undefined = proc
     if (!checked.ok) throw new UsageError(checked.reason);
   } catch (error) {
     if (error instanceof UsageError) {
-      process.stderr.write(`broker: ${error.message}\n${USAGE}`);
+      process.stderr.write(`gh-broker: ${error.message}\n${USAGE}`);
       return EXIT_USAGE;
     }
-    process.stderr.write(`broker: ${error instanceof Error ? error.message : String(error)}\n`);
+    process.stderr.write(`gh-broker: ${error instanceof Error ? error.message : String(error)}\n`);
     return 1;
   }
   if (socketPath === undefined || socketPath === "") {
-    process.stderr.write(`broker: this session has no broker socket (${SOCKET_ENV} is not set)\n`);
+    process.stderr.write(`gh-broker: this session has no gh-broker socket (${SOCKET_ENV} is not set)\n`);
     return EXIT_UNAVAILABLE;
   }
   let reply: Reply;
   try {
     reply = await send(socketPath, request);
   } catch (error) {
-    process.stderr.write(`broker: cannot reach broker: ${error instanceof Error ? error.message : String(error)}\n`);
+    process.stderr.write(`gh-broker: cannot reach gh-broker: ${error instanceof Error ? error.message : String(error)}\n`);
     return EXIT_UNAVAILABLE;
   }
   if ("refused" in reply) {
@@ -278,10 +278,10 @@ export async function main(argv: string[], socketPath: string | undefined = proc
       return await importSync(reply);
     }
   } catch (error) {
-    process.stderr.write(`broker: cannot import sync bundle: ${error instanceof Error ? error.message : String(error)}\n`);
+    process.stderr.write(`gh-broker: cannot import sync bundle: ${error instanceof Error ? error.message : String(error)}\n`);
     return 1;
   }
-  process.stderr.write("broker: malformed sync reply\n");
+  process.stderr.write("gh-broker: malformed sync reply\n");
   return 1;
 }
 

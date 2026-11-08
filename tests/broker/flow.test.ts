@@ -5,14 +5,14 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, test } from "node:test";
-import { defaultConfig, startServer, stopServer } from "../../host/broker/server.ts";
-import type { Broker, ServerConfig } from "../../host/broker/server.ts";
+import { defaultConfig, startServer, stopServer } from "../../host/gh-broker/server.ts";
+import type { GhBroker, ServerConfig } from "../../host/gh-broker/server.ts";
 import { fakeTokens, tokenRemote } from "./fake-app.ts";
 import { tempDir } from "../temp.ts";
 
 const REPO = "o/r";
 const BRANCH = "agent/x";
-const BROKER_DIR = join(import.meta.dirname, "../../host/broker");
+const BROKER_DIR = join(import.meta.dirname, "../../host/gh-broker");
 const NODE = process.execPath;
 const REVIEWERS = ["code-review", "security-review", "risk-review"] as const;
 const GIT_ENV = { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" };
@@ -22,7 +22,7 @@ type Role = "author" | (typeof REVIEWERS)[number];
 
 let root: string;
 let config: ServerConfig;
-let broker: Broker | undefined;
+let broker: GhBroker | undefined;
 let remote: string;
 let work: string;
 let tree: string;
@@ -134,12 +134,12 @@ async function run(file: string, args: string[], cwd: string, env: Record<string
 }
 
 async function brokerAs(_role: Role, cwd: string, ...args: string[]): Promise<Run> {
-  return run(NODE, [join(BROKER_DIR, "client.ts"), ...args], cwd, { UG_BROKER_SOCKET: config.socketPath });
+  return run(NODE, [join(BROKER_DIR, "client.ts"), ...args], cwd, { UG_GH_BROKER_SOCKET: config.socketPath });
 }
 
 async function ok(role: Role, cwd: string, ...args: string[]): Promise<string> {
   const result = await brokerAs(role, cwd, ...args);
-  assert.equal(result.code, 0, `broker ${args.join(" ")}: ${result.stderr}`);
+  assert.equal(result.code, 0, `gh-broker ${args.join(" ")}: ${result.stderr}`);
   return result.stdout;
 }
 
@@ -187,11 +187,11 @@ async function assertRefusedWithoutMerge(pr: number, reason?: RegExp): Promise<v
 beforeEach(async () => {
 
   root = await tempDir(join(process.env.XDG_STATE_HOME ?? "/tmp", "u"));
-  const agents = join(root, ".ug/host/broker");
+  const agents = join(root, ".ug/host/gh-broker");
   const owner = join(root, ".ug/host");
   config = {
     ...defaultConfig(),
-    socketPath: join(root, ".ug/run", "broker.sock"),
+    socketPath: join(root, ".ug/run", "gh-broker.sock"),
     reposRoot: join(agents, "repos"),
     reviewsDir: join(agents, "reviews"),
     pushesDir: join(agents, "pushes"),
@@ -305,7 +305,7 @@ test("red CI refuses a head with a pass from all three roles", async () => {
   await assertRefusedWithoutMerge(pr);
 });
 
-test("a PR head that another writer pushed, not the broker, refuses with a pass from all three roles and green CI", async () => {
+test("a PR head that another writer pushed, not the gh-broker, refuses with a pass from all three roles and green CI", async () => {
   await newHead("a.txt");
   const pr = await openPr();
   const other = join(root, "other");

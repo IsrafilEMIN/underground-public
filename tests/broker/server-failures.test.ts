@@ -6,12 +6,12 @@ import type { Server, Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
-import { MAX_REQUEST_BYTES, REVIEWER_ROLES, isMergeReply } from "../../host/broker/protocol.ts";
-import type { PushRecord, Reply } from "../../host/broker/protocol.ts";
-import { readPushRecord, writePushRecord } from "../../host/broker/push-record.ts";
-import { appendReviewRecord, readReviewRecords } from "../../host/broker/review-records.ts";
-import { defaultConfig, serveConnection } from "../../host/broker/server.ts";
-import type { ServerConfig } from "../../host/broker/server.ts";
+import { MAX_REQUEST_BYTES, REVIEWER_ROLES, isMergeReply } from "../../host/gh-broker/protocol.ts";
+import type { PushRecord, Reply } from "../../host/gh-broker/protocol.ts";
+import { readPushRecord, writePushRecord } from "../../host/gh-broker/push-record.ts";
+import { appendReviewRecord, readReviewRecords } from "../../host/gh-broker/review-records.ts";
+import { defaultConfig, serveConnection } from "../../host/gh-broker/server.ts";
+import type { ServerConfig } from "../../host/gh-broker/server.ts";
 import { FAKE_TOKEN, fakeTokens, tokenRemote } from "./fake-app.ts";
 import { handleAs } from "./session.ts";
 import type { Session } from "./session.ts";
@@ -97,7 +97,7 @@ function remoteRef(branch: string): string {
 }
 
 function brokerTempRefs(): string {
-  return git(join(config.reposRoot, `${REPO}.git`), "for-each-ref", "--format=%(refname)", "refs/broker/");
+  return git(join(config.reposRoot, `${REPO}.git`), "for-each-ref", "--format=%(refname)", "refs/gh-broker/");
 }
 
 function pushRecord(branch: string = BRANCH): Promise<PushRecord> {
@@ -199,7 +199,7 @@ beforeEach(async () => {
   remote = join(root, "remote.git");
   config = {
     ...defaultConfig(),
-    socketPath: join(root, "run", "broker.sock"),
+    socketPath: join(root, "run", "gh-broker.sock"),
     reposRoot: join(root, "bare"),
     reviewsDir: join(root, "reviews"),
     pushesDir: join(root, "pushes"),
@@ -386,7 +386,7 @@ test("merge with an unreadable default branch merges nothing", async () => {
   }
 });
 
-test("sync and push fail with git's error when the broker cannot create its bare repo, and push lands nothing", async () => {
+test("sync and push fail with git's error when the gh-broker cannot create its bare repo, and push lands nothing", async () => {
   await failGit("init --bare");
   const synced = await request({ verb: "sync" });
   assertForwarded(synced, 3, "fake git: cannot init --bare");
@@ -471,7 +471,7 @@ test("a push replaces a branch that the new commit does not descend from, and re
   assert.deepEqual(await pushRecord(), { kind: "pushed", sha: rewritten });
 });
 
-test("a push leaves no temp ref in the broker's bare repo, whether it lands or is refused", async () => {
+test("a push leaves no temp ref in the gh-gh-broker's bare repo, whether it lands or is refused", async () => {
   const head = await commit(BRANCH, "a.txt");
   assert.equal((await push(BRANCH, head)).exit, 0);
   assert.equal(brokerTempRefs(), "");

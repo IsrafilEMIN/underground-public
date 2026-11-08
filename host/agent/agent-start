@@ -47,12 +47,12 @@ if [[ ! -d $clone/.git ]]; then
 fi
 cd "$clone"
 
-synced=$(/usr/bin/lockf -k .git/ug-sync.lock "$root/bin/broker" sync "$UG_REPO") || {
-  printf 'agent-start: broker sync %s failed; is the broker app installed on it?\n' "$UG_REPO" >&2
+synced=$(/usr/bin/lockf -k .git/ug-sync.lock "$root/bin/gh-broker" sync "$UG_REPO") || {
+  printf 'agent-start: gh-broker sync %s failed; is the gh-broker app installed on it?\n' "$UG_REPO" >&2
   exit 69
 }
 base=$(printf '%s\n' "$synced" | sed -n 's|^origin/\([^ ]*\) is now .*|\1|p')
-[[ -n $base ]] || die "broker sync gave no branch: $synced"
+[[ -n $base ]] || die "gh-broker sync gave no branch: $synced"
 
 /usr/bin/lockf -k .git/ug-sync.lock git checkout -q --detach "origin/$base"
 start_omp "$@"

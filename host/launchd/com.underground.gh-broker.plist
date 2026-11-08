@@ -3,20 +3,20 @@
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>com.underground.broker</string>
+  <string>com.underground.gh-broker</string>
   <key>ProgramArguments</key>
   <array>
     <string>/opt/homebrew/bin/node</string>
-    <string>@SYS@/services/host/broker/server.ts</string>
+    <string>@SYS@/services/host/gh-broker/server.ts</string>
   </array>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
   <true/>
   <key>StandardOutPath</key>
-  <string>@HOME@/.ug/host/broker/broker.log</string>
+  <string>@HOME@/.ug/host/gh-broker/gh-broker.log</string>
   <key>StandardErrorPath</key>
-  <string>@HOME@/.ug/host/broker/broker.log</string>
+  <string>@HOME@/.ug/host/gh-broker/gh-broker.log</string>
   <key>EnvironmentVariables</key>
   <dict>
     <key>PATH</key>

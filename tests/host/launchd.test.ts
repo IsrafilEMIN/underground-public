@@ -26,8 +26,8 @@ test("the auth services run the pinned omp, and the brokers and the backup run s
   const args = async (label: string) => programArguments(await readFile(join(DIR, `${label}.plist`), "utf8"));
   assert.deepEqual((await args("com.underground.auth-broker")).slice(0, 3), ["@OMP@", "auth-broker", "serve"]);
   assert.deepEqual((await args("com.underground.auth-gateway")).slice(0, 3), ["@OMP@", "auth-gateway", "serve"]);
-  assert.deepEqual(await args("com.underground.broker"), ["/opt/homebrew/bin/node", "@SYS@/services/host/broker/server.ts"]);
-  assert.deepEqual(await args("com.underground.usage-broker"), ["/opt/homebrew/bin/node", "@SYS@/services/host/broker/usage-broker.ts"]);
+  assert.deepEqual(await args("com.underground.gh-broker"), ["/opt/homebrew/bin/node", "@SYS@/services/host/gh-broker/server.ts"]);
+  assert.deepEqual(await args("com.underground.usage-broker"), ["/opt/homebrew/bin/node", "@SYS@/services/host/gh-broker/usage-broker.ts"]);
   assert.deepEqual(await args("com.underground.backup"), ["/bin/bash", "@SYS@/services/host/bin/ug-backup"]);
 });
 

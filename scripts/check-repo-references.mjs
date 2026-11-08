@@ -7,7 +7,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const files = execFileSync("git", ["ls-files", "-z", "--", "AGENTS.md", "host", "scripts", ".github/workflows"], { cwd: root, encoding: "utf8" }).split("\0").filter(Boolean);
 const slug = "[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+";
 const patterns = [
-  new RegExp(`\\bbroker\\s+(?:sync|push|pr-create|pr-status|ci-log|merge|delete-branch|review)\\s+${slug}\\b`),
+  new RegExp(`\\bgh-broker\\s+(?:sync|push|pr-create|pr-status|ci-log|merge|delete-branch|review)\\s+${slug}\\b`),
   new RegExp(`\\b(?:REPO|repo_url)=["']?(?:git@github\\.com:|https://github\\.com/)?${slug}\\b`),
   new RegExp(`git@github\\.com:${slug}\\b`),
   new RegExp(`https://github\\.com/(?!settings/)${slug}\\b`),

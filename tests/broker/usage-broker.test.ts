@@ -9,8 +9,8 @@ import { writeFile } from "node:fs/promises";
 import { networkInterfaces, tmpdir } from "node:os";
 import { join } from "node:path";
 import { mock, test } from "node:test";
-import { USAGE_BROKER_PORT, createUsageBroker, respond } from "../../host/broker/usage-broker.ts";
-import type { UsageBrokerConfig, UsageReply } from "../../host/broker/usage-broker.ts";
+import { USAGE_BROKER_PORT, createUsageBroker, respond } from "../../host/gh-broker/usage-broker.ts";
+import type { UsageBrokerConfig, UsageReply } from "../../host/gh-broker/usage-broker.ts";
 import { tempDir } from "../temp.ts";
 
 type Call = { url: string; auth: string | null };
@@ -278,7 +278,7 @@ test("the usage broker service listens on loopback only", async (t) => {
   const home = await tempDir(join(tmpdir(), "ugub-home-"));
   const preload = join(home, "free-port.mjs");
   await writeFile(preload, FREE_PORT_PRELOAD);
-  const child = spawn(process.execPath, ["--import", preload, join(import.meta.dirname, "../../host/broker/usage-broker.ts")], {
+  const child = spawn(process.execPath, ["--import", preload, join(import.meta.dirname, "../../host/gh-broker/usage-broker.ts")], {
     env: { HOME: home, PATH: process.env.PATH },
     stdio: ["ignore", "pipe", "pipe"],
   });

@@ -201,14 +201,14 @@ ask CHECKOUT "Your checkout (Enter takes $SCRIPT_CHECKOUT):"
 [[ -n $CHECKOUT ]] || CHECKOUT=$SCRIPT_CHECKOUT
 REPO=$(repo_from_checkout "$CHECKOUT") || return 1
 
-banner "Broker GitHub App: your own app, on selected repos"
+banner "gh-broker GitHub App: your own app, on selected repos"
 
 stage "Register the GitHub App"
-say "The broker acts as a GitHub App that your account owns. GitHub shows it as <app slug>[bot]."
+say "The gh-broker acts as a GitHub App that your account owns. GitHub shows it as <app slug>[bot]."
 open_url "https://github.com/settings/apps/new"
-step "GitHub App name: a free name, for example underground-broker-<your login>."
+step "GitHub App name: a free name, for example underground-gh-broker-<your login>."
 step "Homepage URL: https://github.com/$REPO"
-step "Webhook: clear 'Active'. The broker uses no webhooks."
+step "Webhook: clear 'Active'. The gh-broker uses no webhooks."
 step "Repository permissions, and nothing else:"
 step "  Contents: Read and write"
 step "  Pull requests: Read and write"
@@ -226,7 +226,7 @@ ask APP_SLUG "Paste the app slug:"
 [[ $APP_SLUG =~ ^[a-z0-9-]+$ ]] || { warn "that is not an app slug; run this wizard again"; exit 1; }
 
 stage "Make the private key"
-say "The broker signs with this key to get a one-hour token for each repo."
+say "The gh-broker signs with this key to get a one-hour token for each repo."
 open_url "https://github.com/settings/apps/$APP_SLUG"
 step "Under 'Private keys', click 'Generate a private key'. On the newer page: 'Credentials' > 'Key pairs' > 'New key'."
 step "Your browser downloads a file named $APP_SLUG.<date>.private-key.pem."
@@ -249,7 +249,7 @@ if confirm "Move the downloaded copy $KEY_DOWNLOAD to the Trash?"; then
   mv -- "$KEY_DOWNLOAD" "$HOME/.Trash/"
   SKIPPED+=("Empty the Trash: it holds a copy of the app private key")
 else
-  SKIPPED+=("Delete the downloaded key $KEY_DOWNLOAD; the broker reads only $APP_PEM")
+  SKIPPED+=("Delete the downloaded key $KEY_DOWNLOAD; the gh-broker reads only $APP_PEM")
 fi
 
 stage "Install the app on the repos that agents work in"
@@ -258,7 +258,7 @@ step "Pick your account."
 step "Repository access: 'Only select repositories', then pick $REPO and each other onboarded repo."
 step "Check that the page lists only the permissions of stage 1, then click 'Install'."
 step "The address bar now reads https://github.com/settings/installations/<number>. Copy the <number>."
-ask INSTALLATION_ID "Paste the installation number (Enter skips; the broker then looks it up):"
+ask INSTALLATION_ID "Paste the installation number (Enter skips; the gh-broker then looks it up):"
 [[ -z $INSTALLATION_ID || $INSTALLATION_ID =~ ^[1-9][0-9]*$ ]] || { warn "that is not an installation number; run this wizard again"; exit 1; }
 
 stage "Write the app config"
@@ -273,18 +273,18 @@ mv -f "$APP_JSON.tmp" "$APP_JSON"
 printf '  %s✓ wrote%s %s → %s\n' "$GREEN" "$RESET" "$APP_CONFIG" "$APP_JSON"
 pause
 
-stage "Install the broker and check it"
-say "Setup installs the broker from this checkout, $SCRIPT_CHECKOUT, and restarts it."
-confirm "Run setup now?" || { SKIPPED+=("Run: $SCRIPT_CHECKOUT/host/bin/ug-setup, then in an omp session: broker sync $REPO"); finish; exit 1; }
+stage "Install the gh-broker and check it"
+say "Setup installs the gh-broker from this checkout, $SCRIPT_CHECKOUT, and restarts it."
+confirm "Run setup now?" || { SKIPPED+=("Run: $SCRIPT_CHECKOUT/host/bin/ug-setup, then in an omp session: gh-broker sync $REPO"); finish; exit 1; }
 "$SCRIPT_CHECKOUT/host/bin/ug-setup"
-BROKER_SOCKET="$HOME/.ug/run/broker.sock"
-if [[ ! -S $BROKER_SOCKET ]]; then
-  SKIPPED+=("The broker socket $BROKER_SOCKET is missing; check the launchd job com.underground.broker, then run in your checkout: UG_BROKER_SOCKET=$BROKER_SOCKET ~/.ug/sys/agent-bin/broker sync $REPO")
+GH_BROKER_SOCKET="$HOME/.ug/run/gh-broker.sock"
+if [[ ! -S $GH_BROKER_SOCKET ]]; then
+  SKIPPED+=("The gh-broker socket $GH_BROKER_SOCKET is missing; check the launchd job com.underground.gh-broker, then run in your checkout: UG_GH_BROKER_SOCKET=$GH_BROKER_SOCKET ~/.ug/sys/agent-bin/gh-broker sync $REPO")
   finish
   exit 1
 fi
-(cd "$CHECKOUT" && UG_BROKER_SOCKET="$BROKER_SOCKET" "$HOME/.ug/sys/agent-bin/broker" sync "$REPO")
-say "A pass: the sync above prints 'origin/main is now <commit>', so the broker got an app token for $REPO."
+(cd "$CHECKOUT" && UG_GH_BROKER_SOCKET="$GH_BROKER_SOCKET" "$HOME/.ug/sys/agent-bin/gh-broker" sync "$REPO")
+say "A pass: the sync above prints 'origin/main is now <commit>', so the gh-broker got an app token for $REPO."
 SKIPPED+=("Onboarding check 4: open https://github.com/settings/apps/$APP_SLUG/permissions and https://github.com/settings/installations, and confirm the app's permissions and repos")
 
 finish

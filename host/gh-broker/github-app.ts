@@ -85,7 +85,7 @@ async function callGithub(fetch: Fetch, request: { method: string; path: string;
       Accept: "application/vnd.github+json",
       Authorization: `Bearer ${request.jwt}`,
       "Content-Type": "application/json",
-      "User-Agent": "underground-broker",
+      "User-Agent": "underground-gh-broker",
       "X-GitHub-Api-Version": "2022-11-28",
     },
     body: request.body === undefined ? undefined : JSON.stringify(request.body),

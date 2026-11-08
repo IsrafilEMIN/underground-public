@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { parseAddresses } from "../../host/broker/addresses.ts";
+import { parseAddresses } from "../../host/gh-broker/addresses.ts";
 
 const ADDRESSES = { gateway: "100.64.0.1:4000", engine: "100.64.0.2:8081" };
 
