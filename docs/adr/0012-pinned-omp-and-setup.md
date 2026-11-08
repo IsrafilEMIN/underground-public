@@ -76,3 +76,9 @@ Cost: a raw omp that the owner starts by full path finds the keyless providers a
 ## Amendment 2026-11-08: one omp binary, owned by root
 
 Owner decision (`0017-one-omp-binary-and-no-ug-folder.md`): the pin is kept once, in `/Library/Underground/omp/<pin>/omp`, not in `~/.ug/sys/omp`. Setup downloads it as the owner and the root step installs it. The logins move from `~/.ug/host/auth` to omp's profile `~/.omp/profiles/ug-auth`, and the one `omp` on `PATH` is `~/.local/bin/omp`, the launcher.
+
+## Amendment 2026-11-08: setup pulls main first
+
+Owner decision, 2026-11-08. Setup starts with a fast-forward pull of `main` in its own checkout, the one that holds the script, from whatever folder it is run in. Then it starts the new copy of itself, because bash reads a script while it runs (`ug_pull_main`, `host/lib/ug.bash:31`; the call and the restart, `host/bin/ug-setup:34-37`). It stops and changes nothing on uncommitted changes, on commits that `origin/main` lacks, on a branch other than `main`, on a failed fetch, or when the fast-forward fails. It never merges or rebases, so it installs only commits that CI ran on. An update is now one setup run.
+
+Cost: setup needs GitHub to start. The owner no longer has a pause between the pull and the root step to read what came in; setup already refused anything but `origin/main`, so what it trusts stays the same.

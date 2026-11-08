@@ -31,6 +31,10 @@ die() {
 
 # shellcheck source=host/lib/ug.bash disable=SC1091
 source "$src/host/lib/ug.bash"
+if [[ ${UG_SETUP_PULLED:-} != 1 ]]; then
+  ug_pull_main "$src" ug-setup || exit 1
+  UG_SETUP_PULLED=1 exec "$BASH" "$src/host/bin/ug-setup"
+fi
 ug_check_checkout "$src" ug-setup || exit 1
 pin() {
   local value

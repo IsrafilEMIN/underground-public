@@ -35,3 +35,5 @@ Rejected: setup copies the host code at a commit into the owner zone and points 
 Owner decision, 2026-11-07. Once the box is built, the mac runs underground from a copy that setup installs from a merged `main` commit into a folder that only setup writes, not from the owner's checkout (`0015-box-layout.md`). The "live checkout" acceptance then ends: a checkout of an agent branch in the owner's folder runs nothing on the mac. An update is `git pull`, then setup.
 
 2026-11-07: built. Setup installs the copy (`install_service_code`, `host/bin/ug-setup:161`); `ug-auth` joined it last, in PR #92 (commit 5338e47).
+
+2026-11-08: an update is now one setup run, which fast-forwards `main` first (`0012-pinned-omp-and-setup.md`, amendment "setup pulls main first").

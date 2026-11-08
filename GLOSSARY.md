@@ -109,7 +109,7 @@ The daily restic snapshot of the agent home `/Users/ugagent`, minus `.cache` and
 _Avoid_: archive, sync, Time Machine
 
 **Setup**:
-The host script that does what `git pull` cannot: download the pinned omp and restic, make the data folder and the backup password, run `sudo host/bin/ug-agent-setup` (which asks for the owner's password and installs the agent home omp binary, the agent user, the login user and its services, the omp launcher, and the backup helper), restart the gh-broker and the backup, and check as the owner that the owner cannot run omp or read a login or the bearer. It runs the `[mac]` tests first. It runs when a pin changes, a host service changes, or macOS updates. It replaces the install (`docs/adr/0012-pinned-omp-and-setup.md`).
+The host script that does what `git pull` cannot: download the pinned omp and restic, make the data folder and the backup password, run `sudo host/bin/ug-agent-setup` (which asks for the owner's password and installs the agent home omp binary, the agent user, the login user and its services, the omp launcher, and the backup helper), restart the gh-broker and the backup, and check as the owner that the owner cannot run omp or read a login or the bearer. It first fast-forwards `main` in its own checkout from `origin`, then runs the `[mac]` tests. It runs when underground's `main`, a pin, a host service, or macOS changes. It replaces the install (`docs/adr/0012-pinned-omp-and-setup.md`).
 _Avoid_: install, installer, bootstrap
 
 **Preflight** (removed, #90):
