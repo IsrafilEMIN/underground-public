@@ -349,10 +349,10 @@ test(
     const id = (flag: string) => spawnSync("id", [flag], { encoding: "utf8" }).stdout.trim();
     const want = `${id("-un")}:${id("-gn")}`;
     const ensure = (owner: string) =>
-      spawnSync("bash", ["-c", `source ${join(ROOT, "host/lib/ug.bash")}; ug_ensure_owner_mode "$1" "$2" 550`, "_", file, owner], { encoding: "utf8" });
+      spawnSync("bash", ["-c", `source ${join(ROOT, "host/lib/ug.bash")}; ug_ensure_owner_mode "$1" "$2" 0550`, "_", file, owner], { encoding: "utf8" });
 
     assert.equal(ensure(want).status, 0);
-    assert.equal((statSync(file).mode & 0o777).toString(8), "550");
+    assert.equal((statSync(file).mode & 0o7777).toString(8), "550");
     const fixed = statSync(file).ctimeMs;
     await sleep(1100);
     assert.equal(ensure(want).status, 0);
@@ -366,6 +366,17 @@ test(
     }
 
     if (process.getuid?.() !== 0) assert.notEqual(ensure("root:wheel").status, 0);
+
+    const bin = join(dir, "stubs");
+    await mkdir(bin);
+    await stub(bin, "stat", `case $2 in *%Mp*) echo "${want} 4550" ;; *) echo "${want} 550" ;; esac`);
+    await stub(bin, "chmod", `echo "$*" >>${join(dir, "chmod-calls")}`);
+    const setuid = spawnSync("bash", ["-c", `source ${join(ROOT, "host/lib/ug.bash")}; ug_ensure_owner_mode "$1" "$2" 0550`, "_", file, want], {
+      env: { PATH: `${bin}:/usr/bin:/bin:/usr/sbin` },
+      encoding: "utf8",
+    });
+    assert.equal(await readFile(join(dir, "chmod-calls"), "utf8"), `0550 ${file}\n`, "a setuid bit is a wrong mode and gets cleared");
+    assert.notEqual(setuid.status, 0, "a mode that still differs after the fix fails");
   },
 );
 
