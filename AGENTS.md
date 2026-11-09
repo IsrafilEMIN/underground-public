@@ -24,6 +24,7 @@ Open a file only when the task needs it.
 - `docs/PRODUCT-BRIEF.md`: the problem and why. Open it when a decision touches scope.
 - `docs/SPEC.md`: what MVP 0.5 builds, the onboarding checks, and the checks of the build. Open it before you plan or test a change, and when a change touches a workflow file, the repo settings, or the gh-broker app.
 - `docs/THREAT-MODEL.md`: the threats, split by underground and arkan, and by MVP. Open it when a change touches the sandbox, the gh-broker, or the merge gate.
+- `docs/HOST-STATE.md`: every file outside the repo that underground reads or writes, and how a change reaches the running system. Open it when a change touches a host path, a launchd job, or a file the owner writes by hand.
 - `docs/adr/`: why we built a thing one way. Open an ADR when you change the thing it covers.
 - `GLOSSARY.md`: the terms. Open it when you write docs.
 

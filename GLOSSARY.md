@@ -47,7 +47,7 @@ The owner's own Git checkout of a repo, in the owner's zone. Setup runs from und
 _Avoid_: repo folder, main checkout, primary checkout
 
 **Arena clone** (removed, #90):
-The agent's clone of one repo in the removed arena, `~/.ug/home/work/<owner>/<repo>` (commit 54a418a1). The agent user clones the repo into `$HOME/work/$UG_REPO` (`host/agent/agent-start:41`).
+The agent's clone of one repo in the removed arena, `~/.ug/home/work/<owner>/<repo>` (commit 54a418a1). The agent user clones the repo into `/Users/ugagent/work/<owner>/<repo>` (`host/agent/agent-start:62`).
 _Avoid_: task clone, copy, mirror
 
 **Agent worktree**:
@@ -55,15 +55,15 @@ A Git worktree that a session makes for itself from its clone, on its own `wt/<t
 _Avoid_: ticket worktree, workspace
 
 **Omp root**:
-omp's default root, `~/.omp`. For the agent user it is `/Users/ugagent/.omp`, and `host/agent/agent-start:28-32` copies the config names from `/Library/Underground/config` into `~/.omp/agent` at each start. omp runs on it unchanged, on its default profile.
+omp's default root, `~/.omp`. For the agent user it is `/Users/ugagent/.omp`, and `host/agent/agent-start:36-47` copies the config names from `/Library/Underground/config` into `~/.omp/agent` at each start. omp runs on it unchanged, on its default profile.
 _Avoid_: role home, profile, owner part
 
 **Config repo**:
-The owner's private repo of agent configs, `~/Developer/Projects/agent-config` (moved from `~/Developer/agent-config`, owner in chat, 2026-11-08), in the owner's zone, named in `~/.local/share/underground/config-repo`: `AGENTS.md`, skills, hooks, `config.yml`, `models.yml` with the gateway markers, and other settings, laid out like omp's `~/.omp/agent`. It holds what the agent does inside the walls; underground holds the walls. It holds no secret: `ug-agent-setup` refuses to stage a link, a special file, or a token in it (`vet_item`, `host/bin/ug-agent-setup:138-145`). The owner's local folder is the source of truth; GitHub keeps a private backup. `ug-agent-setup` stages it at each setup (`stage_config`, `host/bin/ug-agent-setup:147-210`), and `host/agent/agent-start` copies its names into the agent user's `~/.omp/agent` at each start (`host/agent/agent-start:28-32`), so a change that the agent makes to its config lasts until the next start.
+The owner's private repo of agent configs, `~/Developer/Projects/agent-config` (moved from `~/Developer/agent-config`, owner in chat, 2026-11-08), in the owner's zone, named in `~/.local/share/underground/config-repo`: `AGENTS.md`, skills, hooks, `config.yml`, `models.yml` with the gateway markers, and other settings, laid out like omp's `~/.omp/agent`. It holds what the agent does inside the walls; underground holds the walls. It holds no secret: `ug-agent-setup` refuses to stage a link, a special file, or a token in it (`vet_item`, `host/bin/ug-agent-setup:196-203`). The owner's local folder is the source of truth; GitHub keeps a private backup. The pointer `~/.local/share/underground/config-repo` is hand-written (`host/bin/ug-agent-setup:207`). Setup copies the config repo's last commit into `/Library/Underground/config` (`stage_config`, `host/bin/ug-agent-setup:205-274`). A commit reaches sessions only after `host/bin/ug-setup` runs. Each start copies it into the agent user's `~/.omp/agent` (`host/agent/agent-start:36-47`), so a change that the agent makes to its config lasts until the next start.
 _Avoid_: dotfiles, role config
 
 **Skill repo**:
-An owner's repo of skills kept apart from the config repo, named one path per line in the config repo's `skill-repos` file, at its last commit. Setup takes only paths inside the owner's home, after it resolves links. Like the config repo, setup reads its last commit, keeps each folder with a `SKILL.md` at its top or under `skills/`, refuses a link, a special file, or a token in it, and adds those folders to the config's `skills/`. A name that the config repo or an earlier skill repo already has stops setup (`stage_config`, `host/bin/ug-agent-setup:174-203`). The list chooses which of the owner's repos root setup reads, so the owner reviews any PR on the config repo that changes it.
+An owner's repo of skills kept apart from the config repo, named one path per line in the config repo's `skill-repos` file, at its last commit. Setup takes only paths inside the owner's home, after it resolves links. Like the config repo, setup reads its last commit, keeps each folder with a `SKILL.md` at its top or under `skills/`, refuses a link, a special file, or a token in it, and adds those folders to the config's `skills/`. A name that the config repo or an earlier skill repo already has stops setup (`stage_config`, `host/bin/ug-agent-setup:205-274`). The list chooses which of the owner's repos root setup reads, so the owner reviews any PR on the config repo that changes it.
 _Avoid_: skill pack, plugin
 
 **Box** (removed, 2026-11-08):
@@ -85,7 +85,7 @@ _Avoid_: reset, wipe, reinstall
 ### Running omp
 
 **Wrapper** (removed, #90):
-The `omp` command of the srt design, which commit 54a418a1 removed. The agent's `omp` is now `~/.ug/sys/bin/omp`, a link to `ug-agent` (`host/bin/ug-agent-setup:228-229`).
+The `omp` command of the srt design, which commit 54a418a1 removed. The agent's `omp` is now `~/.local/bin/omp`, a link to `ug-agent` in `~/.local/share/underground/agent/bin/ug-agent` (`host/bin/ug-agent-setup:353`).
 _Avoid_: launcher, omp-srt
 
 **Clean environment** (removed, #90):
@@ -189,7 +189,7 @@ The shared token that lets a session use the auth gateway. It authorizes every s
 _Avoid_: client token, API key, gateway key
 
 **Gateway provider**:
-A provider in a session's `models.yml`, with `transport: pi-native`, `baseUrl` the auth gateway, and `apiKey` the gateway bearer. Setup fills `@GATEWAY@` and `@GATEWAY_TOKEN@` into the staged `models.yml` (`host/bin/ug-agent-setup:202`). Each model setting of a session names a model of a gateway provider.
+A provider in a session's `models.yml`, with `transport: pi-native`, `baseUrl` the auth gateway, and `apiKey` the gateway bearer. Setup fills `@GATEWAY@` and `@GATEWAY_TOKEN@` into the staged `models.yml` (`host/bin/ug-agent-setup:263`). Each model setting of a session names a model of a gateway provider.
 _Avoid_: proxy provider
 
 **Inference engine**:

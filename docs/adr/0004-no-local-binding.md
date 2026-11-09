@@ -41,3 +41,7 @@ Decision: `install.sh` stops every daemon broker of every role (`stop_role_broke
 2026-11-07: built as a trial. The box runs with `--network none`. The wrapper that set `allowLocalBinding` was removed in #90 (commit 54a418a1).
 
 Changed by `0015-box-layout.md` (owner decision, 2026-11-07): there is no session container, so all sessions share the box's one loopback, and the port case of the amendment "loopback allowed" comes back between sessions, though not between the box and the mac (`0015-box-layout.md`, Cost). Daemon brokers then live and die with the box, not with a session.
+
+## Amendment 2026-11-08: paths
+
+The addresses file is `~/.local/share/underground/addresses` in the data folder, and setup writes it only once (`host/bin/ug-setup:196-223`). The root copy is `/Library/Underground/addresses` (`host/bin/ug-agent-setup:297`), which the usage broker reads (`host/gh-broker/usage-broker.ts:25`). This replaces `~/.ug/host/addresses` in the amendment of 2026-10-31.
