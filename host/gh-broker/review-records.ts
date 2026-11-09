@@ -18,6 +18,15 @@ function parseRecordLine(line: string, key: PrKey): ReviewRecord | undefined {
   return undefined;
 }
 
+function isJson(text: string): boolean {
+  try {
+    JSON.parse(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function readReviewRecords(dir: string, key: PrKey): Promise<ReviewRecords> {
   const file = await readFileAsText(reviewRecordsPath(dir, key));
   if (file.kind === "missing") return { kind: "records", records: [] };
@@ -31,8 +40,11 @@ export async function readReviewRecords(dir: string, key: PrKey): Promise<Review
     if (record === undefined) return { kind: "unreadable" };
     records.push(record);
   }
-  const finished = last === "" ? undefined : parseRecordLine(last, key);
-  if (finished !== undefined) records.push(finished);
+  if (last !== "" && isJson(last)) {
+    const finished = parseRecordLine(last, key);
+    if (finished === undefined) return { kind: "unreadable" };
+    records.push(finished);
+  }
   return { kind: "records", records };
 }
 
