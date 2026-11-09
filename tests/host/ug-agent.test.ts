@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { chmod, copyFile, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, copyFile, mkdir, readFile, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { setTimeout as sleep } from "node:timers/promises";
 import { tempDir } from "../temp.ts";
 
 const ROOT = join(import.meta.dirname, "../..");
@@ -255,6 +256,124 @@ test(
     assert.equal(copyFailed.status, 1);
     assert.match(copyFailed.stderr, /config copy failed/);
     assert.doesNotMatch(copyFailed.stdout, /OMP_RAN/);
+  },
+);
+
+function gitIn(dir: string, ...args: string[]): string {
+  const r = spawnSync("git", ["-C", dir, ...args], { encoding: "utf8", env: { PATH: "/usr/bin:/bin", HOME: dir, GIT_CONFIG_NOSYSTEM: "1" } });
+  assert.equal(r.status, 0, r.stderr);
+  return r.stdout.trim();
+}
+
+async function agentClone(home: string, repo: string, commit = true): Promise<string> {
+  const dir = join(home, "work", repo);
+  await mkdir(dir, { recursive: true });
+  gitIn(dir, "init", "-q");
+  if (commit) gitIn(dir, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "--allow-empty", "-m", "one");
+  await writeFile(join(dir, ".git/ug-launched"), "");
+  return dir;
+}
+
+async function holdLock(t: { after: (fn: () => unknown) => void }, dir: string, seconds: number) {
+  const holder = spawn("/usr/bin/lockf", ["-k", ".git/ug-sync.lock", "sleep", String(seconds)], { cwd: dir, stdio: "ignore" });
+  t.after(() => holder.kill());
+  await sleep(300);
+}
+
+test(
+  "[mac] agent-refresh syncs each clone launched in the last 7 days with git hooks off, skips a clone a launch holds, and stops a sync that hangs",
+  { skip: process.platform !== "darwin" && "needs macOS lockf and getconf DARWIN_USER_TEMP_DIR" },
+  async (t) => {
+    const dir = await tempDir(join(tmpdir(), "ug-refresh-"));
+    t.after(() => rm(dir, { recursive: true, force: true }));
+    const root = join(dir, "root");
+    const home = join(dir, "agent-home");
+    const calls = join(dir, "calls");
+    await mkdir(join(root, "bin"), { recursive: true });
+    await stub(
+      join(root, "bin"),
+      "gh-broker",
+      [
+        'here=$(pwd -P); echo "$here $*" >>"$CALLS"',
+        'case $here in */slow) exec sleep 30 ;; */broken) exit 1 ;; esac',
+        "git update-ref refs/remotes/origin/main HEAD && echo 'origin/main is now x'",
+      ].join("\n"),
+    );
+    const app = await agentClone(home, "owner/app");
+    const busy = await agentClone(home, "owner/busy");
+    await agentClone(home, "owner/slow");
+    await agentClone(home, "owner/broken");
+    const old = await agentClone(home, "owner/old");
+    const weekAgo = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000);
+    await utimes(join(old, ".git/ug-launched"), weekAgo, weekAgo);
+    await rm(join(await agentClone(home, "owner/never"), ".git/ug-launched"));
+    await writeFile(join(app, ".git/hooks/reference-transaction"), "#!/bin/sh\ntouch HOOK_RAN\n");
+    await chmod(join(app, ".git/hooks/reference-transaction"), 0o755);
+    gitIn(app, "update-ref", "refs/probe", "HEAD");
+    assert.ok(existsSync(join(app, "HOOK_RAN")), "the planted hook runs for a plain git command");
+    await rm(join(app, "HOOK_RAN"));
+    const text = (await readFile(join(ROOT, "host/agent/agent-refresh"), "utf8"))
+      .replace("root=/Library/Underground", `root=${root}`)
+      .replace("export HOME=/Users/ugagent", `export HOME=${home}`)
+      .replace("limit=20", "limit=1");
+    const script = join(dir, "agent-refresh");
+    await writeFile(script, text);
+    await holdLock(t, busy, 10);
+
+    const started = Date.now();
+    const r = spawnSync("bash", [script], { env: { PATH: "/usr/bin:/bin", CALLS: calls }, encoding: "utf8" });
+    assert.equal(r.status, 0, r.stderr);
+    assert.ok(Date.now() - started < 8000, "a hung sync is stopped, not waited for");
+
+    assert.equal(gitIn(app, "rev-parse", "refs/remotes/origin/main"), gitIn(app, "rev-parse", "HEAD"));
+    assert.ok(!existsSync(join(app, "HOOK_RAN")), "the planted hook must not run in the background refresh");
+    const called = await readFile(calls, "utf8");
+    assert.match(called, /\/owner\/app sync owner\/app --cached/);
+    assert.doesNotMatch(called, /\/owner\/(busy|old|never) /);
+    const log = await readFile(join(home, "logs/agent-refresh.log"), "utf8");
+    assert.match(log, /sync owner\/slow took over 1 s, stopped/);
+    assert.match(log, /sync owner\/broken failed with exit 1/);
+    assert.doesNotMatch(log, /owner\/(app|busy)|Terminated/);
+  },
+);
+
+test(
+  "[mac] agent-start starts from the clone's main when the background refresh holds the clone, and refuses a clone with no commit yet",
+  { skip: process.platform !== "darwin" && "needs macOS lockf and getconf DARWIN_USER_TEMP_DIR" },
+  async (t) => {
+    const dir = await tempDir(join(tmpdir(), "ug-busy-"));
+    t.after(() => rm(dir, { recursive: true, force: true }));
+    const root = join(dir, "root");
+    const home = join(dir, "agent-home");
+    const bin = join(root, "omp/1.0/omp");
+    await mkdir(join(root, "omp/1.0"), { recursive: true });
+    await mkdir(join(root, "bin"));
+    await writeFile(bin, '#!/bin/sh\necho "OMP_RAN $*"\n');
+    await chmod(bin, 0o755);
+    await writeFile(`${bin}.sha256`, `${createHash("sha256").update(await readFile(bin)).digest("hex")}\n`);
+    await symlink(bin, join(root, "bin/omp"));
+    await writeFile(join(root, "config-names"), "");
+    await stub(join(root, "bin"), "gh-broker", "echo SYNC_CALLED\nexit 1");
+    const text = (await readFile(join(ROOT, "host/agent/agent-start"), "utf8"))
+      .replace("root=/Library/Underground", `root=${root}`)
+      .replace("export HOME=/Users/ugagent", `export HOME=${home}`);
+    const start = join(dir, "agent-start");
+    await writeFile(start, text);
+    const run = (repo: string) =>
+      spawnSync("bash", [start, "-p", "hi"], { env: { PATH: "/usr/bin:/bin", UG_REPO: repo }, encoding: "utf8" });
+
+    await holdLock(t, await agentClone(home, "owner/repo"), 10);
+    const stale = run("owner/repo");
+    assert.equal(stale.status, 0, stale.stderr);
+    assert.equal(stale.stdout.trim(), "OMP_RAN -p hi");
+    assert.match(stale.stderr, /background refresh holds the clone of owner\/repo; this session starts from the main that the clone has/);
+    assert.doesNotMatch(stale.stdout + stale.stderr, /SYNC_CALLED/);
+
+    await holdLock(t, await agentClone(home, "owner/fresh", false), 10);
+    const fresh = run("owner/fresh");
+    assert.equal(fresh.status, 1);
+    assert.match(fresh.stderr, /busy with its first sync/);
+    assert.doesNotMatch(fresh.stdout, /OMP_RAN/);
   },
 );
 

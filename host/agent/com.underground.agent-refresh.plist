@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.underground.agent-refresh</string>
+  <key>UserName</key>
+  <string>ugagent</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/sandbox-exec</string>
+    <string>-f</string>
+    <string>/Library/Underground/pin.sb</string>
+    <string>/Library/Underground/agent-refresh</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>/Users/ugagent</string>
+  <key>StartInterval</key>
+  <integer>30</integer>
+  <key>RunAtLoad</key>
+  <true/>
+</dict>
+</plist>

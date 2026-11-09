@@ -1,0 +1,36 @@
+#!/bin/bash
+set -uo pipefail
+
+TMPDIR=$(getconf DARWIN_USER_TEMP_DIR)
+export HOME=/Users/ugagent TMPDIR PATH=/Library/Underground/bin:/usr/bin:/bin:/usr/sbin:/sbin
+export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0=/dev/null
+
+root=/Library/Underground
+limit=20
+log=$HOME/logs/agent-refresh.log
+re='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'
+
+mkdir -p "${log%/*}"
+if [[ -f $log && $(stat -f %z "$log") -gt 1048576 ]]; then : >"$log"; fi
+exec >>"$log" 2>&1
+
+sync_clone() {
+  local clone=$1 repo=$2 pid watchdog status
+  (cd "$clone" && exec /usr/bin/lockf -k -t 0 .git/ug-sync.lock "$root/bin/gh-broker" sync "$repo" --cached >/dev/null) &
+  pid=$!
+  (sleep "$limit" && /usr/bin/pkill -TERM -P "$pid" && printf '%s sync %s took over %s s, stopped\n' "$(date -u +%FT%TZ)" "$repo" "$limit") 2>/dev/null &
+  watchdog=$!
+  status=0
+  wait "$pid" || status=$?
+  /usr/bin/pkill -TERM -P "$watchdog" 2>/dev/null
+  wait "$watchdog" 2>/dev/null
+  (( status == 0 || status == 75 )) || printf '%s sync %s failed with exit %s\n' "$(date -u +%FT%TZ)" "$repo" "$status"
+}
+
+for git_dir in "$HOME"/work/*/*/.git; do
+  [[ -d $git_dir && -n $(find "$git_dir/ug-launched" -mtime -7 2>/dev/null) ]] || continue
+  clone=${git_dir%/.git}
+  repo=${clone#"$HOME/work/"}
+  [[ $repo =~ $re ]] || continue
+  sync_clone "$clone" "$repo"
+done

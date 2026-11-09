@@ -67,10 +67,19 @@ if [[ ! -d $clone/.git ]]; then
   git -C "$clone" remote add origin "https://github.com/$UG_REPO.git"
 fi
 cd "$clone"
+touch .git/ug-launched
+
+busy() {
+  git rev-parse -q --verify HEAD >/dev/null || die "the clone is busy with its first sync; start the session again in a moment"
+  printf 'agent-start: the background refresh holds the clone of %s; this session starts from the main that the clone has\n' "$UG_REPO" >&2
+  copied
+  start_omp "$@"
+}
 
 sync_status=0
-synced=$(/usr/bin/lockf -k .git/ug-sync.lock "$root/bin/gh-broker" sync "$UG_REPO" --cached) || sync_status=$?
+synced=$(/usr/bin/lockf -k -t 3 .git/ug-sync.lock "$root/bin/gh-broker" sync "$UG_REPO" --cached) || sync_status=$?
 wait "$hash_pid" || exit 1
+(( sync_status != 75 )) || busy "$@"
 (( sync_status == 0 )) || {
   case $sync_status in
     69) hint="the gh-broker does not answer; the owner checks the launchd job com.underground.gh-broker and its gh-broker.log" ;;
@@ -83,6 +92,9 @@ wait "$hash_pid" || exit 1
 base=$(printf '%s\n' "$synced" | sed -n 's|^origin/\([^ ]*\) is now .*|\1|p')
 [[ -n $base ]] || die "gh-broker sync gave no branch: $synced"
 
-/usr/bin/lockf -k .git/ug-sync.lock git checkout -q --detach "origin/$base"
+checkout_status=0
+/usr/bin/lockf -k -t 3 .git/ug-sync.lock git checkout -q --detach "origin/$base" || checkout_status=$?
+(( checkout_status != 75 )) || busy "$@"
+(( checkout_status == 0 )) || exit "$checkout_status"
 copied
 start_omp "$@"
