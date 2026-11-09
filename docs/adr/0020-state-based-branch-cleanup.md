@@ -17,17 +17,19 @@ One rule for every store: delete a thing only when its work is in main, nobody u
    - The branch is at the recorded commit: the gh-broker deletes it with `--force-with-lease` on that commit, then drops the record.
    - A record is dropped only when it still holds the checked commit (`dropPushRecord`, `host/gh-broker/push-record.ts:61-66`). A failed step keeps the branch and the record, and the next refresh tries again.
    - The check runs in the repo's queue, the same queue as `push`, so no push lands between the check and the delete.
-   - The refresh covers every repo with a push record, besides the repos synced in the last 7 days (`refreshRepos`, `:357`), so a restart of the gh-broker does not hide a record.
+   - The refresh keeps the 7-day launch rule of `0019-fast-launch-sync.md`. A repo with a push record but no launch in 7 days gets one refresh after each start of the gh-broker, so a restart does not hide a merged record (`refreshRepos`, `:357`). After that, its records wait for the next launch of the repo.
 2. **`gh-broker merge` has no cleanup of its own.** After the merge it runs the same refresh for the repo and adds its result to the reply (`handleMerge`, `:605`). A failed cleanup does not fail the merge. Then the client syncs main and runs the local sweep (`afterMerge`, `host/gh-broker/client.ts:244`).
 3. **The agent side sweeps the clone.** `gh-broker sweep <default-branch>` (`sweep`, `host/gh-broker/sweep.ts:122`) runs in the background at each session start, after the sync and the checkout (`host/agent/agent-start:99`), so the start does not wait for it. It takes no lock: it writes neither `origin/*` nor the clone's checkout, and each delete names the commit it checked. For each `agent/*` or `wt/*` branch, except the one the clone has checked out and a locked worktree:
    - It first drops the entries of worktrees whose folder is gone (`git worktree prune`).
    - Younger than 10 minutes, by the branch's first reflog entry or the worktree's `.git` file: skip, so a session that is starting keeps its new worktree.
    - A process has its working folder in the worktree (`lsof -d cwd`, `lsofProbe`, `:49`): skip. If the probe fails, every worktree counts as used.
    - Uncommitted or untracked files: keep, listed as "unsaved files".
-   - Ignored files other than `node_modules` and `.DS_Store`: keep, listed as "ignored files". `git worktree remove` deletes ignored files (`git help worktree`, "remove", read 2026-11-08), and a `.env` or a notes file can exist only there.
+   - Ignored files other than `node_modules` and `.DS_Store`: keep, listed as "ignored files". `git worktree remove` deletes ignored files (`git help worktree`, "remove", read 2026-11-08), and a `.env` or a notes file can exist only there. Proposal, not an owner decision: the owner was offered this rule or deleting ignored files, and did not pick; the agent built the one that fails safe. The cache list is `CACHE_NAMES` in `host/gh-broker/sweep.ts`.
    - Its commits are not in `origin/<default>`: keep, listed as "not in main". A squash merge lands here.
    - Otherwise: `git worktree remove` without `--force`, then `git update-ref -d` with the checked commit.
-4. **The kept list.** The sweep writes the kept branches, each with its reason, to `ug-kept.json` in the clone's git folder. A branch with `branch.<name>.ugParked=true` stays in the list, marked parked. An extension in the owner's config repo shows the count of the unparked ones as a notice at session start; the agent reads the list when the owner asks.
+4. **The kept list.** The sweep writes the kept branches, each with its reason, to `ug-kept.json` in the clone's git folder. A branch with `branch.<name>.ugParked=true` stays in the list, marked parked. The agent reads the list when the owner asks, and can push or park a kept branch. Not built yet:
+   - The notice at session start. It is an extension in the owner's config repo, and the gh-broker refused the config repo: `gh-broker: cannot get a GitHub App token: GitHub answered POST /app/installations/177245675/access_tokens with HTTP 422: There is at least one repository that does not exist or is not accessible to the parent installation.` (agent run, 2026-11-09). It waits until the owner installs the gh-broker app on `IsrafilEMIN/agent-config`.
+   - A drop of a kept branch. A kept branch is dirty or not in main, so its drop needs `git worktree remove --force` or `git update-ref -d`, and the guard extension blocks both in a session (`underground-guard.ts`, "destructive git"). How the owner approves a drop is open.
 
 ## The gate
 
@@ -36,7 +38,7 @@ The rule deletes only what is in main, or in the case of an empty worktree, a co
 ## Cost
 
 - The refresh can now mint a token that writes, which `0019-fast-launch-sync.md` (decision 2) kept out of it. It mints one only to delete a branch whose recorded commit is in main and that is still at that commit. A refresh with nothing to delete still uses only the read-only token (`tests/broker/branch-cleanup.test.ts`).
-- A repo with a push record that never merges stays in the refresh, one `ls-remote` per 30 s.
+- A repo with a push record and no launch for 7 days keeps its merged branch on GitHub until its next launch or the next start of the gh-broker.
 - A session that merges keeps its own worktree until a later start sweeps it, because it is young and in use. The old merge cleanup removed it at once.
 - A resumed session whose worktree the sweep removed opens in the clone (already accepted, `0011-one-agent-arena.md`, "Known holes").
 - Files written in a worktree after the last daily backup at 20:00 are not in the backup. The sweep never deletes a worktree that holds such files, unless they are caches.

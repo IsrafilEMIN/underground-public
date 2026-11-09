@@ -191,6 +191,20 @@ test("a refresh leaves an unmerged branch and its record, and asks GitHub only w
   assert.ok(scopes.length > 0 && scopes.every((scope) => scope === "contents-read"), scopes.join(","));
 });
 
+test("a repo with only a push record gets one refresh after the gh-broker starts, then keeps the 7-day launch rule", async () => {
+  const head = await pushed();
+  const { tokens, scopes } = scopedTokens();
+  config.github = tokens;
+
+  await refreshRepos(config, new AbortController().signal);
+  assert.ok(scopes.length > 0, "the first refresh after a start checks the repo");
+  scopes.length = 0;
+  mergeOnGithub(head);
+  await refreshRepos(config, new AbortController().signal);
+  assert.deepEqual(scopes, [], "a record alone does not keep a repo in the 30 s refresh");
+  assert.equal(remoteBranch(), head);
+});
+
 test("a head branch that GitHub deleted at the merge only drops the record, with no token that can write", async () => {
   const head = await pushed();
   mergeOnGithub(head);
