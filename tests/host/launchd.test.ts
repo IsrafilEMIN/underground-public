@@ -9,7 +9,7 @@ import { tempDir } from "../temp.ts";
 const DIR = join(import.meta.dirname, "../../host/launchd");
 const LIB = join(import.meta.dirname, "../../host/lib/ug.bash");
 const AGENT_DIR = join(import.meta.dirname, "../../host/agent");
-const FILLED = new Set(["@HOME@", "@DATA@"]);
+const FILLED = new Set(["@DATA@"]);
 const DAEMON_FILLED = new Set(["@OMP@", "@GATEWAY@", "@ENGINE@"]);
 const DAEMONS = ["com.underground.auth-broker", "com.underground.auth-gateway", "com.underground.usage-broker"];
 

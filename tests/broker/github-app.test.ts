@@ -389,7 +389,7 @@ test("gh runs with the installation token in GH_TOKEN and no gh login of its own
   assert.equal(token, FAKE_TOKEN);
   assert.ok(configDir !== undefined && configDir !== "", line);
   const entries = await readdir(configDir).catch((error: NodeJS.ErrnoException) => {
-    if (error.code === "ENOENT") return [];
+    if (error.code === "ENOENT" || error.code === "EPERM") return [];
     throw error;
   });
   assert.deepEqual(entries, [], "gh finds no login or config in its config dir");

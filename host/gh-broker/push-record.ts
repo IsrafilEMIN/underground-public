@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { isRecord, isSha } from "./protocol.ts";
+import { isSha } from "./protocol.ts";
 import type { PushRecord } from "./protocol.ts";
+import { readFileAsText } from "./read-file.ts";
 
 export type PushRecordKey = { repo: string; branch: string };
 
@@ -11,14 +12,10 @@ export function pushRecordPath(dir: string, key: PushRecordKey): string {
 }
 
 export async function readPushRecord(dir: string, key: PushRecordKey): Promise<PushRecord> {
-  let text: string;
-  try {
-    text = await readFile(pushRecordPath(dir, key), "utf8");
-  } catch (error) {
-    if (isRecord(error) && error.code === "ENOENT") return { kind: "none" };
-    return { kind: "unreadable" };
-  }
-  const sha = text.trim();
+  const file = await readFileAsText(pushRecordPath(dir, key));
+  if (file.kind === "missing") return { kind: "none" };
+  if (file.kind === "unreadable") return { kind: "unreadable" };
+  const sha = file.text.trim();
   return isSha(sha) ? { kind: "pushed", sha } : { kind: "unreadable" };
 }
 

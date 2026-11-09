@@ -228,6 +228,14 @@ test("a complete last record with no newline still counts, so a block cannot van
   assert.deepEqual(await readReviewRecords(config.reviewsDir, { repo: REPO, pr: 7 }), { kind: "records", records: [pass, block] });
 });
 
+test("a complete last line with no newline that is not a valid record makes the file unreadable, like any other line", async () => {
+  const head = "a".repeat(40);
+  const pass = { repo: REPO, pr: 7, role: "code-review", head, verdict: "pass", reason: "", at: "2026-10-01T00:00:00.000Z" };
+  await mkdir(join(config.reviewsDir, REPO), { recursive: true });
+  await writeFile(reviewRecordsPath(config.reviewsDir, { repo: REPO, pr: 7 }), `${JSON.stringify(pass)}\n${JSON.stringify({ ...pass, role: null, verdict: "block" })}`);
+  assert.deepEqual(await readReviewRecords(config.reviewsDir, { repo: REPO, pr: 7 }), { kind: "unreadable" });
+});
+
 test("a record with no role, or a role that cannot review, makes the file unreadable", async () => {
   const head = "a".repeat(40);
   const at = "2026-11-01T00:00:00.000Z";

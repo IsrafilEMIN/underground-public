@@ -41,6 +41,7 @@ import { appFiles, createAppTokens, redactTokens } from "./github-app.ts";
 import type { GithubTokens, TokenScope } from "./github-app.ts";
 import { dropPushRecord, readPushRecord, writePushRecord } from "./push-record.ts";
 import { appendReviewRecord, readReviewRecords } from "./review-records.ts";
+import { readFileAsText } from "./read-file.ts";
 
 export type ServerConfig = {
   socketPath: string;
@@ -66,6 +67,7 @@ const REFRESH_EVERY_MS = 30 * 1000;
 const FRESH_FOR_MS = 40 * 1000;
 const REFRESH_FOR_MS = 7 * 24 * 60 * 60 * 1000;
 const CHECK_TIMEOUT_MS = 20 * 1000;
+const NEVER_CANCEL = new AbortController().signal;
 
 function defaultGitPath(): string {
   for (const candidate of ["/opt/homebrew/bin/git", "/usr/bin/git"]) {
@@ -233,6 +235,15 @@ async function brokerTempDir(config: ServerConfig): Promise<string> {
   return mkdtemp(join(config.tempRoot, "ug-gh-broker-"));
 }
 
+async function inTempDir<T>(config: ServerConfig, use: (tempDir: string) => Promise<T>): Promise<T> {
+  const tempDir = await brokerTempDir(config);
+  try {
+    return await use(tempDir);
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+}
+
 type RepoState = { queue: Promise<void>; branch?: string; checkedAt?: number; syncedAt?: number; refreshing?: boolean };
 
 const repoStates = new WeakMap<ServerConfig, Map<string, RepoState>>();
@@ -332,17 +343,14 @@ async function handleSync(config: ServerConfig, req: SyncRequest, signal: AbortS
       }
       known.push(have);
     }
-    const tempDir = await brokerTempDir(config);
-    try {
+    return inTempDir(config, async (tempDir) => {
       const bundlePath = join(tempDir, "sync.bundle");
       const bundled = await git(config, bare, ["bundle", "create", "--quiet", bundlePath, ref, ...known.map((have) => `^${have}`)], signal);
       if (bundled.exit !== 0) return forward(bundled);
       const bundle = await readFile(bundlePath);
       const reply: SyncReply = { exit: 0, stdout: "", stderr: "", branch, head, bundle_b64: bundle.toString("base64") };
       return reply;
-    } finally {
-      await rm(tempDir, { recursive: true, force: true });
-    }
+    });
   });
 }
 
@@ -352,28 +360,28 @@ async function handleSyncPr(config: ServerConfig, repo: string, number: number, 
   const head = view.pr.headRefOid;
   if (!isSha(head)) return refused("cannot read pull request head commit");
   const bare = join(config.reposRoot, `${repo}.git`);
-  return inRepoQueue(config, repo, async () => {
-    const tempDir = await brokerTempDir(config);
-    const tempRef = `refs/gh-broker/pr/${basename(tempDir)}`;
-    try {
-      const initFailure = await ensureBareRepo(config, bare, signal);
-      if (initFailure !== undefined) return initFailure;
-      const fetch = await gitRemote(config, bare, repo, "read", (url) => ["fetch", "--quiet", "--no-tags", "--no-write-fetch-head", url, `+refs/pull/${number}/head:${tempRef}`], signal);
-      if (fetch.exit !== 0) return forward(fetch);
-      const fetched = await git(config, bare, ["rev-parse", "--verify", "--quiet", `${tempRef}^{commit}`], signal);
-      const sha = fetched.rawStdout.trim();
-      if (fetched.exit !== 0 || sha !== head) return refused(`PR ${number} head moved during the sync: headRefOid is ${head}, GitHub sent ${sha}; run sync again`);
-      const bundlePath = join(tempDir, "pr.bundle");
-      const bundled = await git(config, bare, ["bundle", "create", "--quiet", bundlePath, tempRef], signal);
-      if (bundled.exit !== 0) return forward(bundled);
-      const bundle = await readFile(bundlePath);
-      const reply: SyncPrReply = { exit: 0, stdout: "", stderr: "", pr: number, head, bundle_b64: bundle.toString("base64") };
-      return reply;
-    } finally {
-      await git(config, bare, ["update-ref", "-d", tempRef], new AbortController().signal);
-      await rm(tempDir, { recursive: true, force: true });
-    }
-  });
+  return inRepoQueue(config, repo, async () =>
+    inTempDir(config, async (tempDir) => {
+      const tempRef = `refs/gh-broker/pr/${basename(tempDir)}`;
+      try {
+        const initFailure = await ensureBareRepo(config, bare, signal);
+        if (initFailure !== undefined) return initFailure;
+        const fetch = await gitRemote(config, bare, repo, "read", (url) => ["fetch", "--quiet", "--no-tags", "--no-write-fetch-head", url, `+refs/pull/${number}/head:${tempRef}`], signal);
+        if (fetch.exit !== 0) return forward(fetch);
+        const fetched = await git(config, bare, ["rev-parse", "--verify", "--quiet", `${tempRef}^{commit}`], signal);
+        const sha = fetched.rawStdout.trim();
+        if (fetched.exit !== 0 || sha !== head) return refused(`PR ${number} head moved during the sync: headRefOid is ${head}, GitHub sent ${sha}; run sync again`);
+        const bundlePath = join(tempDir, "pr.bundle");
+        const bundled = await git(config, bare, ["bundle", "create", "--quiet", bundlePath, tempRef], signal);
+        if (bundled.exit !== 0) return forward(bundled);
+        const bundle = await readFile(bundlePath);
+        const reply: SyncPrReply = { exit: 0, stdout: "", stderr: "", pr: number, head, bundle_b64: bundle.toString("base64") };
+        return reply;
+      } finally {
+        await git(config, bare, ["update-ref", "-d", tempRef], NEVER_CANCEL);
+      }
+    }),
+  );
 }
 
 async function handlePush(config: ServerConfig, req: PushRequest, signal: AbortSignal): Promise<Reply> {
@@ -383,32 +391,32 @@ async function handlePush(config: ServerConfig, req: PushRequest, signal: AbortS
   if (typeof base !== "string") return base;
   if (req.branch === base) return refused("branch is the default branch");
   const bare = join(config.reposRoot, `${req.repo}.git`);
-  return inRepoQueue(config, req.repo, async () => {
-    const tempDir = await brokerTempDir(config);
-    const tempRef = `refs/gh-broker/push/${basename(tempDir)}`;
-    try {
-      const bundlePath = join(tempDir, "push.bundle");
-      await writeFile(bundlePath, bundle, { mode: 0o600 });
-      const initFailure = await ensureBareRepo(config, bare, signal);
-      if (initFailure !== undefined) return initFailure;
-      const fetch = await git(config, bare, ["fetch", "--quiet", "--no-tags", "--no-write-fetch-head", bundlePath, `+refs/heads/${req.branch}:${tempRef}`], signal);
-      if (fetch.exit !== 0) return forward(fetch);
-      const parsed = await git(config, bare, ["rev-parse", "--verify", "--quiet", `${tempRef}^{commit}`], signal);
-      if (parsed.exit !== 0 || parsed.rawStdout.trim() !== req.sha) return refused("bundle ref does not match sha");
-      const push = await gitRemote(config, bare, req.repo, "write", (url) => ["push", "--porcelain", "--force", url, `${req.sha}:refs/heads/${req.branch}`], signal);
-      if (push.exit !== 0) return forward(push);
+  return inRepoQueue(config, req.repo, async () =>
+    inTempDir(config, async (tempDir) => {
+      const tempRef = `refs/gh-broker/push/${basename(tempDir)}`;
       try {
-        await writePushRecord(config.pushesDir, { repo: req.repo, branch: req.branch }, req.sha);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        return { ...forward(push), exit: 1, stderr: `${push.stderr}gh-broker: pushed, but cannot write the push record, so auto merge refuses this head: ${redactTokens(message)}\n` };
+        const bundlePath = join(tempDir, "push.bundle");
+        await writeFile(bundlePath, bundle, { mode: 0o600 });
+        const initFailure = await ensureBareRepo(config, bare, signal);
+        if (initFailure !== undefined) return initFailure;
+        const fetch = await git(config, bare, ["fetch", "--quiet", "--no-tags", "--no-write-fetch-head", bundlePath, `+refs/heads/${req.branch}:${tempRef}`], signal);
+        if (fetch.exit !== 0) return forward(fetch);
+        const parsed = await git(config, bare, ["rev-parse", "--verify", "--quiet", `${tempRef}^{commit}`], signal);
+        if (parsed.exit !== 0 || parsed.rawStdout.trim() !== req.sha) return refused("bundle ref does not match sha");
+        const push = await gitRemote(config, bare, req.repo, "write", (url) => ["push", "--porcelain", "--force", url, `${req.sha}:refs/heads/${req.branch}`], signal);
+        if (push.exit !== 0) return forward(push);
+        try {
+          await writePushRecord(config.pushesDir, { repo: req.repo, branch: req.branch }, req.sha);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          return { ...forward(push), exit: 1, stderr: `${push.stderr}gh-broker: pushed, but cannot write the push record, so auto merge refuses this head: ${redactTokens(message)}\n` };
+        }
+        return forward(push);
+      } finally {
+        await git(config, bare, ["update-ref", "-d", tempRef], NEVER_CANCEL);
       }
-      return forward(push);
-    } finally {
-      await git(config, bare, ["update-ref", "-d", tempRef], new AbortController().signal);
-      await rm(tempDir, { recursive: true, force: true });
-    }
-  });
+    }),
+  );
 }
 
 async function handlePrCreate(config: ServerConfig, req: PrCreateRequest, signal: AbortSignal): Promise<Reply> {
@@ -493,12 +501,9 @@ async function ghPages(config: ServerConfig, repo: string, path: string, signal:
 }
 
 async function readOptional(path: string): Promise<string | undefined> {
-  try {
-    return await readFile(path, "utf8");
-  } catch (error) {
-    if (isRecord(error) && error.code === "ENOENT") return "";
-    return undefined;
-  }
+  const file = await readFileAsText(path);
+  if (file.kind === "text") return file.text;
+  return file.kind === "missing" ? "" : undefined;
 }
 
 function changedFiles(items: unknown[], expected: unknown): string[] | undefined {
@@ -727,7 +732,7 @@ export function serveConnection(socket: Socket, handle: Handler): void {
   });
 }
 
-export async function removeStaleSocket(path: string): Promise<void> {
+async function removeStaleSocket(path: string): Promise<void> {
   let info;
   try {
     info = await lstat(path);

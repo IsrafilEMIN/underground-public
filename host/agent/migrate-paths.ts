@@ -11,7 +11,7 @@ export const openDb: (path: string) => Db = process.versions.bun
   ? ((m) => (path: string) => new m.Database(path) as unknown as Db)(await import("bun:sqlite"))
   : ((m) => (path: string) => new m.DatabaseSync(path) as unknown as Db)(await import("node:sqlite"));
 
-export function movePath(path: string, from: string, to: string): string {
+function movePath(path: string, from: string, to: string): string {
   if (path === from) return to;
   if (path.startsWith(`${from}/`)) return to + path.slice(from.length);
   return path;

@@ -49,12 +49,6 @@ omp_sha=$(ug_pin "$src/VERSIONS" omp_sha256)
 [[ $omp_pin =~ ^[0-9A-Za-z.+-]+$ ]] || die "VERSIONS has no omp pin"
 [[ $omp_sha =~ ^[0-9a-f]{64}$ ]] || die "VERSIONS has no omp_sha256 pin"
 
-sha256() {
-  local out
-  out=$(shasum -a 256 "$1") || return 1
-  printf '%s\n' "${out%% *}"
-}
-
 cleanup=()
 trap '[[ ${#cleanup[@]} -eq 0 ]] || rm -rf "${cleanup[@]}"' EXIT
 
@@ -131,13 +125,13 @@ if [[ -n $staged ]]; then
   omp_tmp=$(mktemp "$omp_dir/.omp.XXXXXX")
   cleanup+=("$omp_tmp")
   cat "$staged" >"$omp_tmp"
-  [[ $(sha256 "$omp_tmp") == "$omp_sha" ]] || die "the downloaded omp does not have the pinned SHA-256; nothing changed"
+  [[ $(ug_sha256 "$omp_tmp") == "$omp_sha" ]] || die "the downloaded omp does not have the pinned SHA-256; nothing changed"
   chown root:ugomp "$omp_tmp"
   chmod 550 "$omp_tmp"
   mv -f "$omp_tmp" "$omp_bin"
 fi
 [[ -f $omp_bin && ! -L $omp_bin ]] || die "no omp $omp_pin in $omp_dir; run host/bin/ug-setup, which downloads it"
-[[ $(sha256 "$omp_bin") == "$omp_sha" ]] || die "$omp_bin does not have the pinned SHA-256; run host/bin/ug-setup, which downloads it again"
+[[ $(ug_sha256 "$omp_bin") == "$omp_sha" ]] || die "$omp_bin does not have the pinned SHA-256; run host/bin/ug-setup, which downloads it again"
 chown root:ugomp "$omp_bin"
 chmod 550 "$omp_bin"
 printf '%s\n' "$omp_sha" >"$omp_dir/.omp.sha256.tmp"
@@ -179,7 +173,7 @@ deny_tmp=$(mktemp)
 cleanup+=("$deny_tmp")
 printf 'DenyUsers ugagent\n' >"$deny_tmp"
 install -m 444 -o root -g wheel "$deny_tmp" "$deny"
-/usr/sbin/sshd -T -f /etc/ssh/sshd_config -o HostKey="$root/ssh_host_ed25519_key" -C user=ugagent,host=localhost,addr=127.0.0.1 2>/dev/null | grep -qix 'denyusers ugagent' ||
+ug_sshd_denies_agent /etc/ssh/sshd_config "$root/ssh_host_ed25519_key" ||
   die "the system sshd does not deny ugagent with $deny in place; keep Remote Login off"
 step "system sshd: $deny denies ugagent"
 
@@ -294,7 +288,7 @@ fi
 stage_config
 
 start_login_services() {
-  local owner_uid gateway engine label rendered left f url err out fp inputs broker_out=""
+  local owner_uid gateway engine label rendered f url err out fp inputs broker_out=""
   owner_uid=$(id -u "$owner")
   gateway=$(sed -n 's/^gateway=//p' "$data/addresses")
   engine=$(sed -n 's/^engine=//p' "$data/addresses")
@@ -310,9 +304,7 @@ start_login_services() {
     rm -f "$owner_home/Library/LaunchAgents/$label.plist"
     rendered=$(mktemp)
     cleanup+=("$rendered")
-    sed -e "s|@OMP@|$omp_bin|g" -e "s|@GATEWAY@|$gateway|g" -e "s|@ENGINE@|$engine|g" "$src/host/agent/$label.plist" >"$rendered"
-    left=$(grep -o '@[A-Z_]*@' "$rendered" | head -1) || true
-    [[ -z $left ]] || die "host/agent/$label.plist has an unknown placeholder $left"
+    out=$(ug_render_plist "$rendered" "$src/host/agent/$label.plist" "host/agent/$label.plist" -e "s|@OMP@|$omp_bin|g" -e "s|@GATEWAY@|$gateway|g" -e "s|@ENGINE@|$engine|g") || die "$out"
     inputs=()
     case $label in
       com.underground.auth-broker)
