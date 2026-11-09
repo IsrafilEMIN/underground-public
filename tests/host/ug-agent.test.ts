@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { chmod, copyFile, mkdir, readFile, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
@@ -334,6 +334,38 @@ test(
     assert.match(log, /sync owner\/slow took over 1 s, stopped/);
     assert.match(log, /sync owner\/broken failed with exit 1/);
     assert.doesNotMatch(log, /owner\/(app|busy)|Terminated/);
+  },
+);
+
+test(
+  "[mac] setup fixes a wrong owner group or mode of the omp binary, leaves a right one untouched so macOS does not check the binary again, and fails when it cannot fix it",
+  { skip: process.platform !== "darwin" && "needs BSD stat" },
+  async (t) => {
+    const dir = await tempDir(join(tmpdir(), "ug-mode-"));
+    t.after(() => rm(dir, { recursive: true, force: true }));
+    const file = join(dir, "omp");
+    await writeFile(file, "x");
+    await chmod(file, 0o644);
+    const id = (flag: string) => spawnSync("id", [flag], { encoding: "utf8" }).stdout.trim();
+    const want = `${id("-un")}:${id("-gn")}`;
+    const ensure = (owner: string) =>
+      spawnSync("bash", ["-c", `source ${join(ROOT, "host/lib/ug.bash")}; ug_ensure_owner_mode "$1" "$2" 550`, "_", file, owner], { encoding: "utf8" });
+
+    assert.equal(ensure(want).status, 0);
+    assert.equal((statSync(file).mode & 0o777).toString(8), "550");
+    const fixed = statSync(file).ctimeMs;
+    await sleep(1100);
+    assert.equal(ensure(want).status, 0);
+    assert.equal(statSync(file).ctimeMs, fixed, "a right owner and mode must not be set again");
+
+    const other = id("-Gn").split(" ").find((g) => g !== id("-gn"));
+    if (other !== undefined) {
+      spawnSync("chgrp", [other, file]);
+      assert.equal(ensure(want).status, 0);
+      assert.equal(spawnSync("stat", ["-f", "%Sg", file], { encoding: "utf8" }).stdout.trim(), id("-gn"));
+    }
+
+    if (process.getuid?.() !== 0) assert.notEqual(ensure("root:wheel").status, 0);
   },
 );
 
