@@ -2,8 +2,8 @@
 
 ug_color_fds=""
 if [[ -z ${NO_COLOR:-} && ${TERM:-dumb} != dumb ]]; then
-  [[ ! -t 1 ]] || ug_color_fds+=1
-  [[ ! -t 2 ]] || ug_color_fds+=2
+  [[ ! -t 1 ]] || ug_color_fds+="1"
+  [[ ! -t 2 ]] || ug_color_fds+="2"
 fi
 
 ug_paint() {
