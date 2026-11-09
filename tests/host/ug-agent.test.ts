@@ -333,7 +333,7 @@ test(
     const log = await readFile(join(home, "logs/agent-refresh.log"), "utf8");
     assert.match(log, /sync owner\/slow took over 1 s, stopped/);
     assert.match(log, /sync owner\/broken failed with exit 1/);
-    assert.doesNotMatch(log, /owner\/(app|busy)/);
+    assert.doesNotMatch(log, /owner\/(app|busy)|Terminated/);
   },
 );
 
