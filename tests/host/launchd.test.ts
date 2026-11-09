@@ -43,7 +43,7 @@ test("the login services run as ugauth from root-owned code, with no profile or 
     const text = await readFile(join(AGENT_DIR, `${label}.plist`), "utf8");
     assert.match(text, /<key>UserName<\/key>\s*<string>ugauth<\/string>/, label);
     assert.match(text, /<key>HOME<\/key>\s*<string>\/Users\/ugauth<\/string>/, label);
-    assert.doesNotMatch(text, /OMP_PROFILE|PI_CONFIG_DIR|PI_CODING_AGENT_DIR|\/Users\/kutluk|@HOME@|@DATA@/, label);
+    assert.doesNotMatch(text, /OMP_PROFILE|PI_CONFIG_DIR|PI_CODING_AGENT_DIR|\/Users\/(?!ugauth\/|ugauth<)|@HOME@|@DATA@/, label);
     for (const placeholder of text.match(/@[A-Z_]+@/g) ?? []) assert.ok(DAEMON_FILLED.has(placeholder), `${label}: ${placeholder}`);
   }
 });

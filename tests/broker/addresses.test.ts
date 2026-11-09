@@ -11,7 +11,7 @@ test("parseAddresses reads the gateway and the engine address, and refuses anyth
     ["gateway=100.64.0.1:4000\n", /no engine= line/],
     ["gateway=100.64.0.1:4000\nengine=100.64.0.2:8081\ngateway=100.64.0.3:4000\n", /gateway= is given twice/],
     ["gateway=100.64.0.1\nengine=100.64.0.2:8081\n", /gateway=100\.64\.0\.1 is not <ip>:<port>/],
-    ["gateway=100.64.0.1:4000\nengine=v100-server:8081\n", /engine=v100-server:8081 is not <ip>:<port>/],
+    ["gateway=100.64.0.1:4000\nengine=engine-host:8081\n", /engine=engine-host:8081 is not <ip>:<port>/],
     ["gateway=100.64.0.1:4000\nengine=100.64.0.256:8081\n", /is not <ip>:<port>/],
     ["gateway=100.64.0.1:0\nengine=100.64.0.2:8081\n", /is not <ip>:<port>/],
     ["gateway=100.64.0.1:4000\nengine=100.64.0.2:65536\n", /is not <ip>:<port>/],

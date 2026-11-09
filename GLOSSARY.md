@@ -193,11 +193,11 @@ A provider in a session's `models.yml`, with `transport: pi-native`, `baseUrl` t
 _Avoid_: proxy provider
 
 **Inference engine**:
-The model server on `v100-server`, another box on the tailnet, at the `engine=` line of the addresses file. It needs an API key, which the auth broker holds under omp's built-in `lm-studio` provider. Sessions reach it only through the auth gateway (`docs/adr/0005-model-auth-gateway.md`, amendment 2026-11-01).
+The model server on another box on the tailnet, at the `engine=` line of the addresses file. It needs an API key, which the auth broker holds under omp's built-in `lm-studio` provider. Sessions reach it only through the auth gateway (`docs/adr/0005-model-auth-gateway.md`, amendment 2026-11-01).
 _Avoid_: local model, llama
 
 **Addresses file**:
-The owner-only file with two lines: `gateway=<ip>:<port>`, the auth gateway on the tailscale address of this mac, and `engine=<ip>:<port>`, the inference engine. Setup writes it only when it is missing, from the first line of `tailscale ip -4` with port `4000`; the owner edits it later. It is `~/.local/share/underground/addresses`.
+The owner-only file with two lines: `gateway=<ip>:<port>`, the auth gateway on the tailscale address of this mac, and `engine=<ip>:<port>`, the inference engine. Setup writes it only when it is missing: the gateway from the first line of `tailscale ip -4` with port `4000`, and the engine from the owner's answer at a prompt. Without a terminal, setup stops and writes nothing (`write_addresses`, `host/bin/ug-setup`). The owner edits it later. It is `~/.local/share/underground/addresses`.
 _Avoid_: address config, hosts file
 
 ### Decisions

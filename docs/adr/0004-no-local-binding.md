@@ -6,7 +6,7 @@ Holds under the redesign (2026-11-02), with `allowLocalBinding: true`. Amendment
 
 With `allowLocalBinding: true`, srt lets the sandbox connect to every localhost port (srt 0.0.81, `src/sandbox/macos-sandbox-utils.ts:1280` to `:1284`), so every local service is reachable (U7).
 
-Decision: `allowLocalBinding: false`. The sandbox reaches the network only through srt's proxy and its allowlist. The omp auth gateway listens on the tailscale address of this mac. The inference engine runs on `v100-server`, another box on the tailnet. The allowlist names each address with the port of its service (`@GATEWAY@` and `@ENGINE@`, in the allowlist templates that were in `host/roles/`, which is removed; see `0001-accepted-risks.md`, line 5), never the bare address, so no other port on either box is reachable (srt 0.0.81, `dist/sandbox/domain-pattern.js:18` to `:23`). The gateway binds with `omp auth-gateway serve --bind=<tailscale address>:<port>` (omp docs, `auth-broker-gateway.md:153`, read 2026-10-30) and always needs a token, so it never runs with `--no-auth`.
+Decision: `allowLocalBinding: false`. The sandbox reaches the network only through srt's proxy and its allowlist. The omp auth gateway listens on the tailscale address of this mac. The inference engine runs on another box on the tailnet. The allowlist names each address with the port of its service (`@GATEWAY@` and `@ENGINE@`, in the allowlist templates that were in `host/roles/`, which is removed; see `0001-accepted-risks.md`, line 5), never the bare address, so no other port on either box is reachable (srt 0.0.81, `dist/sandbox/domain-pattern.js:18` to `:23`). The gateway binds with `omp auth-gateway serve --bind=<tailscale address>:<port>` (omp docs, `auth-broker-gateway.md:153`, read 2026-10-30) and always needs a token, so it never runs with `--no-auth`.
 
 Rejected: localhost through srt's proxy, with one port per service on the allowlist (srt 0.0.81, `dist/sandbox/domain-pattern.js:18` to `:68`). srt sets `NO_PROXY=localhost` in the sandbox (`dist/sandbox/sandbox-utils.js:705` to `:720`), so the wrapper must change `NO_PROXY`, and nobody has tested it. Rejected: a Unix socket bridge. The gateway has no socket option, so the bridge is new code for the same result.
 
@@ -14,7 +14,7 @@ Cost: the agent cannot run a local server and connect to it directly. If tailsca
 
 ## Amendment 2026-10-31: addresses from one owner file
 
-`install.sh` hard-coded the gateway as `100.64.0.99:4000`, but `100.64.0.99` is `v100-server`, not this mac. The gateway could not bind, and launchd restarted it in a loop.
+`install.sh` hard-coded the gateway as `<engine ip>:4000`, but `<engine ip>` is the engine's box, not this mac. The gateway could not bind, and launchd restarted it in a loop.
 
 Decision: the owner-only file `~/.ug/host/addresses` holds `gateway=<ip>:<port>` and `engine=<ip>:<port>`. `host/bin/ug-setup` writes it only when it is missing (`write_addresses`, `host/bin/ug-setup:174` to `:192`), with the first line of `tailscale ip -4` and port `4000` for the gateway (`host/bin/ug-setup:190`), and never overwrites it. Setup reads it for the gateway plist and the engine address (`host/bin/ug-setup:219` to `:220`), and `host/bin/ug-agent-setup:153` reads the gateway. The allowlist templates, which filled `@GATEWAY@` and `@ENGINE@` at each session start through `render-settings`, were removed with the srt design (`0001-accepted-risks.md`, line 5).
 

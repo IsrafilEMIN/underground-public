@@ -26,7 +26,6 @@ node_bin=/opt/homebrew/bin/node
 labels=(com.underground.gh-broker com.underground.backup)
 agents_dir="$HOME/Library/LaunchAgents"
 addresses_file="$data/addresses"
-engine_default=100.64.0.99:8081
 tailscale_app=/Applications/Tailscale.app/Contents/MacOS/Tailscale
 
 die() {
@@ -195,7 +194,8 @@ install_service_code() {
 }
 
 write_addresses() {
-  local tailscale out ip tmp
+  local tailscale out ip engine tmp
+  local fix="write $addresses_file with the lines gateway=<tailscale address of this mac>:4000 and engine=<ip>:<port> of the inference engine"
   if [[ -e $addresses_file || -L $addresses_file ]]; then
     ug_say same addresses "$addresses_file in place"
     return 0
@@ -205,18 +205,21 @@ write_addresses() {
   elif [[ -x $tailscale_app ]]; then
     tailscale=$tailscale_app
   else
-    die "tailscale is not installed; install it, or write $addresses_file with the lines gateway=<tailscale address of this mac>:4000 and engine=$engine_default"
+    die "tailscale is not installed; install it, or $fix"
   fi
   out=$("$tailscale" ip -4 2>&1) || true
   ip=${out%%$'\n'*}
   [[ $ip =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] ||
-    die "tailscale ip -4 gave no IPv4 address${out:+ (it printed: ${out//$'\n'/ })}; start tailscale, or write $addresses_file with gateway=<ip>:4000 and engine=$engine_default"
+    die "tailscale ip -4 gave no IPv4 address${out:+ (it printed: ${out//$'\n'/ })}; start tailscale, or $fix"
+  [[ -t 0 ]] || die "no $addresses_file, and no terminal to ask for the engine address; $fix"
+  read -r -p "engine address of the inference engine, as <ip>:<port>: " engine || engine=''
+  [[ $engine =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}:[0-9]{1,5}$ ]] || die "the engine address '$engine' is not <ip>:<port>; nothing was written. Run setup again, or $fix"
   tmp=$(mktemp "$addresses_file.XXXXXX")
   cleanup+=("$tmp")
-  printf 'gateway=%s:4000\nengine=%s\n' "$ip" "$engine_default" >"$tmp"
+  printf 'gateway=%s:4000\nengine=%s\n' "$ip" "$engine" >"$tmp"
   chmod 600 "$tmp"
   mv -f "$tmp" "$addresses_file"
-  ug_say changed addresses "wrote $addresses_file with gateway=$ip:4000 and engine=$engine_default"
+  ug_say changed addresses "wrote $addresses_file with gateway=$ip:4000 and engine=$engine"
 }
 
 prepare_services() {

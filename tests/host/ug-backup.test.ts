@@ -55,13 +55,13 @@ async function fakeHome({ password = true, helper = true } = {}) {
   await exe(join(data, "restic", RESTIC_PIN, "restic"), FAKE_RESTIC);
   await exe(join(bin, "ssh"), FAKE_SSH);
   await exe(join(bin, "sudo"), FAKE_SUDO);
-  await exe(join(home, "wake-rig"), FAKE_WAKE);
-  await exe(join(home, "rig-sleep"), FAKE_SLEEP);
+  await exe(join(home, "wake-target"), FAKE_WAKE);
+  await exe(join(home, "sleep-target"), FAKE_SLEEP);
   if (helper) await exe(join(home, "agent-home-tar"), FAKE_HELPER);
   if (password) await writeFile(join(data, "backup/password"), "pw\n");
   await writeFile(
     join(data, "backup/config"),
-    `repo=sftp:kutluk@v100-server:backups/mac-arena\nwake=${join(home, "wake-rig")}\nsleep=${join(home, "rig-sleep")} now\n`,
+    `repo=sftp:owner@backup-host:backups/agent-home\nwake=${join(home, "wake-target")}\nsleep=${join(home, "sleep-target")} now\n`,
   );
   await writeFile(join(home, "awake"), "");
   return home;
@@ -94,7 +94,7 @@ test("ug-backup streams the agent home through the sudo helper into restic and r
   const helper = join(home, "agent-home-tar");
   assert.ok(
     all.includes(
-      `RESTIC: [-r] [sftp:kutluk@v100-server:backups/mac-arena] [backup] [--quiet] [--tag] [ug-agent] [--stdin-filename] [ug-agent-home.tar] [--stdin-from-command] [--] [sudo] [-n] [${helper}]`,
+      `RESTIC: [-r] [sftp:owner@backup-host:backups/agent-home] [backup] [--quiet] [--tag] [ug-agent] [--stdin-filename] [ug-agent-home.tar] [--stdin-from-command] [--] [sudo] [-n] [${helper}]`,
     ),
   );
   assert.ok(all.includes(`SUDO: -n ${helper}`));
