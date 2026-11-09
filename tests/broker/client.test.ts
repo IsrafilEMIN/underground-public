@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile, execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import type { Server } from "node:net";
 import { tmpdir } from "node:os";
@@ -36,14 +35,14 @@ function localBranch(): string {
   return git(work, "for-each-ref", "--format=%(objectname)", `refs/heads/${BRANCH}`);
 }
 
-async function broker(reply: string): Promise<void> {
+async function broker(...replies: string[]): Promise<void> {
   server = createServer({ allowHalfOpen: true }, (conn) => {
     let text = "";
     conn.on("data", (chunk: Buffer) => {
       text += chunk.toString("utf8");
       if (!text.includes("\n")) return;
       requests.push(JSON.parse(text.slice(0, text.indexOf("\n"))));
-      conn.end(reply);
+      conn.end(replies[Math.min(requests.length, replies.length) - 1]);
     });
   });
   const listening = Promise.withResolvers<void>();
@@ -76,10 +75,6 @@ async function commit(cwd: string, file: string): Promise<string> {
   git(cwd, "add", file);
   git(cwd, "commit", "--quiet", "-m", file);
   return git(cwd, "rev-parse", "HEAD");
-}
-
-function mergedReply(head: string, exit = 0): string {
-  return JSON.stringify({ exit, stdout: "merged\n", stderr: exit === 0 ? "" : "gh-broker: merged, but cannot delete branch agent/x: gone\n", merged: { branch: BRANCH, head } });
 }
 
 beforeEach(async () => {
@@ -237,93 +232,42 @@ test("send rejects a reply that is not JSON", async () => {
   await assert.rejects(send(socket, { verb: "merge", repo: REPO, number: 7 }), /malformed reply/);
 });
 
-test("a merge whose gh-broker reply exits non-zero still cleans up locally, and the client exits with the gh-gh-broker's code", async () => {
-  git(work, "branch", BRANCH);
-  const head = localBranch();
-  await broker(mergedReply(head, 1));
+function mainSyncReply(): string {
+  const bundle_b64 = execFileSync(REAL_GIT, ["bundle", "create", "-", "refs/heads/main"], { cwd: work, env: GIT_ENV }).toString("base64");
+  return JSON.stringify({ exit: 0, stdout: "", stderr: "", branch: "main", head: git(work, "rev-parse", "main"), bundle_b64 });
+}
+
+test("a refused or failed merge sends no sync and leaves local branches alone", async () => {
+  git(work, "-c", "core.logAllRefUpdates=false", "branch", BRANCH);
+  await broker(JSON.stringify({ exit: 1, stdout: "", stderr: "gh failed\n" }));
 
   const run = await brokerAt(work, "merge", REPO, "7");
   assert.equal(run.code, 1, JSON.stringify(run));
-  assert.ok(run.stdout.startsWith("merged\n"), run.stdout);
+  assert.deepEqual(requests, [{ verb: "merge", repo: REPO, number: 7 }]);
+  assert.notEqual(localBranch(), "");
+});
+
+test("after a merge the client syncs main and sweeps, so a merged branch with no worktree goes", async () => {
+  git(work, "-c", "core.logAllRefUpdates=false", "branch", BRANCH);
+  await broker(JSON.stringify({ exit: 0, stdout: "merged\n", stderr: "" }), mainSyncReply());
+
+  const run = await brokerAt(work, "merge", REPO, "7");
+  assert.equal(run.code, 0, JSON.stringify(run));
+  assert.deepEqual(requests[1], { verb: "sync", repo: REPO, have: [] });
+  assert.equal(run.stdout, `merged\norigin/main is now ${git(work, "rev-parse", "main")}\ngh-broker: deleted local branch ${BRANCH}\n`);
   assert.equal(localBranch(), "");
 });
 
-test("a merge whose local cleanup fails exits 1 and keeps the dirty worktree and its branch", async () => {
-  const tree = join(root, "tree");
-  git(work, "worktree", "add", "--quiet", "-b", BRANCH, tree);
-  const head = await commit(tree, "a.txt");
-  await writeFile(join(tree, "draft.txt"), "draft\n");
-  await broker(mergedReply(head));
-
-  const run = await brokerAt(tree, "merge", REPO, "7");
-  assert.equal(run.code, 1, JSON.stringify(run));
-  assert.ok(run.stderr.startsWith(`gh-broker: merged, but kept worktree ${tree} and local branch ${BRANCH}: `), run.stderr);
-  assert.equal(existsSync(join(tree, "draft.txt")), true);
-  assert.equal(localBranch(), head);
-});
-
-test("local cleanup outside any git repo exits 1: it cannot list the worktrees", async () => {
-  const plain = join(root, "plain");
-  await mkdir(plain);
-  await broker(mergedReply(SHA));
-
-  const run = await brokerAt(plain, "merge", REPO, "7");
-  assert.equal(run.code, 1, JSON.stringify(run));
-  assert.match(run.stderr, /^gh-broker: merged, but cannot list the local worktrees: /m);
-});
-
-test("local cleanup exits 1 and keeps the branch when git lists no main worktree", async () => {
-  git(work, "branch", BRANCH);
-  const head = localBranch();
-  const bin = join(root, "bin");
-  await mkdir(bin);
-  await writeFile(join(bin, "git"), `#!/bin/sh\nif [ "$1 $2" = "worktree list" ]; then exit 0; fi\nexec ${REAL_GIT} "$@"\n`, { mode: 0o755 });
-  await broker(mergedReply(head));
-
-  const run = await client(work, { PATH: `${bin}:${process.env.PATH ?? ""}` }, "merge", REPO, "7");
-  assert.equal(run.code, 1, JSON.stringify(run));
-  assert.match(run.stderr, /^gh-broker: merged, but git lists no main worktree\n/m);
-  assert.equal(localBranch(), head);
-});
-
-test("local cleanup without a local branch of the PR exits 0 and says so", async () => {
-  await broker(mergedReply(SHA));
+test("a merge whose sync is refused exits 2 and says the merge went through", async () => {
+  await broker(JSON.stringify({ exit: 0, stdout: "merged\n", stderr: "" }), JSON.stringify({ exit: 2, refused: "busy" }));
 
   const run = await brokerAt(work, "merge", REPO, "7");
-  assert.equal(run.code, 0, JSON.stringify(run));
-  assert.equal(run.stdout, `merged\ngh-broker: no local branch ${BRANCH}\n`);
+  assert.equal(run.code, 2, JSON.stringify(run));
+  assert.equal(run.stderr, "gh-broker: merged, but the sync was refused: busy\n");
 });
 
-test("local cleanup keeps the branch that the main worktree has checked out", async () => {
-  git(work, "checkout", "--quiet", "-b", BRANCH);
-  const head = localBranch();
-  await broker(mergedReply(head));
-
-  const run = await brokerAt(work, "merge", REPO, "7");
-  assert.equal(run.code, 0, JSON.stringify(run));
-  assert.match(run.stdout, new RegExp(`gh-broker: kept local branch ${BRANCH}: the main worktree .* has it checked out\\n$`));
-  assert.equal(localBranch(), head);
-  assert.equal(git(work, "symbolic-ref", "HEAD"), `refs/heads/${BRANCH}`);
-});
-
-test("local cleanup deletes a merged branch that has no linked worktree", async () => {
-  git(work, "branch", BRANCH);
-  await broker(mergedReply(localBranch()));
-
-  const run = await brokerAt(work, "merge", REPO, "7");
-  assert.equal(run.code, 0, JSON.stringify(run));
-  assert.equal(run.stdout, `merged\ngh-broker: deleted local branch ${BRANCH}\n`);
-  assert.equal(localBranch(), "");
-});
-
-test("local cleanup exits 1 and keeps the branch when git cannot delete it", async () => {
-  git(work, "branch", BRANCH);
-  const head = localBranch();
-  await writeFile(join(work, ".git", "refs", "heads", `${BRANCH}.lock`), "");
-  await broker(mergedReply(head));
-
-  const run = await brokerAt(work, "merge", REPO, "7");
-  assert.equal(run.code, 1, JSON.stringify(run));
-  assert.match(run.stderr, new RegExp(`^gh-broker: merged, but cannot delete local branch ${BRANCH}: `, "m"));
-  assert.equal(localBranch(), head);
+test("sweep without one default branch name is a usage error", async () => {
+  const run = await brokerAt(work, "sweep");
+  assert.equal(run.code, 64, JSON.stringify(run));
+  assert.ok(run.stderr.startsWith("gh-broker: want sweep <default-branch>\n"), run.stderr);
 });

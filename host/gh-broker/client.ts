@@ -6,10 +6,10 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import {
   isAgentBranch,
+  isDefaultBranchName,
   isSha,
   isVerdict,
   isReviewerRole,
-  isMergeReply,
   isReply,
   isSyncPrReply,
   isSyncReply,
@@ -19,7 +19,8 @@ import {
   REVIEWER_ROLES,
   validateRequest,
 } from "./protocol.ts";
-import type { MergeReply, Reply, Request, SyncPrReply, SyncReply } from "./protocol.ts";
+import type { Reply, Request, SyncPrReply, SyncReply, SyncRequest } from "./protocol.ts";
+import { sweep } from "./sweep.ts";
 
 export const SOCKET_ENV = "UG_GH_BROKER_SOCKET";
 
@@ -35,6 +36,7 @@ const USAGE = `usage:
   gh-broker ci-log <owner/repo> <n>
   gh-broker review <owner/repo> <n> <sha> code-review|security-review|risk-review pass|manual|block [reason]
   gh-broker merge <owner/repo> <n>
+  gh-broker sweep <default-branch>
 `;
 
 const execFileAsync = promisify(execFile);
@@ -61,61 +63,6 @@ async function runGit(args: string[], cwd: string): Promise<{ ok: true; stdout: 
     const stderr = error instanceof Error && "stderr" in error && typeof error.stderr === "string" && error.stderr !== "" ? error.stderr : String(error);
     return { ok: false, stderr: stderr.trim() };
   }
-}
-
-type Worktree = { path: string; branch?: string };
-
-function parseWorktrees(porcelainZ: string): Worktree[] {
-  const trees: Worktree[] = [];
-  for (const field of porcelainZ.split("\0")) {
-    if (field.startsWith("worktree ")) trees.push({ path: field.slice("worktree ".length) });
-    else if (field.startsWith("branch ") && trees.length > 0) trees[trees.length - 1].branch = field.slice("branch ".length);
-  }
-  return trees;
-}
-
-export async function cleanUpLocal(merged: MergeReply["merged"], cwd: string = process.cwd()): Promise<number> {
-  const ref = `refs/heads/${merged.branch}`;
-  const listed = await runGit(["worktree", "list", "--porcelain", "-z"], cwd);
-  if (!listed.ok) {
-    process.stderr.write(`gh-broker: merged, but cannot list the local worktrees: ${listed.stderr}\n`);
-    return 1;
-  }
-  const [main, ...linked] = parseWorktrees(listed.stdout);
-  if (main === undefined) {
-    process.stderr.write("gh-broker: merged, but git lists no main worktree\n");
-    return 1;
-  }
-  const tip = await runGit(["rev-parse", "--verify", "--quiet", `${ref}^{commit}`], main.path);
-  if (!tip.ok) {
-    process.stdout.write(`gh-broker: no local branch ${merged.branch}\n`);
-    return 0;
-  }
-  const sha = tip.stdout.trim();
-  if (sha !== merged.head) {
-    process.stdout.write(`gh-broker: kept local branch ${merged.branch} and its worktree: it moved from the merged commit ${merged.head} to ${sha}\n`);
-    return 0;
-  }
-  if (main.branch === ref) {
-    process.stdout.write(`gh-broker: kept local branch ${merged.branch}: the main worktree ${main.path} has it checked out\n`);
-    return 0;
-  }
-  const tree = linked.find((t) => t.branch === ref);
-  if (tree !== undefined) {
-    const removed = await runGit(["worktree", "remove", tree.path], main.path);
-    if (!removed.ok) {
-      process.stderr.write(`gh-broker: merged, but kept worktree ${tree.path} and local branch ${merged.branch}: ${removed.stderr}\n`);
-      return 1;
-    }
-    process.stdout.write(`gh-broker: removed worktree ${tree.path}\n`);
-  }
-  const deleted = await runGit(["update-ref", "-d", ref, merged.head], main.path);
-  if (!deleted.ok) {
-    process.stderr.write(`gh-broker: merged, but cannot delete local branch ${merged.branch}: ${deleted.stderr}\n`);
-    return 1;
-  }
-  process.stdout.write(`gh-broker: deleted local branch ${merged.branch}\n`);
-  return 0;
 }
 
 function needRepo(value: string | undefined): string {
@@ -254,7 +201,67 @@ async function importPr(reply: SyncPrReply, cwd: string = process.cwd()): Promis
   return 0;
 }
 
+async function runSweep(args: string[]): Promise<number> {
+  const [base] = args;
+  if (args.length !== 1 || !isDefaultBranchName(base)) {
+    process.stderr.write(`gh-broker: want sweep <default-branch>\n${USAGE}`);
+    return EXIT_USAGE;
+  }
+  try {
+    const report = await sweep({ cwd: process.cwd(), base });
+    for (const line of report.lines) process.stdout.write(`${line}\n`);
+    return 0;
+  } catch (error) {
+    process.stderr.write(`gh-broker: sweep: ${error instanceof Error ? error.message : String(error)}\n`);
+    return 1;
+  }
+}
+
+async function syncMain(socketPath: string, request: SyncRequest, first: Reply): Promise<{ branch: string } | number> {
+  if (!isSyncReply(first)) {
+    process.stderr.write("gh-broker: malformed sync reply\n");
+    return 1;
+  }
+  let synced = first;
+  try {
+    try {
+      await importSync(synced);
+    } catch (error) {
+      if (request.have === undefined || request.have.length === 0) throw error;
+      const full = await send(socketPath, { verb: "sync", repo: request.repo });
+      if (!isSyncReply(full) || full.exit !== 0) throw error;
+      synced = full;
+      await importSync(synced);
+    }
+  } catch (error) {
+    process.stderr.write(`gh-broker: cannot import sync bundle: ${error instanceof Error ? error.message : String(error)}\n`);
+    return 1;
+  }
+  process.stdout.write(`origin/${synced.branch} is now ${synced.head}\n`);
+  return { branch: synced.branch };
+}
+
+async function afterMerge(socketPath: string, repo: string): Promise<number> {
+  const request: SyncRequest = { verb: "sync", repo, have: await originHeads() };
+  let reply: Reply;
+  try {
+    reply = await send(socketPath, request);
+  } catch (error) {
+    process.stderr.write(`gh-broker: merged, but cannot reach gh-broker to sync: ${error instanceof Error ? error.message : String(error)}\n`);
+    return EXIT_UNAVAILABLE;
+  }
+  if ("refused" in reply) {
+    process.stderr.write(`gh-broker: merged, but the sync was refused: ${reply.refused}\n`);
+    return EXIT_REFUSED;
+  }
+  process.stderr.write(reply.stderr);
+  if (reply.exit !== 0) return reply.exit;
+  const synced = await syncMain(socketPath, request, reply);
+  return typeof synced === "number" ? synced : runSweep([synced.branch]);
+}
+
 export async function main(argv: string[], socketPath: string | undefined = process.env[SOCKET_ENV]): Promise<number> {
+  if (argv[0] === "sweep") return runSweep(argv.slice(1));
   let request: Request;
   try {
     request = await buildRequest(argv);
@@ -283,31 +290,18 @@ export async function main(argv: string[], socketPath: string | undefined = proc
     process.stderr.write(`refused: ${reply.refused}\n`);
     return EXIT_REFUSED;
   }
+  if (request.verb === "sync" && request.pr === undefined && reply.exit === 0) {
+    process.stderr.write(reply.stderr);
+    const synced = await syncMain(socketPath, request, reply);
+    return typeof synced === "number" ? synced : 0;
+  }
   process.stdout.write(reply.stdout);
   process.stderr.write(reply.stderr);
-  if (request.verb === "merge" && isMergeReply(reply)) {
-    const local = await cleanUpLocal(reply.merged);
-    return reply.exit !== 0 ? reply.exit : local;
-  }
   if (reply.exit !== 0) return reply.exit;
+  if (request.verb === "merge") return afterMerge(socketPath, request.repo);
   if (request.verb !== "sync") return 0;
   try {
-    if (request.pr !== undefined) {
-      if (isSyncPrReply(reply)) return await importPr(reply);
-    } else if (isSyncReply(reply)) {
-      let synced = reply;
-      try {
-        await importSync(synced);
-      } catch (error) {
-        if (request.have === undefined || request.have.length === 0) throw error;
-        const full = await send(socketPath, { verb: "sync", repo: request.repo });
-        if (!isSyncReply(full) || full.exit !== 0) throw error;
-        synced = full;
-        await importSync(synced);
-      }
-      process.stdout.write(`origin/${synced.branch} is now ${synced.head}\n`);
-      return 0;
-    }
+    if (isSyncPrReply(reply)) return await importPr(reply);
   } catch (error) {
     process.stderr.write(`gh-broker: cannot import sync bundle: ${error instanceof Error ? error.message : String(error)}\n`);
     return 1;

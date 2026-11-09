@@ -43,7 +43,6 @@ export type ReviewRecords = { kind: "records"; records: ReviewRecord[] } | { kin
 export type ResultReply = { exit: number; stdout: string; stderr: string };
 export type SyncReply = ResultReply & { branch: string; head: string; bundle_b64?: string };
 export type SyncPrReply = ResultReply & { pr: number; head: string; bundle_b64: string };
-export type MergeReply = ResultReply & { merged: { branch: string; head: string } };
 export type RefusedReply = { exit: 2; refused: string };
 export type Reply = ResultReply | RefusedReply;
 
@@ -212,11 +211,6 @@ export function isSyncPrReply(value: unknown): value is SyncPrReply {
     isSha(value.head) &&
     isBundleB64(value.bundle_b64)
   );
-}
-
-export function isMergeReply(value: unknown): value is MergeReply {
-  if (!isReply(value) || "refused" in value || !isRecord(value.merged)) return false;
-  return isAgentBranch(value.merged.branch) && isSha(value.merged.head);
 }
 
 export type PushRecord = { kind: "pushed"; sha: string } | { kind: "none" } | { kind: "unreadable" };
