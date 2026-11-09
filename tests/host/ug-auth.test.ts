@@ -21,6 +21,7 @@ async function fakeHome() {
     bin_dir=${JSON.stringify(join(home, ".local/bin"))}
     cleanup=()
     install -d -m 700 "$data" "$bin_dir"
+    source "$src/host/lib/ug.bash"
     eval "$(sed -n '/^put() {/,/^}/p;/^link() {/,/^}/p;/^install_service_code() {/,/^}/p' "$src/host/bin/ug-setup")"
     install_service_code
   `], { encoding: "utf8" });

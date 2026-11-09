@@ -15,6 +15,11 @@ case $src/ in
     exit 64
     ;;
 esac
+# shellcheck source=host/lib/ug.bash disable=SC1091
+source "$src/host/lib/ug.bash"
+green=$(ug_paint 1 green) red=$(ug_paint 1 red) yellow=$(ug_paint 1 yellow) plain=$(ug_paint 1 off)
+err_red=$(ug_paint 2 red) err_plain=$(ug_paint 2 off)
+
 bin_dir="$HOME/.local/bin"
 root=/Library/Underground
 node_bin=/opt/homebrew/bin/node
@@ -23,12 +28,6 @@ agents_dir="$HOME/Library/LaunchAgents"
 addresses_file="$data/addresses"
 engine_default=100.64.0.99:8081
 tailscale_app=/Applications/Tailscale.app/Contents/MacOS/Tailscale
-
-green="" red="" yellow="" plain="" err_red="" err_plain=""
-if [[ -z ${NO_COLOR:-} && ${TERM:-dumb} != dumb ]]; then
-  [[ ! -t 1 ]] || { green=$'\e[32m' red=$'\e[31m' yellow=$'\e[33m' plain=$'\e[0m'; }
-  [[ ! -t 2 ]] || { err_red=$'\e[31m' err_plain=$'\e[0m'; }
-fi
 
 die() {
   printf '%sug-setup: %s%s\n' "$err_red" "$*" "$err_plain" >&2
@@ -44,8 +43,6 @@ trap 'stopped $? $LINENO "$BASH_COMMAND"' ERR
 
 later=()
 
-# shellcheck source=host/lib/ug.bash disable=SC1091
-source "$src/host/lib/ug.bash"
 if [[ ${UG_SETUP_PULLED:-} != 1 ]]; then
   ug_pull_main "$src" ug-setup || exit 1
   UG_SETUP_PULLED=1 exec "$BASH" "$src/host/bin/ug-setup"
@@ -79,7 +76,7 @@ run_mac_only_tests() {
   local report="$data/state/mac-tests.tap" status=0 pass fail skip problems
   install -d -m 700 "$data" "$data/state"
   rm -f "$report"
-  printf 'mac tests: the tests that only this mac can run\n'
+  ug_say ok "mac tests" "the tests that only this mac can run"
   (cd "$src" && "$node_bin" --test --test-reporter=tap --test-reporter-destination="$report" \
     --test-name-pattern='\[mac\]' tests/broker/*.test.ts tests/host/*.test.ts) || status=$?
   [[ -f $report ]] || die "mac tests: node wrote no report (exit $status), so nothing is set up"
@@ -103,7 +100,7 @@ omp_stage=""
 stage_omp() {
   local dest="$root/omp/$omp_pin/omp" have url
   if [[ -f $dest && -f $dest.sha256 && $(<"$dest.sha256") == "$omp_sha" ]]; then
-    printf 'omp %s: in place in %s\n' "$omp_pin" "$dest"
+    ug_say same "omp $omp_pin" "in place in $dest"
     return 0
   fi
   url="$omp_release/v$omp_pin/omp-darwin-arm64"
@@ -112,7 +109,7 @@ stage_omp() {
   curl -fsSL --proto '=https' --retry 3 -o "$omp_stage" "$url" || die "download of $url failed"
   have=$(ug_sha256 "$omp_stage")
   [[ $have == "$omp_sha" ]] || die "omp $omp_pin from $url has SHA-256 $have, want $omp_sha; nothing changed"
-  printf 'omp %s: downloaded and checked; the root step installs it in %s\n' "$omp_pin" "$dest"
+  ug_say changed "omp $omp_pin" "downloaded and checked; the root step installs it in $dest"
 }
 
 stage_omp
@@ -123,7 +120,7 @@ install_restic() {
   local dir="$data/restic/$restic_pin" dest tmp bin have url
   dest="$dir/restic"
   if [[ -f $dest && ! -L $dest ]] && [[ $(ug_sha256 "$dest") == "$restic_sha" ]]; then
-    printf 'restic %s: in place\n' "$restic_pin"
+    ug_say same "restic $restic_pin" "in place"
     return 0
   fi
   url="$restic_release/v$restic_pin/restic_${restic_pin}_darwin_arm64.bz2"
@@ -139,7 +136,7 @@ install_restic() {
   chmod 555 "$bin"
   install -d -m 700 "$dir"
   mv -f "$bin" "$dest"
-  printf 'restic %s: installed in %s\n' "$restic_pin" "$dest"
+  ug_say changed "restic $restic_pin" "installed in $dest"
 }
 
 setup_backup() {
@@ -147,7 +144,7 @@ setup_backup() {
   install -d -m 700 "$backup"
   if [[ ! -s $backup/password ]]; then
     (umask 077 && openssl rand -base64 32 >"$backup/password") || die "cannot write $backup/password"
-    printf 'backup: made the password %s\n' "$backup/password"
+    ug_say changed backup "made the password $backup/password"
     later+=("keep a copy of $backup/password in your password manager; without it, the backup cannot be opened after a loss of this mac")
   fi
   if [[ ! -f $backup/config ]]; then
@@ -175,12 +172,12 @@ rename_broker() {
   if [[ -e $agents_dir/$label.plist ]] || launchctl print "gui/$UID/$label" >/dev/null 2>&1; then
     launchctl bootout "gui/$UID/$label" >/dev/null 2>&1 || true
     rm -f "$agents_dir/$label.plist"
-    printf 'gh-broker: booted out and deleted the old agent %s\n' "$label"
+    ug_say changed gh-broker "booted out and deleted the old agent $label"
   fi
   if [[ -e $old || -L $old ]]; then
     [[ ! -e $new && ! -L $new ]] || die "both $old and $new exist; keep the one with the current records, then run setup again"
     mv "$old" "$new"
-    printf 'gh-broker: moved the records from %s to %s\n' "$old" "$new"
+    ug_say changed gh-broker "moved the records from $old to $new"
   fi
 }
 
@@ -194,13 +191,13 @@ install_service_code() {
   done
   chmod 555 "$dir/host/bin/ug-backup" "$dir/host/bin/ug-auth"
   link "$dir/host/bin/ug-auth" "$bin_dir/ug-auth"
-  printf 'services: code installed in %s, ug-auth on PATH as %s\n' "$dir" "$bin_dir/ug-auth"
+  ug_say ok services "code installed in $dir, ug-auth on PATH as $bin_dir/ug-auth"
 }
 
 write_addresses() {
   local tailscale out ip tmp
   if [[ -e $addresses_file || -L $addresses_file ]]; then
-    printf 'addresses: %s in place\n' "$addresses_file"
+    ug_say same addresses "$addresses_file in place"
     return 0
   fi
   if command -v tailscale >/dev/null 2>&1; then
@@ -219,7 +216,7 @@ write_addresses() {
   printf 'gateway=%s:4000\nengine=%s\n' "$ip" "$engine_default" >"$tmp"
   chmod 600 "$tmp"
   mv -f "$tmp" "$addresses_file"
-  printf 'addresses: wrote %s with gateway=%s:4000 and engine=%s\n' "$addresses_file" "$ip" "$engine_default"
+  ug_say changed addresses "wrote $addresses_file with gateway=$ip:4000 and engine=$engine_default"
 }
 
 prepare_services() {
@@ -249,7 +246,7 @@ start_services() {
     fp=$(ug_fingerprint "$rendered" ${inputs[@]+"${inputs[@]}"}) || die "cannot read the inputs of $label"
     out=$(ug_ensure_service "gui/$UID" "$label" "$rendered" "$agents_dir/$label.plist" "$data/state/$label.fingerprint" "$fp" "${answers[@]}") ||
       die "$out; read $log"
-    printf 'service %s: %s\n' "$label" "$out"
+    ug_say "$(ug_service_kind "$out")" "service $label" "$out"
   done
 }
 
@@ -290,7 +287,7 @@ check_walls() {
     text=$(printf '%s; ' "${bad[@]}")
     die "a wall is open: ${text%; }. Close it, then run host/bin/ug-setup again"
   fi
-  printf 'walls: you cannot run omp, read the bearer, or read the logins\n'
+  ug_say ok walls "you cannot run omp, read the bearer, or read the logins"
   if [[ -e $HOME/.omp/profiles/ug-auth ]]; then
     later+=("$HOME/.omp/profiles/ug-auth still holds old logins; log in again with ug-auth, sign out of the old sessions at each provider, then delete it")
   fi
@@ -301,7 +298,7 @@ rename_broker
 install_service_code
 setup_backup
 prepare_services
-printf 'agent user: running sudo host/bin/ug-agent-setup, which asks for your password\n'
+ug_say ok "agent user" "running sudo host/bin/ug-agent-setup, which asks for your password"
 sudo "$src/host/bin/ug-agent-setup" ${omp_stage:+"$omp_stage"} || die "ug-agent-setup failed, so the agent user is not up to date; fix its error and run host/bin/ug-setup again"
 start_services
 check_walls
