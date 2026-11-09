@@ -28,7 +28,7 @@ sync_clone() {
 }
 
 for git_dir in "$HOME"/work/*/*/.git; do
-  [[ -d $git_dir ]] || continue
+  [[ -d $git_dir && -n $(find "$git_dir/ug-launched" -mtime -7 2>/dev/null) ]] || continue
   clone=${git_dir%/.git}
   repo=${clone#"$HOME/work/"}
   [[ $repo =~ $re ]] || continue

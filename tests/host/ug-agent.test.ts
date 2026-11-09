@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { chmod, copyFile, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, copyFile, mkdir, readFile, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -270,6 +270,7 @@ async function agentClone(home: string, repo: string, commit = true): Promise<st
   await mkdir(dir, { recursive: true });
   gitIn(dir, "init", "-q");
   if (commit) gitIn(dir, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "--allow-empty", "-m", "one");
+  await writeFile(join(dir, ".git/ug-launched"), "");
   return dir;
 }
 
@@ -280,7 +281,7 @@ async function holdLock(t: { after: (fn: () => unknown) => void }, dir: string, 
 }
 
 test(
-  "[mac] agent-refresh syncs each agent clone with git hooks off, skips a clone a launch holds, and stops a sync that hangs",
+  "[mac] agent-refresh syncs each clone launched in the last 7 days with git hooks off, skips a clone a launch holds, and stops a sync that hangs",
   { skip: process.platform !== "darwin" && "needs macOS lockf and getconf DARWIN_USER_TEMP_DIR" },
   async (t) => {
     const dir = await tempDir(join(tmpdir(), "ug-refresh-"));
@@ -302,6 +303,10 @@ test(
     const busy = await agentClone(home, "owner/busy");
     await agentClone(home, "owner/slow");
     await agentClone(home, "owner/broken");
+    const old = await agentClone(home, "owner/old");
+    const weekAgo = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000);
+    await utimes(join(old, ".git/ug-launched"), weekAgo, weekAgo);
+    await rm(join(await agentClone(home, "owner/never"), ".git/ug-launched"));
     await writeFile(join(app, ".git/hooks/reference-transaction"), "#!/bin/sh\ntouch HOOK_RAN\n");
     await chmod(join(app, ".git/hooks/reference-transaction"), 0o755);
     gitIn(app, "update-ref", "refs/probe", "HEAD");
@@ -324,7 +329,7 @@ test(
     assert.ok(!existsSync(join(app, "HOOK_RAN")), "the planted hook must not run in the background refresh");
     const called = await readFile(calls, "utf8");
     assert.match(called, /\/owner\/app sync owner\/app --cached/);
-    assert.doesNotMatch(called, /\/owner\/busy /);
+    assert.doesNotMatch(called, /\/owner\/(busy|old|never) /);
     const log = await readFile(join(home, "logs/agent-refresh.log"), "utf8");
     assert.match(log, /sync owner\/slow took over 1 s, stopped/);
     assert.match(log, /sync owner\/broken failed with exit 1/);
