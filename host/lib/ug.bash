@@ -1,5 +1,37 @@
 # shellcheck shell=bash
 
+ug_color_fds=""
+if [[ -z ${NO_COLOR:-} && ${TERM:-dumb} != dumb ]]; then
+  [[ ! -t 1 ]] || ug_color_fds+="1"
+  [[ ! -t 2 ]] || ug_color_fds+="2"
+fi
+
+ug_paint() {
+  [[ $ug_color_fds == *"$1"* ]] || return 0
+  case $2 in
+    bold) printf '\e[1m' ;;
+    dim) printf '\e[2m' ;;
+    green) printf '\e[32m' ;;
+    red) printf '\e[31m' ;;
+    yellow) printf '\e[33m' ;;
+    off) printf '\e[0m' ;;
+    *) printf 'ug_paint: unknown color %s\n' "$2" >&2; return 1 ;;
+  esac
+}
+
+ug_say() {
+  local kind=$1 subject=$2 text=$3 color=""
+  case $kind in
+    same) color=dim ;;
+    changed) color=green ;;
+    ok) ;;
+    *) printf 'ug_say: unknown kind %s\n' "$kind" >&2; return 1 ;;
+  esac
+  printf '%s%s:%s %s%s%s\n' "$(ug_paint 1 bold)" "$subject" "$(ug_paint 1 off)" "${color:+$(ug_paint 1 "$color")}" "$text" "$(ug_paint 1 off)"
+}
+
+ug_service_kind() { if [[ $1 == unchanged* ]]; then printf 'same\n'; else printf 'changed\n'; fi; }
+
 ug_pin() { sed -n "s/^$2=//p" "$1"; }
 
 ug_sha256() {
@@ -32,9 +64,9 @@ ug_pull_main() {
   "${g[@]}" merge --quiet --ff-only origin/main || { printf '%s: main cannot fast-forward to origin/main; setup does not merge or rebase. Nothing changed.\n' "$tool" >&2; return 1; }
   after=$("${g[@]}" rev-parse HEAD)
   if [[ $before == "$after" ]]; then
-    printf 'checkout: main is at origin/main %s\n' "${after:0:7}"
+    ug_say same checkout "main is at origin/main ${after:0:7}"
   else
-    printf 'checkout: pulled main from %s to %s\n' "${before:0:7}" "${after:0:7}"
+    ug_say changed checkout "pulled main from ${before:0:7} to ${after:0:7}"
   fi
 }
 
