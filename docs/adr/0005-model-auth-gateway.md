@@ -37,7 +37,7 @@ Cost: one more host service. A session gets usage numbers, which it could alread
 
 ## Amendment 2026-11-01: the inference engine behind the gateway
 
-The engine on `v100-server` now refuses a request without its API key (`curl http://100.64.0.99:8081/v1/models` from a role sandbox: `401 {"error": {"type": "authentication_error", "message": "missing or wrong API key"}}`, 2026-11-01). The role's `strata` provider had `auth: none`, and the wrapper accepted only that form for a non-gateway provider, so a role could not call the engine.
+The engine now refuses a request without its API key (`curl http://<engine>/v1/models` from a role sandbox: `401 {"error": {"type": "authentication_error", "message": "missing or wrong API key"}}`, 2026-11-01). The role's `strata` provider had `auth: none`, and the wrapper accepted only that form for a non-gateway provider, so a role could not call the engine.
 
 Decision: the auth broker holds the engine key under omp's built-in `lm-studio` provider, and the gateway serves the engine as that provider. The gateway plist sets `LM_STUDIO_BASE_URL=http://@ENGINE@/v1`, which setup fills from the `engine=` line of the addresses file (`host/bin/ug-setup`; `install.sh` was removed, `../SPEC.md`, B9). The gateway skips `models.yml` (`ignoreLocalModelConfig: true` in `auth-gateway serve`, pinned omp 18.13.2), but it still registers the built-in local providers from their base URL variables, and it serves each provider that the broker holds a credential for. The config repo's `models.yml` lists `lm-studio` as one more gateway provider, with the engine model and its thinking settings. The engine is on no network allowlist, so a session reaches it only through the gateway.
 
