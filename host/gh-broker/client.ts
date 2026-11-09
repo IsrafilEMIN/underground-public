@@ -209,19 +209,25 @@ async function originHeads(): Promise<string[]> {
   return [...new Set(heads)].slice(0, MAX_SYNC_HAVES);
 }
 
+async function withTempBundle<T>(bundleB64: string, name: string, use: (bundlePath: string) => Promise<T>): Promise<T> {
+  const tempDir = await mkdtemp(join(tmpdir(), "gh-broker-sync-"));
+  try {
+    const bundlePath = join(tempDir, name);
+    await writeFile(bundlePath, Buffer.from(bundleB64, "base64"), { mode: 0o600 });
+    return await use(bundlePath);
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+}
+
 async function importSync(reply: SyncReply): Promise<void> {
   const ref = `refs/remotes/origin/${reply.branch}`;
   if (reply.bundle_b64 === undefined) {
     await execFileAsync("git", ["update-ref", ref, `${reply.head}^{commit}`]);
   } else {
-    const tempDir = await mkdtemp(join(tmpdir(), "gh-broker-sync-"));
-    try {
-      const bundlePath = join(tempDir, "sync.bundle");
-      await writeFile(bundlePath, Buffer.from(reply.bundle_b64, "base64"), { mode: 0o600 });
+    await withTempBundle(reply.bundle_b64, "sync.bundle", async (bundlePath) => {
       await execFileAsync("git", ["fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "--update-head-ok", bundlePath, `+refs/heads/${reply.branch}:${ref}`]);
-    } finally {
-      await rm(tempDir, { recursive: true, force: true });
-    }
+    });
   }
   const { stdout } = await execFileAsync("git", ["rev-parse", "--verify", `${ref}^{commit}`], { encoding: "utf8" });
   const imported = stdout.trim();
@@ -231,24 +237,21 @@ async function importSync(reply: SyncReply): Promise<void> {
 async function importPr(reply: SyncPrReply, cwd: string = process.cwd()): Promise<number> {
   const git = async (args: string[]): Promise<string> => (await execFileAsync("git", args, { cwd, encoding: "utf8" })).stdout.trim();
   const ref = `refs/remotes/origin/pr/${reply.pr}`;
-  const tempDir = await mkdtemp(join(tmpdir(), "gh-broker-sync-"));
-  try {
-    const bundlePath = join(tempDir, "pr.bundle");
-    await writeFile(bundlePath, Buffer.from(reply.bundle_b64, "base64"), { mode: 0o600 });
-    const heads = (await git(["bundle", "list-heads", bundlePath])).split("\n").filter((line) => line !== "");
-    if (heads.length !== 1) throw new Error(`the PR bundle holds ${heads.length} refs, want 1`);
-    const source = heads[0].slice(heads[0].indexOf(" ") + 1);
-    await git(["fetch", "--quiet", "--no-tags", "--no-write-fetch-head", bundlePath, `+${source}:${ref}`]);
-    const imported = await git(["rev-parse", "--verify", `${ref}^{commit}`]);
-    if (imported !== reply.head) throw new Error(`the imported commit ${imported} is not the PR head ${reply.head}`);
-    process.stdout.write(`origin/pr/${reply.pr} is now ${imported}\n`);
-    return 0;
-  } catch (error) {
-    await git(["update-ref", "-d", ref]).catch(() => "");
-    throw error;
-  } finally {
-    await rm(tempDir, { recursive: true, force: true });
-  }
+  await withTempBundle(reply.bundle_b64, "pr.bundle", async (bundlePath) => {
+    try {
+      const heads = (await git(["bundle", "list-heads", bundlePath])).split("\n").filter((line) => line !== "");
+      if (heads.length !== 1) throw new Error(`the PR bundle holds ${heads.length} refs, want 1`);
+      const source = heads[0].slice(heads[0].indexOf(" ") + 1);
+      await git(["fetch", "--quiet", "--no-tags", "--no-write-fetch-head", bundlePath, `+${source}:${ref}`]);
+      const imported = await git(["rev-parse", "--verify", `${ref}^{commit}`]);
+      if (imported !== reply.head) throw new Error(`the imported commit ${imported} is not the PR head ${reply.head}`);
+      process.stdout.write(`origin/pr/${reply.pr} is now ${imported}\n`);
+    } catch (error) {
+      await git(["update-ref", "-d", ref]).catch(() => "");
+      throw error;
+    }
+  });
+  return 0;
 }
 
 export async function main(argv: string[], socketPath: string | undefined = process.env[SOCKET_ENV]): Promise<number> {

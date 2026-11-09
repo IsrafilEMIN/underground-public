@@ -2,6 +2,9 @@
 
 set -euo pipefail
 
+# shellcheck source=host/lib/ug.bash disable=SC1091
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)/host/lib/ug.bash"
+
 if [[ -t 1 ]] && command -v tput >/dev/null 2>&1 && [[ "$(tput colors 2>/dev/null || echo 0)" -ge 8 ]]; then
   BOLD=$(tput bold); DIM=$(tput dim); RESET=$(tput sgr0)
   BLUE=$(tput setaf 4); GREEN=$(tput setaf 2); YELLOW=$(tput setaf 3)
@@ -12,9 +15,6 @@ fi
 TOTAL_STAGES=0
 
 _STAGE_INDEX=0
-ENV_FILE="${ENV_FILE:-.env}"
-WRITTEN_ENV=()
-WRITTEN_SECRET=()
 SKIPPED=()
 
 _clear() {
@@ -28,8 +28,8 @@ banner() {
   printf '\n%s%s  %s%s\n' "$BOLD" "$BLUE" "$1" "$RESET"
   printf '%s  %s stages%s\n\n' "$DIM" "$TOTAL_STAGES" "$RESET"
   printf '%s  You drive the browser; this wizard tells you exactly what to do and\n' "$DIM"
-  printf '  captures the values you copy back. Stop any time with Ctrl-C and re-run\n'
-  printf '  later, since it remembers values already saved.%s\n' "$RESET"
+  printf '  captures the values you copy back. Stop any time with Ctrl-C; a re-run\n'
+  printf '  later starts from the top and asks for every value again.%s\n' "$RESET"
   pause "Ready to start?"
 }
 
@@ -68,87 +68,17 @@ confirm() {
   [[ "$reply" =~ ^[Yy] ]]
 }
 
-_existing() {
-  [[ -f "$ENV_FILE" ]] || return 1
-  local line value sq="'\\''"; line=$(grep -E "^${1}=" "$ENV_FILE" | tail -n1) || return 1
-  value="${line#*=}"
-  if [[ "$value" == \'*\' ]]; then value="${value:1:${#value}-2}"; value="${value//"$sq"/\'}"
-  elif [[ "$value" == \"*\" ]]; then
-    value="${value:1:${#value}-2}"
-    [[ "$value" == *[\\\$\"]* ]] && return 1
-  fi
-  printf '%s' "$value"
-}
-
 ask() {
-  local key="$1" prompt="$2" current input s=$'\001' e=$'\002' p rc=0
-  current=$(_existing "$key" || true)
+  local key="$1" prompt="$2" input s=$'\001' e=$'\002' p rc=0
   p="  $s$BOLD$e$prompt$s$RESET$e "
-  [[ -n "$current" ]] && p+="$s$DIM${e}[Enter keeps current]$s$RESET$e "
   read -e -r -p "$p" input || rc=1
   if (( rc )) && [[ -z "$input" ]]; then return 1; fi
-  [[ -z "$input" && -n "$current" ]] && input="$current"
   printf -v "$key" '%s' "$input"
-}
-
-ask_secret() {
-  local key="$1" prompt="$2" current input rc=0
-  current=$(_existing "$key" || true)
-  if [[ -n "$current" ]]; then
-    printf '  %s%s%s %s[Enter keeps current]%s ' "$BOLD" "$prompt" "$RESET" "$DIM" "$RESET"
-  else
-    printf '  %s%s%s ' "$BOLD" "$prompt" "$RESET"
-  fi
-  read -rs input || rc=1
-  printf '\n'
-  if (( rc )) && [[ -z "$input" ]]; then return 1; fi
-  [[ -z "$input" && -n "$current" ]] && input="$current"
-  printf -v "$key" '%s' "$input"
-}
-
-write_env() {
-  local key="$1" value="$2" tmp sq="'\\''"
-  [[ -e "$ENV_FILE" ]] || (umask 077 && : > "$ENV_FILE")
-  tmp=$(mktemp)
-  grep -vE "^${key}=" "$ENV_FILE" > "$tmp" || true
-  printf "%s='%s'\n" "$key" "${value//\'/$sq}" >> "$tmp"
-  cat "$tmp" > "$ENV_FILE"
-  rm -f "$tmp"
-  printf -v "$key" '%s' "$value"
-  WRITTEN_ENV+=("$key")
-  printf '  %s✓ wrote%s %s → %s\n' "$GREEN" "$RESET" "$key" "$ENV_FILE"
-}
-
-set_secret() {
-  local name="$1" value="$2"
-  if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
-    if printf '%s' "$value" | gh secret set "$name" >/dev/null 2>&1; then
-      WRITTEN_SECRET+=("$name")
-      printf '  %s✓ set%s GitHub secret %s\n' "$GREEN" "$RESET" "$name"
-      return
-    fi
-  fi
-  SKIPPED+=("GitHub secret $name (set it manually: gh secret set $name)")
-  warn "skipped GitHub secret $name: gh not ready; set it later"
-}
-
-set_var() {
-  local name="$1" value="$2"
-  if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
-    if gh variable set "$name" --body "$value" >/dev/null 2>&1; then
-      printf '  %s✓ set%s GitHub variable %s\n' "$GREEN" "$RESET" "$name"
-      return
-    fi
-  fi
-  SKIPPED+=("GitHub variable $name")
-  warn "skipped GitHub variable $name, gh not ready; set it later"
 }
 
 finish() {
   _clear
   printf '\n%s%s  ✓ Setup complete%s\n' "$BOLD" "$GREEN" "$RESET"
-  (( ${#WRITTEN_ENV[@]} ))    && note "wrote ${#WRITTEN_ENV[@]} value(s) to $ENV_FILE: ${WRITTEN_ENV[*]}"
-  (( ${#WRITTEN_SECRET[@]} )) && note "set ${#WRITTEN_SECRET[@]} GitHub secret(s): ${WRITTEN_SECRET[*]}"
   if (( ${#SKIPPED[@]} )); then
     printf '\n'; warn "still to do by hand:"
     for s in "${SKIPPED[@]}"; do note "  - $s"; done
@@ -157,27 +87,22 @@ finish() {
 }
 
 repo_from_checkout() {
-  local origin repo owner name
-  origin=$(git -C "$1" remote get-url origin 2>/dev/null) || {
+  local origin slug owner name
+  origin=$(git -C "$1" config --get remote.origin.url 2>/dev/null) || {
     printf 'Cannot read origin from checkout: %s\n' "$1" >&2
     return 1
   }
-  case "$origin" in
-    git@github.com:*) repo=${origin#git@github.com:} ;;
-    https://github.com/*) repo=${origin#https://github.com/} ;;
-    *)
-      printf 'Origin must be a GitHub SSH or HTTPS URL: %s\n' "$origin" >&2
-      return 1
-      ;;
-  esac
-  repo=${repo%.git}
-  owner=${repo%%/*}
-  name=${repo#*/}
-  if [[ "$repo" != */* || ! "$owner" =~ ^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?$ || ! "$name" =~ ^[A-Za-z0-9_.-]+$ || "$name" == . || "$name" == .. ]]; then
+  slug=$(ug_repo_slug "$1") || {
+    printf 'Origin must be a GitHub SSH or HTTPS URL: %s\n' "$origin" >&2
+    return 1
+  }
+  owner=${slug%%/*}
+  name=${slug#*/}
+  if [[ ! "$owner" =~ ^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?$ || ! "$name" =~ ^[A-Za-z0-9_.-]+$ || "$name" == . || "$name" == .. ]]; then
     printf 'Invalid GitHub repository in origin: %s\n' "$origin" >&2
     return 1
   fi
-  printf '%s\n' "$repo"
+  printf '%s\n' "$slug"
 }
 
 newest_key() {

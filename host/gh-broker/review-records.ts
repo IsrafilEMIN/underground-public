@@ -1,23 +1,13 @@
-import { appendFile, mkdir, readFile } from "node:fs/promises";
+import { appendFile, mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { isRecord, parseReviewRecord } from "./protocol.ts";
+import { parseReviewRecord } from "./protocol.ts";
 import type { ReviewRecord, ReviewRecords } from "./protocol.ts";
+import { readFileAsText } from "./read-file.ts";
 
 export type PrKey = { repo: string; pr: number };
 
-type FileText = { kind: "text"; text: string } | { kind: "missing" } | { kind: "unreadable" };
-
 export function reviewRecordsPath(dir: string, key: PrKey): string {
   return join(dir, key.repo, `${key.pr}.jsonl`);
-}
-
-async function readFileText(path: string): Promise<FileText> {
-  try {
-    return { kind: "text", text: await readFile(path, "utf8") };
-  } catch (error) {
-    if (isRecord(error) && error.code === "ENOENT") return { kind: "missing" };
-    return { kind: "unreadable" };
-  }
 }
 
 function parseRecordLine(line: string, key: PrKey): ReviewRecord | undefined {
@@ -29,7 +19,7 @@ function parseRecordLine(line: string, key: PrKey): ReviewRecord | undefined {
 }
 
 export async function readReviewRecords(dir: string, key: PrKey): Promise<ReviewRecords> {
-  const file = await readFileText(reviewRecordsPath(dir, key));
+  const file = await readFileAsText(reviewRecordsPath(dir, key));
   if (file.kind === "missing") return { kind: "records", records: [] };
   if (file.kind === "unreadable") return { kind: "unreadable" };
   const records: ReviewRecord[] = [];

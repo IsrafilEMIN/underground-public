@@ -10,7 +10,7 @@ done
 # shellcheck source=host/lib/ug.bash disable=SC1091
 source "$(dirname "$self")/../lib/ug.bash"
 
-UG=${UG_DIR:-$HOME/.local/share/underground}
+UG=$HOME/.local/share/underground
 key=$UG/agent-ssh/id_ed25519
 known_hosts=$UG/agent-ssh/known_hosts
 sshd_config=${UG_SSHD_CONFIG:-/etc/ssh/sshd_config}
@@ -22,7 +22,8 @@ die() { echo "ug-agent: $*" >&2; exit 1; }
   die "your home $HOME is not mode 700; the agent user could read it. Run: host/bin/ug-setup"
 
 last=$UG/backup/last
-if [[ ! -s $last ]] || (( $(date +%s) - $(<"$last") > 36 * 3600 )); then
+last_ts=$(cat "$last" 2>/dev/null) || last_ts=''
+if [[ ! $last_ts =~ ^[0-9]+$ ]] || (( $(date +%s) - 10#$last_ts > 36 * 3600 )); then
   echo "ug-agent: warning: the agent home has no backup from the last 36 hours; see $UG/backup/backup.log" >&2
 fi
 
@@ -33,7 +34,7 @@ done
 [[ -f $key && -f $known_hosts ]] || die "no agent key or known_hosts under $UG/agent-ssh; run: host/bin/ug-setup"
 
 if launchctl print system/com.openssh.sshd >/dev/null 2>&1; then
-  /usr/sbin/sshd -T -f "$sshd_config" -o HostKey="$key" -C user=ugagent,host=localhost,addr=127.0.0.1 2>/dev/null | grep -qix 'denyusers ugagent' ||
+  ug_sshd_denies_agent "$sshd_config" "$key" ||
     die "system Remote Login is running, and the system sshd does not deny ugagent; without that, the agent user could log in there outside the pin. Run host/bin/ug-setup, or turn Remote Login off."
 fi
 

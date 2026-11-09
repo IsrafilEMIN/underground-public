@@ -2,22 +2,11 @@
 
 ug_pin() { sed -n "s/^$2=//p" "$1"; }
 
-ug_lock() {
-  local dir=$1/lock wait=$2 waited=0 holder
-  mkdir -p "$1"
-  until mkdir "$dir" 2>/dev/null; do
-    holder=$(cat "$dir/pid" 2>/dev/null || true)
-    if [[ -n $holder ]] && ! kill -0 "$holder" 2>/dev/null; then
-      rm -rf "$dir"
-      continue
-    fi
-    (( waited++ < wait * 10 )) || return 1
-    sleep 0.1
-  done
-  echo $$ >"$dir/pid"
+ug_sha256() {
+  local out
+  out=$(shasum -a 256 "$1") || return 1
+  printf '%s\n' "${out%% *}"
 }
-
-ug_unlock() { rm -rf "$1/lock"; }
 
 ug_check_checkout() {
   local src=$1 tool=$2 head main dirty
@@ -96,10 +85,22 @@ ug_socket_answers() { printf '' | nc -w 1 -U "$1" | grep -q .; }
 
 ug_port_answers() { nc -z -w 1 "$1" "$2"; }
 
+ug_sshd_denies_agent() {
+  /usr/sbin/sshd -T -f "$1" -o HostKey="$2" -C user=ugagent,host=localhost,addr=127.0.0.1 2>/dev/null | grep -qix 'denyusers ugagent'
+}
+
 ug_fingerprint() {
   local out
   out=$(set -o pipefail; cat -- "$@" | openssl dgst -sha256 -r) || return 1
   printf '%s\n' "${out%% *}"
+}
+
+ug_render_plist() {
+  local out=$1 template=$2 shown=$3 left
+  shift 3
+  sed "$@" "$template" >"$out" || { printf 'cannot render %s\n' "$shown"; return 1; }
+  left=$(grep -o '@[A-Z_]*@' "$out" | head -1) || true
+  [[ -z $left ]] || { printf '%s has an unknown placeholder %s\n' "$shown" "$left"; return 1; }
 }
 
 ug_ensure_service() {

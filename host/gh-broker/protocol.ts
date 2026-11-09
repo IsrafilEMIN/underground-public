@@ -2,14 +2,14 @@ export const VERBS = ["sync", "push", "pr-create", "pr-status", "ci-log", "revie
 export type Verb = (typeof VERBS)[number];
 
 export const MAX_REQUEST_BYTES = 360 * 1024 * 1024;
-export const MAX_TITLE_CHARS = 256;
-export const MAX_BODY_CHARS = 65536;
-export const MAX_PR_NUMBER = 2147483647;
-export const MAX_REASON_CHARS = 2000;
+const MAX_TITLE_CHARS = 256;
+const MAX_BODY_CHARS = 65536;
+const MAX_PR_NUMBER = 2147483647;
+const MAX_REASON_CHARS = 2000;
 export const MAX_CI_LOG_BYTES = 64 * 1024;
 export const MAX_SYNC_HAVES = 16;
 
-export const VERDICTS = ["pass", "manual", "block"] as const;
+const VERDICTS = ["pass", "manual", "block"] as const;
 export type Verdict = (typeof VERDICTS)[number];
 
 export const REVIEWER_ROLES = ["code-review", "security-review", "risk-review"] as const;
@@ -55,7 +55,7 @@ const SHA_RE = /^[0-9a-f]{40}$/;
 const BASE64_RE = /^[A-Za-z0-9+/]*={0,2}$/;
 const DEFAULT_BRANCH_RE = /^[A-Za-z0-9_][A-Za-z0-9._/-]*$/;
 
-export function isVerb(value: unknown): value is Verb {
+function isVerb(value: unknown): value is Verb {
   return typeof value === "string" && (VERBS as readonly string[]).includes(value);
 }
 
@@ -169,7 +169,8 @@ export function validateRequest(input: unknown): Checked<Request> {
       return { ok: true, value: { verb, repo, head, title, body } };
     }
     case "pr-status":
-    case "ci-log": {
+    case "ci-log":
+    case "merge": {
       const { number } = input;
       if (!isPrNumber(number)) return fail("invalid PR number");
       return { ok: true, value: { verb, repo, number } };
@@ -184,15 +185,10 @@ export function validateRequest(input: unknown): Checked<Request> {
       if (!isReason(verdict, reason)) return fail(`invalid reason (required for manual and block, at most ${MAX_REASON_CHARS} characters)`);
       return { ok: true, value: { verb, repo, number, sha, role, verdict, reason } };
     }
-    case "merge": {
-      const { number } = input;
-      if (!isPrNumber(number)) return fail("invalid PR number");
-      return { ok: true, value: { verb, repo, number } };
-    }
   }
 }
 
-export function isReply(value: unknown): value is Reply {
+export function isReply(value: unknown): value is Reply & Record<string, unknown> {
   if (!isRecord(value) || typeof value.exit !== "number" || !Number.isInteger(value.exit)) return false;
   if (typeof value.refused === "string") return value.exit === 2;
   return typeof value.stdout === "string" && typeof value.stderr === "string";
@@ -202,7 +198,6 @@ export function isSyncReply(value: unknown): value is SyncReply {
   return (
     isReply(value) &&
     !("refused" in value) &&
-    isRecord(value) &&
     isDefaultBranchName(value.branch) &&
     isSha(value.head) &&
     (value.bundle_b64 === undefined || isBundleB64(value.bundle_b64))
@@ -213,7 +208,6 @@ export function isSyncPrReply(value: unknown): value is SyncPrReply {
   return (
     isReply(value) &&
     !("refused" in value) &&
-    isRecord(value) &&
     isPrNumber(value.pr) &&
     isSha(value.head) &&
     isBundleB64(value.bundle_b64)
@@ -221,7 +215,7 @@ export function isSyncPrReply(value: unknown): value is SyncPrReply {
 }
 
 export function isMergeReply(value: unknown): value is MergeReply {
-  if (!isReply(value) || "refused" in value || !isRecord(value) || !isRecord(value.merged)) return false;
+  if (!isReply(value) || "refused" in value || !isRecord(value.merged)) return false;
   return isAgentBranch(value.merged.branch) && isSha(value.merged.head);
 }
 
@@ -292,9 +286,9 @@ export function parseProtectedPaths(text: string): string[] {
     .filter((line) => line !== "" && !line.startsWith("#"));
 }
 
-export function isProtectedPath(path: string, globs: string[]): boolean {
+export function isProtectedPath(path: string, globs: RegExp[]): boolean {
   if (path.startsWith(".github/") || path.split("/").at(-1) === "CODEOWNERS") return true;
-  return globs.some((glob) => globRegExp(glob).test(path));
+  return globs.some((glob) => glob.test(path));
 }
 
 function hasRecordFields(value: unknown): value is Omit<ReviewRecord, "role"> {
@@ -324,7 +318,7 @@ export type Hold =
   | { kind: "attempt"; attempt: number; record: ReviewRecord }
   | { kind: "protected-path"; path: string };
 
-export function attempts(records: ReviewRecord[]): ReviewRecord[] {
+function attempts(records: ReviewRecord[]): ReviewRecord[] {
   const firstBlocks = new Map<string, ReviewRecord>();
   for (const record of records) {
     if (record.verdict === "block" && !firstBlocks.has(record.head)) firstBlocks.set(record.head, record);
@@ -332,7 +326,7 @@ export function attempts(records: ReviewRecord[]): ReviewRecord[] {
   return [...firstBlocks.values()];
 }
 
-export function holds(records: ReviewRecord[], protectedFiles: string[]): Hold[] {
+function holds(records: ReviewRecord[], protectedFiles: string[]): Hold[] {
   return [
     ...records.filter((record) => record.verdict === "manual").map((record): Hold => ({ kind: "manual", record })),
     ...attempts(records)
@@ -378,7 +372,8 @@ export function mergeRefusal(input: MergeInputs): string | undefined {
   if (input.records.kind === "unreadable") return "cannot read review records";
   if (input.files === undefined) return "the changed files cannot be read";
   const records = input.records.records.filter((r) => r.repo === input.repo && r.pr === input.pr);
-  const protectedFiles = input.files.filter((f) => isProtectedPath(f, input.protectedGlobs));
+  const protectedGlobs = input.protectedGlobs.map(globRegExp);
+  const protectedFiles = input.files.filter((f) => isProtectedPath(f, protectedGlobs));
   const hold = holds(records, protectedFiles).at(0);
   if (hold !== undefined) return holdRefusal(hold);
   return headVerdictRefusal(records, input.head);

@@ -16,12 +16,12 @@ function git(checkout: string, ...args: string[]): void {
 function source(checkout: string, script = 'repo_from_checkout "$2"') {
   return spawnSync("/bin/bash", ["-c", `source "$1"; ${script}`, "_", WIZARD, checkout, process.execPath], {
     cwd: checkout,
-    env: { ...process.env, HOME: checkout, ENV_FILE: join(checkout, "missing.env") },
+    env: { ...process.env, HOME: checkout },
     encoding: "utf8",
   });
 }
 
-for (const origin of ["git@github.com:Another-Owner/alternate_repo.git", "https://github.com/Another-Owner/alternate_repo.git", "https://github.com/Another-Owner/alternate_repo"]) {
+for (const origin of ["git@github.com:Another-Owner/alternate_repo.git", "ssh://git@github.com/Another-Owner/alternate_repo.git", "https://github.com/Another-Owner/alternate_repo.git", "https://github.com/Another-Owner/alternate_repo"]) {
   test(`wizard resolves checkout identity from ${origin}`, async (t) => {
     const checkout = await tempDir(join(tmpdir(), "repo-wizard-"));
     t.after(() => rm(checkout, { recursive: true, force: true }));
@@ -38,7 +38,6 @@ for (const origin of [
   "git@gitlab.com:Another-Owner/alternate_repo.git",
   "https://gitlab.com/Another-Owner/alternate_repo.git",
   "https://github.com.evil.example/Another-Owner/alternate_repo.git",
-  "ssh://git@github.com/Another-Owner/alternate_repo.git",
   "https://github.com/Another-Owner",
   "https://github.com//alternate_repo.git",
   "https://github.com/Another-Owner/",

@@ -18,7 +18,7 @@ esac
 bin_dir="$HOME/.local/bin"
 root=/Library/Underground
 node_bin=/opt/homebrew/bin/node
-labels="com.underground.gh-broker com.underground.backup"
+labels=(com.underground.gh-broker com.underground.backup)
 agents_dir="$HOME/Library/LaunchAgents"
 addresses_file="$data/addresses"
 engine_default=100.64.0.99:8081
@@ -56,12 +56,6 @@ pin() {
   value=$(ug_pin "$src/VERSIONS" "$1")
   [[ $value =~ $2 ]] || die "bad pin for $1 in VERSIONS"
   printf '%s\n' "$value"
-}
-
-sha256() {
-  local out
-  out=$(shasum -a 256 "$1") || return 1
-  printf '%s\n' "${out%% *}"
 }
 
 omp_pin=$(pin omp '^[0-9A-Za-z.+-]+$')
@@ -116,7 +110,7 @@ stage_omp() {
   omp_stage=$(mktemp "${TMPDIR:-/tmp}/ug-omp-download.XXXXXX")
   cleanup+=("$omp_stage")
   curl -fsSL --proto '=https' --retry 3 -o "$omp_stage" "$url" || die "download of $url failed"
-  have=$(sha256 "$omp_stage")
+  have=$(ug_sha256 "$omp_stage")
   [[ $have == "$omp_sha" ]] || die "omp $omp_pin from $url has SHA-256 $have, want $omp_sha; nothing changed"
   printf 'omp %s: downloaded and checked; the root step installs it in %s\n' "$omp_pin" "$dest"
 }
@@ -128,7 +122,7 @@ install -d -m 700 "$data" "$data/restic"
 install_restic() {
   local dir="$data/restic/$restic_pin" dest tmp bin have url
   dest="$dir/restic"
-  if [[ -f $dest && ! -L $dest ]] && [[ $(sha256 "$dest") == "$restic_sha" ]]; then
+  if [[ -f $dest && ! -L $dest ]] && [[ $(ug_sha256 "$dest") == "$restic_sha" ]]; then
     printf 'restic %s: in place\n' "$restic_pin"
     return 0
   fi
@@ -137,10 +131,10 @@ install_restic() {
   bin=$(mktemp "$data/restic/.binary.XXXXXX")
   cleanup+=("$tmp" "$bin")
   curl -fsSL --proto '=https' --retry 3 -o "$tmp" "$url" || die "download of $url failed"
-  have=$(sha256 "$tmp")
+  have=$(ug_sha256 "$tmp")
   [[ $have == "$restic_bz2_sha" ]] || die "restic $restic_pin from $url has SHA-256 $have, want $restic_bz2_sha; nothing changed"
   bunzip2 -c "$tmp" >"$bin" || die "bunzip2 of $url failed; nothing changed"
-  have=$(sha256 "$bin")
+  have=$(ug_sha256 "$bin")
   [[ $have == "$restic_sha" ]] || die "restic $restic_pin unpacked has SHA-256 $have, want $restic_sha; nothing changed"
   chmod 555 "$bin"
   install -d -m 700 "$dir"
@@ -234,14 +228,12 @@ prepare_services() {
 }
 
 start_services() {
-  local label rendered left out fp inputs answers log
+  local label rendered out fp inputs answers log
   install -d "$agents_dir"
-  for label in $labels; do
+  for label in "${labels[@]}"; do
     rendered=$(mktemp "$agents_dir/.$label.XXXXXX")
     cleanup+=("$rendered")
-    sed -e "s|@DATA@|$data|g" -e "s|@HOME@|$HOME|g" "$src/host/launchd/$label.plist" >"$rendered"
-    left=$(grep -o '@[A-Z_]*@' "$rendered" | head -1) || true
-    [[ -z $left ]] || die "host/launchd/$label.plist has an unknown placeholder $left"
+    out=$(ug_render_plist "$rendered" "$src/host/launchd/$label.plist" "host/launchd/$label.plist" -e "s|@DATA@|$data|g") || die "$out"
     case $label in
       com.underground.gh-broker)
         inputs=("$node_bin" "$data"/services/host/gh-broker/*.ts)

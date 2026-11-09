@@ -31,7 +31,7 @@ export function redactTokens(text: string): string {
   return text.replace(INSTALLATION_TOKEN_TEXT, "ghs_[redacted]");
 }
 
-export function parseAppConfig(text: string): Checked<AppConfig> {
+function parseAppConfig(text: string): Checked<AppConfig> {
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
