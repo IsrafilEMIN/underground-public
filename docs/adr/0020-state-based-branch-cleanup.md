@@ -28,7 +28,7 @@ One rule for every store: delete a thing only when its work is in main, nobody u
    - Its commits are not in `origin/<default>`: keep, listed as "not in main". A squash merge lands here.
    - Otherwise: `git worktree remove` without `--force`, then `git update-ref -d` with the checked commit.
 4. **The kept list.** The sweep writes the kept branches, each with its reason, to `ug-kept.json` in the clone's git folder. A branch with `branch.<name>.ugParked=true` stays in the list, marked parked. The agent reads the list when the owner asks, and can push or park a kept branch. Not built yet:
-   - The notice at session start. It is an extension in the owner's config repo, and the gh-broker refused the config repo: `gh-broker: cannot get a GitHub App token: GitHub answered POST /app/installations/177245675/access_tokens with HTTP 422: There is at least one repository that does not exist or is not accessible to the parent installation.` (agent run, 2026-11-09). It waits until the owner installs the gh-broker app on `IsrafilEMIN/agent-config`.
+   - The notice at session start. It would be an extension in the owner's config repo, and the agent gets no access to that repo (owner decision, 2026-11-09). So the notice is not built; the agent reads the kept list when the owner asks.
    - A drop of a kept branch. A kept branch is dirty or not in main, so its drop needs `git worktree remove --force` or `git update-ref -d`, and the guard extension blocks both in a session (`underground-guard.ts`, "destructive git"). How the owner approves a drop is open.
 
 ## The gate
