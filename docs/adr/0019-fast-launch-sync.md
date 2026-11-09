@@ -2,6 +2,8 @@
 
 Date: 2026-11-08. Status: built, not run on the owner's mac. Owner decisions of 2026-11-08: the gh-broker refreshes each repo every 30 s; the refresh gets its own read-only token; a repo with no launch for 7 days drops out of the refresh; the first launch of a repo keeps the full sync; the agent's clones follow the gh-broker's copy in the background (item 8).
 
+Changed on 2026-11-09 by `0020-state-based-branch-cleanup.md`: the refresh also ends merged branches. It mints a token that writes only to delete a branch whose recorded commit is in main; otherwise decision 2 holds.
+
 ## Context
 
 A launch takes about 2 s from enter to a ready prompt. The parts, measured on 2026-11-08:

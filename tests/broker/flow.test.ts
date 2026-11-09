@@ -258,7 +258,7 @@ test("a security-review block on a planted defect refuses the merge, and the aut
   assert.deepEqual(status.reviewRecords.map((record) => record.role).sort(), [...REVIEWERS].sort());
 });
 
-test("a fixed new head with a fresh pass from all three roles and green CI merges, and the remote branch, local worktree, and local branch go", async () => {
+test("a fixed new head with a fresh pass from all three roles and green CI merges, the remote branch goes, and the author's new worktree waits for a later sweep", async () => {
   const { pr, head: blocked } = await plantedDefect();
   await rm(join(tree, "leak.txt"));
   git(tree, "rm", "--quiet", "--cached", "leak.txt");
@@ -275,9 +275,9 @@ test("a fixed new head with a fresh pass from all three roles and green CI merge
   assert.match(await readFile(join(root, "merged"), "utf8"), new RegExp(`--match-head-commit ${head}\\b`));
   assert.equal(git(remote, "rev-parse", "refs/heads/main^2"), head);
   assert.equal(remoteRef(`refs/heads/${BRANCH}`), "");
-  assert.equal(existsSync(tree), false);
-  assert.equal(git(work, "for-each-ref", "--format=%(objectname)", `refs/heads/${BRANCH}`), "");
-  assert.equal(git(work, "worktree", "list", "--porcelain").includes(tree), false);
+  assert.equal(existsSync(tree), true);
+  assert.equal(git(work, "for-each-ref", "--format=%(objectname)", `refs/heads/${BRANCH}`), head);
+  assert.equal(git(work, "rev-parse", "refs/remotes/origin/main^2"), head);
   const records = (await prStatus(pr)).reviewRecords;
   assert.ok(records.some((record) => record.head === blocked && record.verdict === "block"));
 });
@@ -407,7 +407,7 @@ test("a change under .github is a hold with no protected paths list, with a pass
   assert.equal(await pushRecord(BRANCH), head);
 });
 
-test("a merge whose head branch moved right after it keeps that branch, says so, and still drops the push record", async () => {
+test("a merge whose head branch moved right after it keeps that branch and its push record, and says so", async () => {
   const head = await newHead("a.txt");
   const pr = await openPr();
   await passAll(pr, head);
@@ -419,8 +419,8 @@ test("a merge whose head branch moved right after it keeps that branch, says so,
   assert.match(out, new RegExp(`kept branch ${BRANCH}: it moved from the merged commit ${head} to ${moved}`));
   assert.equal(git(remote, "rev-parse", "refs/heads/main^2"), head);
   assert.equal(remoteRef(`refs/heads/${BRANCH}`), moved);
-  assert.equal(await pushRecord(BRANCH), undefined);
-  assert.equal(existsSync(tree), false);
+  assert.equal(await pushRecord(BRANCH), head);
+  assert.equal(existsSync(tree), true);
 });
 
 test("a merge whose head branch GitHub deleted already counts as cleaned up and drops the push record", async () => {
@@ -434,7 +434,7 @@ test("a merge whose head branch GitHub deleted already counts as cleaned up and 
   assert.equal(git(remote, "rev-parse", "refs/heads/main^2"), head);
   assert.equal(remoteRef(`refs/heads/${BRANCH}`), "");
   assert.equal(await pushRecord(BRANCH), undefined);
-  assert.equal(existsSync(tree), false);
+  assert.equal(existsSync(tree), true);
 });
 
 test("a review of a stale head is refused and records nothing, and a re-review of the new head merges it", async () => {
@@ -480,7 +480,7 @@ test("a revert of a merged PR goes through the auto path like any PR and restore
   assert.deepEqual(git(remote, "ls-tree", "--name-only", "refs/heads/main").split("\n"), ["base.txt"]);
   assert.equal(remoteRef(`refs/heads/${revertBranch}`), "");
   assert.equal(await pushRecord(revertBranch), undefined);
-  assert.equal(existsSync(revertTree), false);
+  assert.equal(existsSync(revertTree), true);
 });
 
 test("a launch sync right after a merge through the gh-broker gets the merged main, not the copy from before it", async () => {

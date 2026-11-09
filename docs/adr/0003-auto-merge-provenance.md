@@ -6,6 +6,8 @@ Holds under the redesign (2026-11-02, `0011-one-agent-arena.md`).
 
 Superseded in part on 2026-10-31 by `docs/adr/0007-gh-broker-github-app.md`: the gh-broker acts as a GitHub App, not a bot account, and the owner's approval no longer merges. So every `gh-broker merge`, not only an auto merge, needs the PR head to be the push record.
 
+Changed on 2026-11-09 by `0020-state-based-branch-cleanup.md`: the end of the branch no longer waits for a merge through the gh-broker. Each refresh deletes a branch whose recorded commit is in main and that still points at it, then drops the record. A branch that moved keeps its record.
+
 The gate accepts an `agent/*` branch in the same repo, but any account with write access can push to that branch (U29).
 
 Decision: the gh-broker records the commit that it last pushed to each branch. Auto merge needs the PR head to be that commit. After the merge, the gh-broker deletes the branch only if it still points at the merged commit (a push with `--force-with-lease`), then drops the record.

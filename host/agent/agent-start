@@ -96,5 +96,6 @@ checkout_status=0
 /usr/bin/lockf -k -t 3 .git/ug-sync.lock git checkout -q --detach "origin/$base" || checkout_status=$?
 (( checkout_status != 75 )) || busy "$@"
 (( checkout_status == 0 )) || exit "$checkout_status"
+"$root/bin/gh-broker" sweep "$base" >.git/ug-sweep.log 2>&1 &
 copied
 start_omp "$@"

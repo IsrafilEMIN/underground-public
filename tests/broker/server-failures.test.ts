@@ -6,7 +6,7 @@ import type { Server, Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
-import { MAX_REQUEST_BYTES, REVIEWER_ROLES, isMergeReply } from "../../host/gh-broker/protocol.ts";
+import { MAX_REQUEST_BYTES, REVIEWER_ROLES } from "../../host/gh-broker/protocol.ts";
 import type { PushRecord, Reply } from "../../host/gh-broker/protocol.ts";
 import { readPushRecord, writePushRecord } from "../../host/gh-broker/push-record.ts";
 import { appendReviewRecord, readReviewRecords } from "../../host/gh-broker/review-records.ts";
@@ -748,40 +748,42 @@ test("merge holds a PR that renames a protected path away, and merges the same r
   assert.equal(ok.exit, 0, JSON.stringify(ok));
 });
 
-test("a merge whose branch delete fails while the branch is still at the head exits 1, keeps the branch, and names the merge", async () => {
+test("a merge whose branch delete fails exits 0, keeps the branch and its record, and says the next check tries again", async () => {
   const head = await pushedHead();
   await prView(head);
+  git(remote, "update-ref", "refs/heads/main", head);
   await failGit("--force-with-lease");
 
   const reply = await merge();
-  assert.equal(reply.exit, 1, JSON.stringify(reply));
-  assert.ok("stderr" in reply && reply.stderr.includes(`merged, but cannot delete branch ${BRANCH}`), JSON.stringify(reply));
-  assert.ok(isMergeReply(reply) && reply.merged.head === head, JSON.stringify(reply));
+  assert.equal(reply.exit, 0, JSON.stringify(reply));
+  assert.ok("stdout" in reply && reply.stdout.includes(`gh-broker: cannot end branch ${BRANCH} yet, the next check tries again: fake git: cannot --force-with-lease`), JSON.stringify(reply));
   assert.equal(await readHome("merged"), `pr merge 7 --repo ${REPO} --merge --match-head-commit ${head}\n`);
   assert.equal(remoteRef(BRANCH), head);
+  assert.deepEqual(await pushRecord(), { kind: "pushed", sha: head });
 });
 
-test("a merge whose bare repo cannot be created exits 1 with git's error and keeps the branch", async () => {
+test("a merge whose bare repo cannot be created exits 0 with git's error and keeps the branch", async () => {
   const head = await pushedHead();
   await prView(head);
+  git(remote, "update-ref", "refs/heads/main", head);
   await failGit("init --bare");
 
   const reply = await merge();
-  assert.equal(reply.exit, 1, JSON.stringify(reply));
-  assert.ok("stderr" in reply && reply.stderr.includes(`merged, but cannot delete branch ${BRANCH}: fake git: cannot init --bare`), JSON.stringify(reply));
-  assert.ok(isMergeReply(reply) && reply.merged.head === head, JSON.stringify(reply));
+  assert.equal(reply.exit, 0, JSON.stringify(reply));
+  assert.ok("stderr" in reply && reply.stderr.includes("gh-broker: merged; the branch cleanup runs again within 30 s: fake git: cannot init --bare"), JSON.stringify(reply));
   assert.equal(remoteRef(BRANCH), head);
 });
 
-test("a merge whose push record cannot be dropped exits 1 and says so, after it deleted the branch", async () => {
+test("a merge whose push record cannot be dropped deletes the branch and says the next check tries again", async () => {
   const head = await pushedHead();
   await prView(head);
+  git(remote, "update-ref", "refs/heads/main", head);
   await chmod(join(config.pushesDir, REPO), 0o500);
 
   const reply = await merge();
   await chmod(join(config.pushesDir, REPO), 0o700);
-  assert.equal(reply.exit, 1, JSON.stringify(reply));
-  assert.ok("stderr" in reply && reply.stderr.includes(`merged, but cannot drop the push record of ${BRANCH}`), JSON.stringify(reply));
-  assert.ok(isMergeReply(reply) && reply.merged.head === head, JSON.stringify(reply));
+  assert.equal(reply.exit, 0, JSON.stringify(reply));
+  assert.ok("stdout" in reply && reply.stdout.includes(`gh-broker: cannot end branch ${BRANCH} yet, the next check tries again: cannot drop the push record`), JSON.stringify(reply));
   assert.equal(remoteRef(BRANCH), "");
+  assert.deepEqual(await pushRecord(), { kind: "pushed", sha: head });
 });

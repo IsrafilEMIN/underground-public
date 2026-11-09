@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
 import { REVIEWER_ROLES, isReply } from "../../host/gh-broker/protocol.ts";
 import type { Reply } from "../../host/gh-broker/protocol.ts";
-import { dropPushRecord, pushRecordPath, readPushRecord, writePushRecord } from "../../host/gh-broker/push-record.ts";
+import { dropPushRecord, listPushRecords, pushRecordPath, readPushRecord, writePushRecord } from "../../host/gh-broker/push-record.ts";
 import { appendReviewRecord, reviewRecordsPath } from "../../host/gh-broker/review-records.ts";
 import { defaultConfig } from "../../host/gh-broker/server.ts";
 import type { ServerConfig } from "../../host/gh-broker/server.ts";
@@ -212,16 +212,18 @@ test("merge refuses when the push record cannot be read", async () => {
   assert.deepEqual(reply, { exit: 2, refused: `the push record of ${BRANCH} cannot be read` });
 });
 
-test("drop removes only its record, and a drop of a missing record is not an error", async () => {
+test("a drop removes only its own record, and only while the record holds the commit it names", async () => {
   const key = { repo: REPO, branch: BRANCH };
   const nested = { repo: REPO, branch: `${BRANCH}/nested` };
   await writePushRecord(config.pushesDir, key, "a".repeat(40));
   await writePushRecord(config.pushesDir, nested, "b".repeat(40));
+  assert.equal(await dropPushRecord(config.pushesDir, key, "c".repeat(40)), false);
   assert.deepEqual(await readPushRecord(config.pushesDir, key), { kind: "pushed", sha: "a".repeat(40) });
-  await dropPushRecord(config.pushesDir, key);
+  assert.equal(await dropPushRecord(config.pushesDir, key, "a".repeat(40)), true);
   assert.deepEqual(await readPushRecord(config.pushesDir, key), { kind: "none" });
-  await dropPushRecord(config.pushesDir, key);
+  assert.equal(await dropPushRecord(config.pushesDir, key, "a".repeat(40)), false);
   assert.deepEqual(await readPushRecord(config.pushesDir, nested), { kind: "pushed", sha: "b".repeat(40) });
+  assert.deepEqual(await listPushRecords(config.pushesDir), [{ repo: REPO, branch: `${BRANCH}/nested`, sha: "b".repeat(40) }]);
 });
 
 test("a push record that exists but cannot be read is unreadable, not absent, and merge refuses", async () => {
