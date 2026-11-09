@@ -358,9 +358,11 @@ export async function refreshRepos(config: ServerConfig, signal: AbortSignal): P
   const now = (config.now ?? Date.now)();
   const recorded = new Set((await listPushRecords(config.pushesDir)).map((pushed) => pushed.repo));
   for (const repo of recorded) repoState(config, repo);
-  const due = [...(repoStates.get(config) ?? [])].filter(
-    ([repo, state]) => (recorded.has(repo) || (state.syncedAt !== undefined && now - state.syncedAt <= REFRESH_FOR_MS)) && state.refreshing !== true,
-  );
+  const due = [...(repoStates.get(config) ?? [])].filter(([repo, state]) => {
+    if (state.refreshing === true) return false;
+    if (state.syncedAt !== undefined && now - state.syncedAt <= REFRESH_FOR_MS) return true;
+    return recorded.has(repo) && state.checkedAt === undefined;
+  });
   await Promise.all(
     due.map(async ([repo, state]) => {
       state.refreshing = true;
