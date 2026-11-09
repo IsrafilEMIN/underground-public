@@ -129,9 +129,9 @@ ug_fingerprint() {
 
 ug_ensure_owner_mode() {
   local file=$1 owner=$2 mode=$3
-  [[ $(stat -f '%Su:%Sg %Lp' "$file") != "$owner $mode" ]] || return 0
+  [[ $(stat -f '%Su:%Sg %Mp%Lp' "$file") != "$owner $mode" ]] || return 0
   chown "$owner" "$file" && chmod "$mode" "$file" || return 1
-  [[ $(stat -f '%Su:%Sg %Lp' "$file") == "$owner $mode" ]]
+  [[ $(stat -f '%Su:%Sg %Mp%Lp' "$file") == "$owner $mode" ]]
 }
 
 ug_render_plist() {

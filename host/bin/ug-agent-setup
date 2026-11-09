@@ -127,7 +127,7 @@ if [[ -n $staged ]]; then
 fi
 [[ -f $omp_bin && ! -L $omp_bin ]] || die "no omp $omp_pin in $omp_dir; run host/bin/ug-setup, which downloads it"
 [[ $(ug_sha256 "$omp_bin") == "$omp_sha" ]] || die "$omp_bin does not have the pinned SHA-256; run host/bin/ug-setup, which downloads it again"
-ug_ensure_owner_mode "$omp_bin" root:ugomp 550 || die "cannot make $omp_bin root:ugomp mode 550; the agent could change the binary it runs"
+ug_ensure_owner_mode "$omp_bin" root:ugomp 0550 || die "cannot make $omp_bin root:ugomp mode 0550; the agent could change the binary it runs"
 printf '%s\n' "$omp_sha" >"$omp_dir/.omp.sha256.tmp"
 install -m 444 -o root -g wheel "$omp_dir/.omp.sha256.tmp" "$omp_bin.sha256"
 rm -f "$omp_dir/.omp.sha256.tmp"

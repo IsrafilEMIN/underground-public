@@ -36,3 +36,5 @@ Terms: the **agent home omp binary** is the one omp file; **vanilla omp** is tha
 ## Amendment 2026-11-08: setup leaves a right owner and mode alone
 
 Setup set `root:ugomp` and mode 550 on the binary at every run. Each `chown` and `chmod` changes the file's ctime, and macOS then checks the binary again at its next start: on a copy of the binary, the first run after a `chmod` took 1.50 s and later runs 0.02 s, while a change of the mtime alone cost nothing (agent run, 2026-11-08). The first launch after setup paid it in the sync step, 1.77 s from the clone to the checkout (owner run, 2026-11-08, 5 s after setup). Now setup changes the owner and mode only when `stat` shows them wrong, and stops when a check after the change still differs (`ug_ensure_owner_mode`, `host/lib/ug.bash`; `tests/host/ug-agent.test.ts`). A new pin is a new file, so its first start still pays the check once.
+
+The compare reads the full mode, `%Mp%Lp` against `0550`, so a setuid or setgid bit counts as wrong and gets cleared, as the old unconditional `chmod 550` did; `%Lp` alone shows only the permission bits.
