@@ -46,3 +46,7 @@ Sources, read in their source in `github/docs` on the `main` branch, on 2026-10-
 - S4: [Choosing permissions for a GitHub App](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/choosing-permissions-for-a-github-app), "Choosing permissions for Git access".
 - S5: [Managing private keys for GitHub Apps](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/managing-private-keys-for-github-apps), and [Authenticating as a GitHub App installation](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/authenticating-as-a-github-app-installation) for the `x-access-token` URL.
 - S6: [Reviewing and modifying installed GitHub Apps](https://docs.github.com/en/apps/using-github-apps/reviewing-and-modifying-installed-github-apps).
+
+## Amendment 2026-11-08: paths
+
+The app's private key is `~/.local/share/underground/github-app.pem`, beside its config `github-app.json`, in the data folder (`host/gh-broker/github-app.ts:23-27`; `docs/adr/0017-one-omp-binary-and-no-ug-folder.md`). This replaces `~/.ug/host/github-app.pem` and `~/.ug/host/github-app.json` above.

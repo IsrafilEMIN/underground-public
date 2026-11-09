@@ -25,6 +25,8 @@ MVP 0.5 holds every irreversible underground row except U14 (accepted risk), U16
 
 The base agreed by the owner on 2026-11-08 (`adr/0016-agent-user.md`): the agent runs as its own standard macOS user, started through a login of its own, pinned to its own home by a sandbox profile, with no container and no network wall. Step 4 (2026-11-08) removed the box and switched `omp` to that user (`host/bin/ug-agent-setup`, `host/bin/ug-agent`, `host/agent/`). The runs below are the owner's, on this mac on 2026-11-08, each with a throwaway standard user made by `sudo sysadminctl -addUser ugtest` and deleted after (`Assigning UID: 502 GID: 20`, so its group is `staff`, as the owner's; each run ended with `Deleting record for ugtest`). The earlier runs started the user with `sudo -u` from the owner's terminal; the last run logged it in over ssh to `localhost`, with the read allow list, and is quoted in the rows marked "own login".
 
+The host's files and paths as they are today: `HOST-STATE.md`.
+
 |status|rows|as the agent user|
 |---|---|---|
 |✅ handled|U8–U13, U17, U18, U28, U29, U30|GitHub-side rows: the gh-broker and GitHub settings handle them, with or without a container.|
