@@ -299,7 +299,9 @@ install_service_code
 setup_backup
 prepare_services
 ug_say ok "agent user" "running sudo host/bin/ug-agent-setup, which asks for your password"
-sudo "$src/host/bin/ug-agent-setup" ${omp_stage:+"$omp_stage"} || die "ug-agent-setup failed, so the agent user is not up to date; fix its error and run host/bin/ug-setup again"
+no_color=()
+[[ -z ${NO_COLOR:-} ]] || no_color=(env NO_COLOR=1)
+sudo ${no_color[@]+"${no_color[@]}"} "$src/host/bin/ug-agent-setup" ${omp_stage:+"$omp_stage"} || die "ug-agent-setup failed, so the agent user is not up to date; fix its error and run host/bin/ug-setup again"
 start_services
 check_walls
 check_path
