@@ -149,9 +149,10 @@ rm -rf "$root/broker" "$root/bin/broker" "$root/run/broker.sock"
 install -m 444 -o root -g wheel "$src/host/agent/pin.sb" "$root/pin.sb"
 install -m 555 -o root -g wheel "$src/host/agent/agent-session" "$root/agent-session"
 install -m 555 -o root -g wheel "$src/host/agent/agent-start" "$root/agent-start"
+install -m 555 -o root -g wheel "$src/host/agent/agent-refresh" "$root/agent-refresh"
 install -m 444 -o root -g wheel "$src/host/agent/sshd_config" "$root/sshd_config"
 install -m 444 -o root -g wheel "$src/host/agent/config-names" "$root/config-names"
-ug_say ok "$root" "omp $omp_pin (old versions removed), pin.sb, bin/, gh-broker, agent-session, agent-start, sshd_config installed"
+ug_say ok "$root" "omp $omp_pin (old versions removed), pin.sb, bin/, gh-broker, agent-session, agent-start, agent-refresh, sshd_config installed"
 
 install -d -m 711 -o "$owner" -g wheel "$root/run"
 
@@ -335,6 +336,12 @@ fp=$(ug_fingerprint "$src/host/agent/com.underground.agent-sshd.plist" "$root/ss
 out=$(ug_ensure_service system com.underground.agent-sshd "$src/host/agent/com.underground.agent-sshd.plist" "$plist" "$root/state/com.underground.agent-sshd.fingerprint" "$fp" ug_port_answers 127.0.0.1 2222) ||
   die "agent sshd: $out; check it with: sudo launchctl print system/com.underground.agent-sshd"
 ug_say "$(ug_service_kind "$out")" "agent sshd at 127.0.0.1:2222" "$out"
+
+label=com.underground.agent-refresh
+fp=$(ug_fingerprint "$src/host/agent/$label.plist") || die "cannot read host/agent/$label.plist"
+out=$(ug_ensure_service system "$label" "$src/host/agent/$label.plist" "/Library/LaunchDaemons/$label.plist" "$root/state/$label.fingerprint" "$fp" launchctl print "system/$label") ||
+  die "agent clone refresh: $out; check it with: sudo launchctl print system/$label"
+ug_say "$(ug_service_kind "$out")" "agent clone refresh every 30 s" "$out"
 
 agent_dir=$data/agent
 install -d -m 700 -o "$owner" -g staff "$agent_dir" "$agent_dir/bin" "$agent_dir/lib"
