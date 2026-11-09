@@ -127,6 +127,13 @@ ug_fingerprint() {
   printf '%s\n' "${out%% *}"
 }
 
+ug_ensure_owner_mode() {
+  local file=$1 owner=$2 mode=$3
+  [[ $(stat -f '%Su:%Sg %Lp' "$file") != "$owner $mode" ]] || return 0
+  chown "$owner" "$file" && chmod "$mode" "$file" || return 1
+  [[ $(stat -f '%Su:%Sg %Lp' "$file") == "$owner $mode" ]]
+}
+
 ug_render_plist() {
   local out=$1 template=$2 shown=$3 left
   shift 3
