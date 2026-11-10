@@ -5,7 +5,7 @@ Date: 2026-11-08. Status: built and run on the owner's mac (2026-11-08). The ug-
 ## Context
 
 - Two copies of the same pinned omp binary existed: one in the owner's home, `~/.ug/sys/omp/<pin>/omp`, and a root-owned copy for the agent user, `/Library/Underground/omp/<pin>/omp`, copied from the first after a hash check (the copy step in `host/bin/ug-agent-setup`, before this change). The auth broker, the auth gateway, and `ug-auth` ran the owner's copy (`host/launchd/com.underground.auth-broker.plist`, removed; the `omp` variable in `host/bin/ug-auth`, before this change).
-- The agent user cannot read the owner's home (mode 700, `0016-agent-user.md`, "Decision (proposed)", item 1), so the reason to keep the model logins out of `~/.omp` (`0012`, "A raw omp cannot work") no longer guards against the agent. It still guards against a slip in a vanilla omp session of the owner.
+- The agent user cannot read the owner's home (mode 700, `0016-agent-user.md`, "Decision (proposed)", item 1), so the reason to keep the model logins out of `~/.omp` (`0012-pinned-omp-and-setup.md`, "A raw omp cannot work") no longer guards against the agent. It still guards against a slip in a vanilla omp session of the owner.
 - `~/.ug` held omp's logins next to state that is not omp's: the GitHub app key, the gh-broker records, the backup settings, the agent's ssh key, the addresses file, and copies of underground's code.
 - The owner's `PATH` named `~/.ug/sys/bin` from three zsh files (owner's `grep -n ug ~/.zshrc ~/.zprofile ~/.zshenv`, 2026-11-08). `~/.local/bin` was already on `PATH`, and no `omp` was in it (owner's `ls -la ~/.local/bin` and `echo $PATH`, 2026-11-08).
 

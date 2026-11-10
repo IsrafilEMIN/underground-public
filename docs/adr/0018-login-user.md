@@ -25,7 +25,7 @@ Date: 2026-11-08. Status: built, not yet run on the owner's mac. Owner decision 
 ## Not covered, accepted by name
 
 - The owner through sudo reaches everything. This stops slips and any program that runs as the owner, not the owner on purpose.
-- An omp that the owner downloads, or a copy of Tern's, still starts. It has no login and no bearer. It still finds the keyless providers that omp adds by itself, such as `apple/on-device` (`0012`, amendment 2026-11-03), unless the owner's `~/.omp/agent/config.yml` turns them off.
+- An omp that the owner downloads, or a copy of Tern's, still starts. It has no login and no bearer. It still finds the keyless providers that omp adds by itself, such as `apple/on-device` (`0012-pinned-omp-and-setup.md`, "Amendment 2026-11-03: the raw omp's keyless providers"), unless the owner's `~/.omp/agent/config.yml` turns them off.
 - An API key is billed per call. A stored OAuth login beats a broker-stored API key of the same provider (omp `docs/models.md`, lines 689 to 699, read 2026-11-08), so the key serves calls when the login cannot. [inference, not run] That includes a usage limit of the subscription. A taken-over session can then spend money; the owner sets a spending cap at the provider. This changes a decision that assumed OAuth only (`0013-agent-box.md`, "No spend limit at the model door").
 
 ## Open

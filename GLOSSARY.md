@@ -81,7 +81,7 @@ The host script that does what `git pull` cannot. It downloads the pinned omp an
 _Avoid_: install, installer, bootstrap
 
 **Crossing**:
-A way into or out of the agent's sessions: code out, model calls, `/usage`, web out, config in, repos in, unix sockets, localhost, and merge effects. Each crossing has one control (a principle that an earlier version of `docs/PRODUCT-BRIEF.md` held).
+A way into or out of the agent's sessions: code out, model calls, `/usage`, web out, config in, repos in, unix sockets, localhost, and merge effects. Each crossing has one control [inference: a principle of an earlier brief, not in the current one].
 _Avoid_: hole, exception, bypass
 
 ### GitHub and the merge
