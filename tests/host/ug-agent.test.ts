@@ -428,6 +428,46 @@ test(
   },
 );
 
+test(
+  "[mac] agent-start syncs and checks out the clone with git hooks off, and starts omp with hooks on",
+  { skip: process.platform !== "darwin" && "needs macOS lockf and getconf DARWIN_USER_TEMP_DIR" },
+  async (t) => {
+    const dir = await tempDir(join(tmpdir(), "ug-hooks-"));
+    t.after(() => rm(dir, { recursive: true, force: true }));
+    const root = join(dir, "root");
+    const code = join(root, "code");
+    const home = join(dir, "agent-home");
+    const bin = join(root, "omp/1.0/omp");
+    await mkdir(join(root, "omp/1.0"), { recursive: true });
+    await mkdir(join(code, "bin"), { recursive: true });
+    await writeFile(bin, '#!/bin/sh\necho "OMP_RAN hooks=${GIT_CONFIG_COUNT:-on}"\n');
+    await chmod(bin, 0o755);
+    await writeFile(`${bin}.sha256`, `${createHash("sha256").update(await readFile(bin)).digest("hex")}\n`);
+    await symlink(bin, join(code, "bin/omp"));
+    await writeFile(join(code, "config-names"), "");
+    await stub(
+      join(code, "bin"),
+      "gh-broker",
+      'case $1 in sync) git update-ref refs/remotes/origin/main HEAD && echo "origin/main is now x" ;; esac',
+    );
+    const clone = await agentClone(home, "owner/repo");
+    for (const hook of ["post-checkout", "reference-transaction"]) {
+      await writeFile(join(clone, ".git/hooks", hook), `#!/bin/sh\necho ${hook} >>HOOK_RAN\n`);
+      await chmod(join(clone, ".git/hooks", hook), 0o755);
+    }
+    gitIn(clone, "update-ref", "refs/probe", "HEAD");
+    assert.ok(existsSync(join(clone, "HOOK_RAN")), "the planted hook runs for a plain git command");
+    await rm(join(clone, "HOOK_RAN"));
+    const start = await render(dir, "host/agent/agent-start", { root, agent_home: home });
+
+    const r = spawnSync("bash", [start], { env: { PATH: "/usr/bin:/bin", UG_REPO: "owner/repo" }, encoding: "utf8" });
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(r.stdout.trim(), "OMP_RAN hooks=on");
+    assert.equal(gitIn(clone, "rev-parse", "HEAD"), gitIn(clone, "rev-parse", "refs/remotes/origin/main"));
+    assert.ok(!existsSync(join(clone, "HOOK_RAN")), "a planted hook must not run at session start");
+  },
+);
+
 test("the agent sshd config holds the contract lines", async (t) => {
   const dir = await tempDir(join(tmpdir(), "ug-sshd-"));
   t.after(() => rm(dir, { recursive: true, force: true }));
