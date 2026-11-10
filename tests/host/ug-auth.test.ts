@@ -47,6 +47,10 @@ test("the installed ug-auth runs the pinned omp as ugauth in a clean environment
   const login = run(home, "auth-broker", "login", "anthropic");
   assert.equal(login.status, 0, login.stderr);
   assert.equal(login.stdout.trim(), `SUDO -u ugauth -H /usr/bin/env -i HOME=/Users/ugauth PATH=/usr/bin:/bin ${omp} auth-broker login anthropic`);
+  const short = run(home, "login", "anthropic");
+  assert.equal(short.status, 0, short.stderr);
+  assert.equal(short.stdout, login.stdout, "ug-auth login <provider> is the short form of auth-broker login");
+  for (const bad of [["login", "anthropic", "x"], ["login", "--via=owner@host"]]) assert.equal(run(home, ...bad).status, 64, bad.join(" "));
   const token = run(home, "auth-gateway", "token", "--regenerate");
   assert.equal(token.status, 0, token.stderr);
   assert.equal(
