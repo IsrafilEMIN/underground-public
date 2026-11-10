@@ -29,7 +29,7 @@ job_problem() {
 }
 
 problems() {
-  local now at failed label name scope user template health log inputs target shown
+  local now at failed label name scope user template health log inputs url target shown
   now=$(date +%s)
   at=$(record_value "$data/gh-broker/status" at)
   if [[ ! $at =~ ^[0-9]+$ ]] || (( now - 10#$at > broker_stale )); then
@@ -49,12 +49,12 @@ problems() {
           printf '%s: %s has no gateway= line\n' "$name" "$data/addresses"
           continue
         fi
-        target=$(ug_service_expand "${health#* }")
-        target=${target#http://}
+        url=$(ug_service_expand "${health#* }")
+        target=${url#http://}
         target=${target%%/*}
         shown=$target
         [[ $target == 127.0.0.1:* ]] && shown="port ${target#127.0.0.1:}"
-        ug_http_answers "http://$target" 2>/dev/null || printf '%s: no answer on %s\n' "$name" "$shown"
+        ug_http_answers "$url" 2>/dev/null || printf '%s: no answer on %s\n' "$name" "$shown"
         ;;
       port)
         target=$(ug_service_expand "${health#port }")
