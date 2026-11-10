@@ -229,10 +229,10 @@ prepare_services() {
 }
 
 start_services() {
-  local label name scope user template health log inputs kind target rendered out fp resolved file
+  local label name scope user template health log tokens kind target rendered out fp resolved file
   local -a inputs=() answers=()
   install -d "$agents_dir"
-  while IFS='|' read -r label name scope user template health log inputs; do
+  while IFS='|' read -r label name scope user template health log tokens; do
     rendered=$(mktemp "$agents_dir/.$label.XXXXXX")
     cleanup+=("$rendered")
     out=$(ug_render "$rendered" "$src/$template" "$template" -e "s|@DATA@|$data|g") || ug_die ug-setup "$out"
@@ -247,10 +247,9 @@ start_services() {
       none) answers=(true) ;;
       *) ug_die ug-setup "the service table gives $label the health kind $kind, which an owner service cannot use" ;;
     esac
+    resolved=$(ug_service_inputs "$tokens") || ug_die ug-setup "cannot expand the inputs of $label"
     inputs=()
-    resolved=$(ug_service_inputs "$inputs") || ug_die ug-setup "cannot expand the inputs of $label"
-    while IFS= read -r file; do inputs+=("$file"); done <<<"$resolved"
-    [[ -n $resolved ]] || inputs=()
+    while IFS= read -r file; do [[ -n $file ]] && inputs+=("$file"); done <<<"$resolved"
     fp=$(ug_fingerprint "$rendered" ${inputs[@]+"${inputs[@]}"}) || ug_die ug-setup "cannot read the inputs of $label"
     out=$(ug_ensure_service "gui/$UID" "$label" "$rendered" "$agents_dir/$label.plist" "$data/state/$label.fingerprint" "$fp" "${answers[@]}") ||
       ug_die ug-setup "$out; read $(ug_service_expand "$log")"

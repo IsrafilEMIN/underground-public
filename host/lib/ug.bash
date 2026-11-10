@@ -83,7 +83,7 @@ ug_service_expand() {
   data=$(ug_service_data)
   while [[ $text =~ @([A-Z_]+)@ ]]; do
     name=${BASH_REMATCH[1]}
-    name=$(printf '%s' "$name" | tr 'A-Z' 'a-z')
+    name=$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]')
     case $name in
       data) value=$data ;;
       gateway) value=$(sed -n 's/^gateway=//p' "$data/addresses" 2>/dev/null | head -1) ;;
@@ -104,6 +104,7 @@ ug_service_inputs() {
     [[ $tok != \?* ]] || { opt=1; tok=${tok#\?}; }
     tok=$(ug_service_expand "$tok") || return 1
     shopt -s nullglob
+    # shellcheck disable=SC2206
     matches=( $tok )
     shopt -u nullglob
     if (( ${#matches[@]} == 0 )); then

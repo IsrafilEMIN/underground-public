@@ -307,11 +307,11 @@ stage_config
 /usr/sbin/sshd -t -f "$code/sshd_config" || ug_die ug-agent-setup "sshd rejects $code/sshd_config; nothing was loaded"
 
 start_services() {
-  local label name scope user template health log inputs kind target rendered out fp resolved subject logins logline broker_out="" file
+  local label name scope user template health log tokens kind target rendered out fp resolved subject logins logline broker_out="" file
   local -a inputs answers
   install -d -m 700 -o root -g wheel "$root/state"
   export UG_DATA="$data" UG_OMP_SHA="$omp_bin.sha256"
-  while IFS='|' read -r label name scope user template health log inputs; do
+  while IFS='|' read -r label name scope user template health log tokens; do
     render "$template" -e "s|@OMP@|$omp_bin|g" -e "s|@GATEWAY@|$gateway|g" -e "s|@ENGINE@|$engine|g"
     rendered=$rendered_dir/${template##*/}
     out=$(ug_trusted_daemon "$rendered") || ug_die ug-agent-setup "a wall is open in the service $label: $out, so a user with fewer rights could change what it runs"
@@ -325,7 +325,7 @@ start_services() {
       pf) answers=(ug_pf_refuses_listener "$(id -u "$agent_user")" "$(ug_fact auth_broker_port)") ;;
       *) ug_die ug-agent-setup "the service table gives $label the health kind $kind, which a daemon cannot use" ;;
     esac
-    resolved=$(ug_service_inputs "$inputs") || ug_die ug-agent-setup "cannot expand the inputs of $label"
+    resolved=$(ug_service_inputs "$tokens") || ug_die ug-agent-setup "cannot expand the inputs of $label"
     inputs=()
     while IFS= read -r file; do [[ -n $file ]] && inputs+=("$file"); done <<<"$resolved"
     [[ $name != "auth gateway" || $broker_out != restarted* ]] || rm -f "$root/state/$label.fingerprint"
