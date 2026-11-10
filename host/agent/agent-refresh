@@ -2,10 +2,10 @@
 set -uo pipefail
 
 TMPDIR=$(getconf DARWIN_USER_TEMP_DIR)
-export HOME=/Users/ugagent TMPDIR PATH=/Library/Underground/bin:/usr/bin:/bin:/usr/sbin:/sbin
+export HOME=@AGENT_HOME@ TMPDIR PATH=@ROOT@/bin:/usr/bin:/bin:/usr/sbin:/sbin
 export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0=/dev/null
 
-root=/Library/Underground
+root=@ROOT@
 limit=20
 log=$HOME/logs/agent-refresh.log
 re='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'

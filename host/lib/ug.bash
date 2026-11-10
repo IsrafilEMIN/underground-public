@@ -34,6 +34,15 @@ ug_service_kind() { if [[ $1 == unchanged* ]]; then printf 'same\n'; else printf
 
 ug_pin() { sed -n "s/^$2=//p" "$1"; }
 
+ug_facts_file=${BASH_SOURCE[0]%/*}/../facts
+
+ug_fact() {
+  local value
+  value=$(ug_pin "$ug_facts_file" "$1") || return 1
+  [[ -n $value ]] || { printf 'ug_fact: %s has no %s\n' "$ug_facts_file" "$1" >&2; return 1; }
+  printf '%s\n' "$value"
+}
+
 ug_sha256() {
   local out
   out=$(shasum -a 256 "$1") || return 1
@@ -170,7 +179,9 @@ ug_socket_answers() { printf '' | nc -w 1 -U "$1" | grep -q .; }
 ug_port_answers() { nc -z -w 1 "$1" "$2"; }
 
 ug_sshd_denies_agent() {
-  /usr/sbin/sshd -T -f "$1" -o HostKey="$2" -C user=ugagent,host=localhost,addr=127.0.0.1 2>/dev/null | grep -qix 'denyusers ugagent'
+  local agent
+  agent=$(ug_fact agent_user) || return 1
+  /usr/sbin/sshd -T -f "$1" -o HostKey="$2" -C "user=$agent,host=localhost,addr=127.0.0.1" 2>/dev/null | grep -qix "denyusers $agent"
 }
 
 ug_fingerprint() {
@@ -228,11 +239,16 @@ ug_trusted_daemon() {
   done
 }
 
-ug_render_plist() {
-  local out=$1 template=$2 shown=$3 left
+ug_render() {
+  local out=$1 template=$2 shown=$3 key value left unsafe='[|&\\]' facts=()
   shift 3
-  sed "$@" "$template" >"$out" || { printf 'cannot render %s\n' "$shown"; return 1; }
-  left=$(grep -o '@[A-Z_]*@' "$out" | head -1) || true
+  while IFS='=' read -r key value || [[ -n $key ]]; do
+    [[ -n $key ]] || continue
+    [[ ! $value =~ $unsafe ]] || { printf '%s holds %s=%s, which no template can take\n' "$ug_facts_file" "$key" "$value"; return 1; }
+    facts+=(-e "s|@$(tr '[:lower:]' '[:upper:]' <<<"$key")@|$value|g")
+  done <"$ug_facts_file"
+  sed "${facts[@]}" "$@" "$template" >"$out" || { printf 'cannot render %s\n' "$shown"; return 1; }
+  left=$(grep -o '@[A-Z_]\{1,\}@' "$out" | head -1) || true
   [[ -z $left ]] || { printf '%s has an unknown placeholder %s\n' "$shown" "$left"; return 1; }
 }
 

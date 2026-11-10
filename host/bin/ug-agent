@@ -10,7 +10,9 @@ done
 # shellcheck source=host/lib/ug.bash disable=SC1091
 source "$(dirname "$self")/../lib/ug.bash"
 
-UG=$HOME/.local/share/underground
+UG=$HOME/$(ug_fact owner_data)
+agent=$(ug_fact agent_user)
+port=$(ug_fact agent_sshd_port)
 key=$UG/agent-ssh/id_ed25519
 known_hosts=$UG/agent-ssh/known_hosts
 sshd_config=${UG_SSHD_CONFIG:-/etc/ssh/sshd_config}
@@ -35,7 +37,7 @@ done
 
 if launchctl print system/com.openssh.sshd >/dev/null 2>&1; then
   ug_sshd_denies_agent "$sshd_config" "$key" ||
-    die "system Remote Login is running, and the system sshd does not deny ugagent; without that, the agent user could log in there outside the pin. Run host/bin/ug-setup, or turn Remote Login off."
+    die "system Remote Login is running, and the system sshd does not deny $agent; without that, the agent user could log in there outside the pin. Run host/bin/ug-setup, or turn Remote Login off."
 fi
 
 top=$(git rev-parse --show-toplevel 2>/dev/null) || top=
@@ -44,7 +46,7 @@ if [[ -n $top ]]; then
   [[ -z $slug ]] || export UG_REPO=$slug
 fi
 
-ug_port_answers 127.0.0.1 2222 >/dev/null 2>&1 ||
-  die "the agent sshd on 127.0.0.1:2222 does not answer. Check it with: sudo launchctl print system/com.underground.agent-sshd. Run host/bin/ug-setup to load it again."
+ug_port_answers 127.0.0.1 "$port" >/dev/null 2>&1 ||
+  die "the agent sshd on 127.0.0.1:$port does not answer. Check it with: sudo launchctl print system/com.underground.agent-sshd. Run host/bin/ug-setup to load it again."
 
-exec ssh -tt -p 2222 -i "$key" -o IdentitiesOnly=yes -o UserKnownHostsFile="$known_hosts" -o StrictHostKeyChecking=yes -o LogLevel=ERROR -o SendEnv=UG_REPO ugagent@127.0.0.1 -- "$@"
+exec ssh -tt -p "$port" -i "$key" -o IdentitiesOnly=yes -o UserKnownHostsFile="$known_hosts" -o StrictHostKeyChecking=yes -o LogLevel=ERROR -o SendEnv=UG_REPO "$agent@127.0.0.1" -- "$@"

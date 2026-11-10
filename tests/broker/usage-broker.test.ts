@@ -9,7 +9,8 @@ import { writeFile } from "node:fs/promises";
 import { networkInterfaces, tmpdir } from "node:os";
 import { join } from "node:path";
 import { mock, test } from "node:test";
-import { USAGE_BROKER_PORT, createUsageBroker, respond } from "../../host/gh-broker/usage-broker.ts";
+import { readHostFacts } from "../../host/gh-broker/facts.ts";
+import { createUsageBroker, respond } from "../../host/gh-broker/usage-broker.ts";
 import type { UsageBrokerConfig, UsageReply } from "../../host/gh-broker/usage-broker.ts";
 import { tempDir } from "../temp.ts";
 
@@ -270,7 +271,7 @@ import net from "node:net";
 const listen = net.Server.prototype.listen;
 net.Server.prototype.listen = function (port, ...rest) {
   this.once("listening", () => process.stdout.write("BOUND " + JSON.stringify(this.address()) + "\\n"));
-  return listen.call(this, port === ${USAGE_BROKER_PORT} ? 0 : port, ...rest);
+  return listen.call(this, port === ${readHostFacts().usageBrokerPort} ? 0 : port, ...rest);
 };
 `;
 

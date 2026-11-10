@@ -24,10 +24,13 @@ src=$(cd "$(dirname "$self")/../.." && pwd -P)
 # shellcheck source=host/lib/ug.bash disable=SC1091
 source "$src/host/lib/ug.bash"
 pin=$(ug_pin "$src/VERSIONS" omp)
-omp="${UG_ROOT:-/Library/Underground}/omp/$pin/omp"
+omp="${UG_ROOT:-$(ug_fact root)}/omp/$pin/omp"
+auth_user=$(ug_fact auth_user)
+auth_home=$(ug_fact auth_home)
+broker_url=http://127.0.0.1:$(ug_fact auth_broker_port)
 
 broker=()
-[[ $1 != auth-gateway ]] || broker=(OMP_AUTH_BROKER_URL=http://127.0.0.1:8765)
+[[ $1 != auth-gateway ]] || broker=(OMP_AUTH_BROKER_URL="$broker_url")
 
 read -r -d '' credentials <<'EOF' || true
 set -eu
@@ -55,14 +58,14 @@ EOF
 
 cd /
 if [[ $1 == list || $1 == revoke ]]; then
-  exec sudo -u ugauth -H /usr/bin/env -i HOME=/Users/ugauth PATH=/usr/bin:/bin OMP_AUTH_BROKER_URL=http://127.0.0.1:8765 ${2:+"UG_ID=$2"} /bin/sh -c "$credentials"
+  exec sudo -u "$auth_user" -H /usr/bin/env -i HOME="$auth_home" PATH=/usr/bin:/bin OMP_AUTH_BROKER_URL="$broker_url" ${2:+"UG_ID=$2"} /bin/sh -c "$credentials"
 fi
 if [[ $1 == key ]]; then
-  exec sudo -u ugauth -H /usr/bin/env -i HOME=/Users/ugauth PATH=/usr/bin:/bin OMP_AUTH_BROKER_URL=http://127.0.0.1:8765 UG_KEY_NAME="$2" \
+  exec sudo -u "$auth_user" -H /usr/bin/env -i HOME="$auth_home" PATH=/usr/bin:/bin OMP_AUTH_BROKER_URL="$broker_url" UG_KEY_NAME="$2" \
     /bin/sh -c 'printf "paste %s, then enter (not shown): " "$UG_KEY_NAME" >&2
 stty -echo 2>/dev/null; IFS= read -r k; stty echo 2>/dev/null; printf "\n" >&2
 [ -n "$k" ] || { echo "ug-auth: no key given, nothing stored" >&2; exit 1; }
 export "$UG_KEY_NAME=$k"; unset k UG_KEY_NAME
 exec "$0" auth-broker migrate --from-local --include-env' "$omp"
 fi
-exec sudo -u ugauth -H /usr/bin/env -i HOME=/Users/ugauth PATH=/usr/bin:/bin ${broker[@]+"${broker[@]}"} "$omp" "$@"
+exec sudo -u "$auth_user" -H /usr/bin/env -i HOME="$auth_home" PATH=/usr/bin:/bin ${broker[@]+"${broker[@]}"} "$omp" "$@"

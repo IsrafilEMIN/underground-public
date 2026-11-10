@@ -5,7 +5,7 @@
   <key>Label</key>
   <string>com.underground.auth-gateway</string>
   <key>UserName</key>
-  <string>ugauth</string>
+  <string>@AUTH_USER@</string>
   <key>ProgramArguments</key>
   <array>
     <string>@OMP@</string>
@@ -14,23 +14,23 @@
     <string>--bind=@GATEWAY@</string>
   </array>
   <key>WorkingDirectory</key>
-  <string>/Users/ugauth</string>
+  <string>@AUTH_HOME@</string>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
   <true/>
   <key>StandardOutPath</key>
-  <string>/Users/ugauth/logs/auth-gateway.log</string>
+  <string>@AUTH_HOME@/logs/auth-gateway.log</string>
   <key>StandardErrorPath</key>
-  <string>/Users/ugauth/logs/auth-gateway.log</string>
+  <string>@AUTH_HOME@/logs/auth-gateway.log</string>
   <key>EnvironmentVariables</key>
   <dict>
     <key>HOME</key>
-    <string>/Users/ugauth</string>
+    <string>@AUTH_HOME@</string>
     <key>PATH</key>
     <string>/usr/bin:/bin</string>
     <key>OMP_AUTH_BROKER_URL</key>
-    <string>http://127.0.0.1:8765</string>
+    <string>http://127.0.0.1:@AUTH_BROKER_PORT@</string>
     <key>LM_STUDIO_BASE_URL</key>
     <string>http://@ENGINE@/v1</string>
   </dict>

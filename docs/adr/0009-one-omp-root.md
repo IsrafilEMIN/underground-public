@@ -10,7 +10,7 @@ Each role name had its own role home under `~/.ug`, with its own omp root, cache
 
 ## Decision
 
-Every role name uses one omp root, `~/.ug/omp` (`PI_CONFIG_DIR=.ug/omp`, `host/bin/omp:13`).
+Every role name uses one omp root, `~/.ug/omp` (`PI_CONFIG_DIR=.ug/omp`, in `host/bin/omp`, removed).
 
 - Owner part `~/.ug/omp/agent`: `policy.yml`, `prefs.yml`, `models.yml`, `hooks/pre/concise-reply.ts`, and `hooks/pre/role-rules.ts`. The wrapper writes them from `~/.agents/roles` at each start (`make_omp_root`, `host/bin/omp`); `admin.ts gateway-setup` writes the one `models.yml`. `PI_CONFIG_FILES=~/.ug/omp/agent/prefs.yml:~/.ug/omp/agent/policy.yml`.
 - Underground's folders sit in `~/.ug/omp/underground`, a name omp does not use under its root (omp docs, `config-usage.md`, `environment-variables.md`, `session.md`, `marketplace.md`, `install-id.md`, read 2026-11-01): the cache root `cache`, the temp folder `tmp` (`TMPDIR`), and the state folders `state/<role name>/<path hash>`.

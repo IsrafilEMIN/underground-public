@@ -58,8 +58,8 @@ The threat model is to be checked again against these two ways (`THREAT-MODEL.md
 | owner's zone | everything else | nothing |
 
 - **Arena:** omp's own `~/.omp` (config, sessions, caches, helpers) and the agent's repo clones, proposed at `work/<owner>/<repo>`. The arena is the agent's `HOME`.
-- **Owner zone:** the pinned omp binary, the pinned restic, the pinned srt (removed in step 4 of `adr/0016-agent-user.md`, 2026-11-08; it was for the egress door's HTTP proxy, `host/egress/server.ts:27-29`, now removed), and `bin/omp` and `bin/ug-agent`, both links to the launcher `ug-agent` (`host/bin/ug-agent-setup:224`, `:228`). The box's launcher `ug-box` is gone. `bin/` is on `PATH`.
-- **Sockets:** the gh-broker socket (`/Library/Underground/run/gh-broker.sock`, `host/gh-broker/server.ts:73`). The egress socket is gone (`adr/0016-agent-user.md:75`). The agent cannot write here, so it cannot plant a socket or a link.
+- **Owner zone:** the pinned omp binary, the pinned restic, the pinned srt (removed in step 4 of `adr/0016-agent-user.md`, 2026-11-08; it was for the egress door's HTTP proxy in `host/egress/server.ts`, now removed), and `bin/omp` and `bin/ug-agent`, both links to the launcher `ug-agent` (`agent_dir`, `host/bin/ug-agent-setup`). The box's launcher `ug-box` is gone. `bin/` is on `PATH`.
+- **Sockets:** the gh-broker socket `/Library/Underground/run/gh-broker.sock` (`socketPath`, `host/gh-broker/server.ts`). The egress socket is gone (step 4 of `adr/0016-agent-user.md`). The agent cannot write here, so it cannot plant a socket or a link.
 - **Host:** everything the agent gets nothing of: the GitHub App key, the auth broker's logins, the gh-broker's records, the arena backup's password and settings (`SPEC.md`, B10), and the owner's hand-edited gh-broker files, such as the addresses file (owner decision, 2026-11-03).
 - **Owner's zone:** the owner's checkouts. underground runs from its checkout. The owner's agent config repo lives here too.
 
@@ -67,7 +67,7 @@ To uninstall: delete `~/.ug` and the launchd files.
 
 ## Flows
 
-**Start a session** (the srt design; `ug-agent` starts the session now, `host/bin/ug-agent:44`)
+**Start a session** (the srt design; `ug-agent` starts the session now, through `agent_user`, `host/bin/ug-agent`)
 
 1. The owner types `omp` in a checkout. `PATH` finds the wrapper.
 2. The wrapper copies the owner's config repo into the arena's `~/.omp/agent`.
@@ -106,16 +106,16 @@ To uninstall: delete `~/.ug` and the launchd files.
 
 **No unboxed session**
 
-- Inside the sandbox: impossible. Every child of the sandbox (`host/agent/agent-session:15`) stays in it.
-- From the owner's shell: only the launcher `ug-agent` (`host/bin/ug-agent:44`) is on `PATH`.
-- By full path: only the owner can start the raw omp, because the owner's home is mode 700 (`host/bin/ug-agent-setup:47`). It finds no login; it still finds the keyless providers that omp adds by itself (`adr/0012-pinned-omp-and-setup.md`, amendment 2026-11-08).
+- Inside the sandbox: impossible. Every child of the sandbox (`sandbox-exec`, `host/agent/agent-session`) stays in it.
+- From the owner's shell: only the launcher `ug-agent` (`agent_user`, `host/bin/ug-agent`) is on `PATH`.
+- By full path: only the owner can start the raw omp, because the owner's home is mode 700 (`owner_home`, `host/bin/ug-agent-setup`). It finds no login; it still finds the keyless providers that omp adds by itself (`adr/0012-pinned-omp-and-setup.md`, amendment 2026-11-08).
 
 ## Updates
 
 - underground: run setup. It fast-forwards `main` in its own checkout from `origin`, then copies the code into `~/.ug/sys` (`ug_pull_main`, `host/lib/ug.bash`; `install_service_code`, `host/bin/ug-setup`; `adr/0012-pinned-omp-and-setup.md`, amendments "an installed copy of the host code" and "setup pulls main first"). The agent user's copy and its `omp` link come from `host/bin/ug-agent-setup`, which setup runs with sudo at its end.
 - omp: change the pin, then run setup.
-- Config: commit to the config repo, then run setup. Setup copies the last commit into `/Library/Underground/config` (`stage_config`, `host/bin/ug-agent-setup:147-213`), and each start copies that folder into the agent's `~/.omp/agent` (`host/agent/agent-start:28-32`).
-- Skills from a skill repo: list the repo's path in the config repo's `skill-repos` file, commit to either repo, then run setup. Like the config repo, setup reads the skill repo's last commit, adds each `<name>/SKILL.md` folder, at the top or under `skills/`, to the config's `skills/`, with the same link and token checks, and stops on a name that is already there or a path outside the owner's home (`stage_config`, `host/bin/ug-agent-setup:174-203`).
+- Config: commit to the config repo, then run setup. Setup copies the last commit into `/Library/Underground/config` (`stage_config`, `host/bin/ug-agent-setup`), and each start copies that folder into the agent's `~/.omp/agent` (`config-names`, `host/agent/agent-start`).
+- Skills from a skill repo: list the repo's path in the config repo's `skill-repos` file, commit to either repo, then run setup. Like the config repo, setup reads the skill repo's last commit, adds each `<name>/SKILL.md` folder, at the top or under `skills/`, to the config's `skills/`, with the same link and token checks, and stops on a name that is already there or a path outside the owner's home (`stage_config`, `host/bin/ug-agent-setup`).
 
 Setup runs when underground's `main`, a pin, a host service, the config repo, or macOS changes. It installs the pinned omp and restic, makes the zones and their modes, and registers and restarts the launchd services (`host/bin/ug-setup`). At its end it runs `host/bin/ug-agent-setup` with sudo, which links the agent user's `omp` on `PATH`.
 
@@ -137,7 +137,7 @@ Setup runs when underground's `main`, a pin, a host service, the config repo, or
 - The heavy install and its file hash record.
 
 ## Accepted trade-offs
-These trade-offs are the srt design's. srt was removed in step 4 of `adr/0016-agent-user.md` (2026-11-08, `:75`).
+These trade-offs are the srt design's. srt was removed in step 4 of `adr/0016-agent-user.md` (2026-11-08).
 
 - srt is a filter on the owner's macOS user, not a wall.
 - Localhost is open to every port for now. srt 0.0.81 has one switch for it (`dist/sandbox/macos-sandbox-utils.js:951` to `:954`).

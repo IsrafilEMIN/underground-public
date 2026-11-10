@@ -5,28 +5,28 @@
   <key>Label</key>
   <string>com.underground.auth-broker</string>
   <key>UserName</key>
-  <string>ugauth</string>
+  <string>@AUTH_USER@</string>
   <key>ProgramArguments</key>
   <array>
     <string>@OMP@</string>
     <string>auth-broker</string>
     <string>serve</string>
-    <string>--bind=127.0.0.1:8765</string>
+    <string>--bind=127.0.0.1:@AUTH_BROKER_PORT@</string>
   </array>
   <key>WorkingDirectory</key>
-  <string>/Users/ugauth</string>
+  <string>@AUTH_HOME@</string>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
   <true/>
   <key>StandardOutPath</key>
-  <string>/Users/ugauth/logs/auth-broker.log</string>
+  <string>@AUTH_HOME@/logs/auth-broker.log</string>
   <key>StandardErrorPath</key>
-  <string>/Users/ugauth/logs/auth-broker.log</string>
+  <string>@AUTH_HOME@/logs/auth-broker.log</string>
   <key>EnvironmentVariables</key>
   <dict>
     <key>HOME</key>
-    <string>/Users/ugauth</string>
+    <string>@AUTH_HOME@</string>
     <key>PATH</key>
     <string>/usr/bin:/bin</string>
   </dict>

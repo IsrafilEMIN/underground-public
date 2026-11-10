@@ -1,0 +1,14 @@
+root=/Library/Underground
+owner_data=.local/share/underground
+agent_user=ugagent
+agent_home=/Users/ugagent
+agent_group=ugagent
+auth_user=ugauth
+auth_home=/Users/ugauth
+omp_group=ugomp
+agent_sshd_port=2222
+auth_broker_port=8765
+usage_broker_port=18765
+gateway_port=4000
+gh_broker_socket=run/gh-broker.sock
+node=/opt/homebrew/bin/node

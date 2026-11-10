@@ -7,7 +7,9 @@ if [[ $# -ne 0 ]]; then
 fi
 
 src=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)
-data="$HOME/.local/share/underground"
+# shellcheck source=host/lib/ug.bash disable=SC1091
+source "$src/host/lib/ug.bash"
+data="$HOME/$(ug_fact owner_data)"
 real=$(cd "$data" 2>/dev/null && pwd -P) || real=$data
 case $src/ in
   "$data/"* | "$real/"*)
@@ -15,14 +17,12 @@ case $src/ in
     exit 64
     ;;
 esac
-# shellcheck source=host/lib/ug.bash disable=SC1091
-source "$src/host/lib/ug.bash"
 green=$(ug_paint 1 green) red=$(ug_paint 1 red) yellow=$(ug_paint 1 yellow) plain=$(ug_paint 1 off)
 err_red=$(ug_paint 2 red) err_plain=$(ug_paint 2 off)
 
 bin_dir="$HOME/.local/bin"
-root=/Library/Underground
-node_bin=/opt/homebrew/bin/node
+root=$(ug_fact root)
+node_bin=$(ug_fact node)
 labels=(com.underground.gh-broker com.underground.backup)
 agents_dir="$HOME/Library/LaunchAgents"
 addresses_file="$data/addresses"
@@ -184,7 +184,7 @@ install_service_code() {
   local dir="$data/services" f
   rm -rf "$dir"
   install -d -m 700 "$dir" "$dir/host/bin" "$dir/host/lib" "$dir/host/gh-broker"
-  for f in host/bin/ug-backup host/bin/ug-auth host/lib/backup-target.bash host/lib/ug.bash VERSIONS "$src"/host/gh-broker/*.ts; do
+  for f in host/bin/ug-backup host/bin/ug-auth host/lib/backup-target.bash host/lib/ug.bash host/facts VERSIONS "$src"/host/gh-broker/*.ts; do
     f=${f#"$src/"}
     put "$src/$f" "$dir/$f" 444
   done
@@ -194,8 +194,9 @@ install_service_code() {
 }
 
 write_addresses() {
-  local tailscale out ip engine tmp
-  local fix="write $addresses_file with the lines gateway=<tailscale address of this mac>:4000 and engine=<ip>:<port> of the inference engine"
+  local tailscale out ip engine tmp port
+  port=$(ug_fact gateway_port)
+  local fix="write $addresses_file with the lines gateway=<tailscale address of this mac>:$port and engine=<ip>:<port> of the inference engine"
   if [[ -e $addresses_file || -L $addresses_file ]]; then
     ug_say same addresses "$addresses_file in place"
     return 0
@@ -216,10 +217,10 @@ write_addresses() {
   [[ $engine =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}:[0-9]{1,5}$ ]] || die "the engine address '$engine' is not <ip>:<port>; nothing was written. Run setup again, or $fix"
   tmp=$(mktemp "$addresses_file.XXXXXX")
   cleanup+=("$tmp")
-  printf 'gateway=%s:4000\nengine=%s\n' "$ip" "$engine" >"$tmp"
+  printf 'gateway=%s:%s\nengine=%s\n' "$ip" "$port" "$engine" >"$tmp"
   chmod 600 "$tmp"
   mv -f "$tmp" "$addresses_file"
-  ug_say changed addresses "wrote $addresses_file with gateway=$ip:4000 and engine=$engine"
+  ug_say changed addresses "wrote $addresses_file with gateway=$ip:$port and engine=$engine"
 }
 
 prepare_services() {
@@ -233,11 +234,11 @@ start_services() {
   for label in "${labels[@]}"; do
     rendered=$(mktemp "$agents_dir/.$label.XXXXXX")
     cleanup+=("$rendered")
-    out=$(ug_render_plist "$rendered" "$src/host/launchd/$label.plist" "host/launchd/$label.plist" -e "s|@DATA@|$data|g") || die "$out"
+    out=$(ug_render "$rendered" "$src/host/launchd/$label.plist" "host/launchd/$label.plist" -e "s|@DATA@|$data|g") || die "$out"
     case $label in
       com.underground.gh-broker)
-        inputs=("$node_bin" "$data"/services/host/gh-broker/*.ts)
-        answers=(ug_socket_answers "$root/run/gh-broker.sock")
+        inputs=("$node_bin" "$data/services/host/facts" "$data"/services/host/gh-broker/*.ts)
+        answers=(ug_socket_answers "$root/$(ug_fact gh_broker_socket)")
         log=$data/gh-broker/gh-broker.log
         ;;
       *)
@@ -281,11 +282,12 @@ finish() {
 }
 
 check_walls() {
-  local bad=() text me
+  local bad=() text me omp_group agent_group auth_home
   me=$(id -un)
-  [[ ! -x $root/omp/$omp_pin/omp ]] || bad+=("you can run $root/omp/$omp_pin/omp, so you are in the group ugomp (remove yourself: sudo dseditgroup -o edit -d $me -t user ugomp)")
-  [[ ! -r $root/config/models.yml ]] || bad+=("you can read the gateway bearer in $root/config/models.yml, so you are in the group ugagent (remove yourself: sudo dseditgroup -o edit -d $me -t user ugagent)")
-  ! ls /Users/ugauth >/dev/null 2>&1 || bad+=("you can read the login user's home /Users/ugauth (close it: sudo chmod 700 /Users/ugauth)")
+  omp_group=$(ug_fact omp_group) agent_group=$(ug_fact agent_group) auth_home=$(ug_fact auth_home)
+  [[ ! -x $root/omp/$omp_pin/omp ]] || bad+=("you can run $root/omp/$omp_pin/omp, so you are in the group $omp_group (remove yourself: sudo dseditgroup -o edit -d $me -t user $omp_group)")
+  [[ ! -r $root/config/models.yml ]] || bad+=("you can read the gateway bearer in $root/config/models.yml, so you are in the group $agent_group (remove yourself: sudo dseditgroup -o edit -d $me -t user $agent_group)")
+  ! ls "$auth_home" >/dev/null 2>&1 || bad+=("you can read the login user's home $auth_home (close it: sudo chmod 700 $auth_home)")
   if [[ ${#bad[@]} -gt 0 ]]; then
     text=$(printf '%s; ' "${bad[@]}")
     die "a wall is open: ${text%; }. Close it, then run host/bin/ug-setup again"

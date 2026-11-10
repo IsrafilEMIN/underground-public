@@ -118,7 +118,7 @@ run_wizard() {
 
 TOTAL_STAGES=5
 
-CONFIG_DIR="$HOME/.local/share/underground"
+CONFIG_DIR="$HOME/$(ug_fact owner_data)"
 APP_JSON="$CONFIG_DIR/github-app.json"
 APP_PEM="$CONFIG_DIR/github-app.pem"
 SCRIPT_CHECKOUT=$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)
@@ -202,7 +202,7 @@ stage "Install the gh-broker and check it"
 say "Setup installs the gh-broker from this checkout, $SCRIPT_CHECKOUT, and restarts it."
 confirm "Run setup now?" || { SKIPPED+=("Run: $SCRIPT_CHECKOUT/host/bin/ug-setup, then type omp in $CHECKOUT"); finish; exit 1; }
 "$SCRIPT_CHECKOUT/host/bin/ug-setup"
-GH_BROKER_SOCKET=/Library/Underground/run/gh-broker.sock
+GH_BROKER_SOCKET=$(ug_fact root)/$(ug_fact gh_broker_socket)
 if [[ ! -S $GH_BROKER_SOCKET ]]; then
   SKIPPED+=("The gh-broker socket $GH_BROKER_SOCKET is missing; check the launchd job com.underground.gh-broker, then type omp in $CHECKOUT")
   finish

@@ -32,8 +32,16 @@ owner_home=/Users/$owner
 
 ug_check_checkout "$src" ug-agent-setup || exit 1
 
-root=/Library/Underground
-data=$owner_home/.local/share/underground
+root=$(ug_fact root)
+data=$owner_home/$(ug_fact owner_data)
+agent_user=$(ug_fact agent_user)
+agent_home=$(ug_fact agent_home)
+agent_group=$(ug_fact agent_group)
+auth_user=$(ug_fact auth_user)
+auth_home=$(ug_fact auth_home)
+omp_group=$(ug_fact omp_group)
+agent_port=$(ug_fact agent_sshd_port)
+socket=$root/$(ug_fact gh_broker_socket)
 bin_dir=$owner_home/.local/bin
 key_dir=$data/agent-ssh
 owner_key=$key_dir/id_ed25519
@@ -59,7 +67,7 @@ next_uid() {
 }
 
 make_user() {
-  local name=$1 real=$2 shell=$3 uid pw
+  local name=$1 real=$2 shell=$3 home=$4 uid pw
   if dscl . -read "/Users/$name" UniqueID >/dev/null 2>&1; then
     ug_say same "user $name" "exists"
   else
@@ -69,7 +77,7 @@ make_user() {
     dscl . -create "/Users/$name" UniqueID "$uid"
     dscl . -create "/Users/$name" PrimaryGroupID 20
     dscl . -create "/Users/$name" RealName "$real"
-    dscl . -create "/Users/$name" NFSHomeDirectory "/Users/$name"
+    dscl . -create "/Users/$name" NFSHomeDirectory "$home"
     dscl . -passwd "/Users/$name" "$pw"
     unset pw
     ug_say changed "user $name" "created, uid $uid, random password never shown"
@@ -78,15 +86,15 @@ make_user() {
   dscl . -create "/Users/$name" IsHidden 1
   [[ " $(dscl . -read /Groups/admin GroupMembership 2>/dev/null) " != *" $name "* ]] ||
     die "$name is in the group admin; remove it: sudo dseditgroup -o edit -d $name -t user admin"
-  install -d -m 700 -o "$name" -g staff "/Users/$name"
-  ug_say ok "user $name" "standard, hidden, $shell, home /Users/$name mode 700"
+  install -d -m 700 -o "$name" -g staff "$home"
+  ug_say ok "user $name" "standard, hidden, $shell, home $home mode 700"
 }
 
-agent_ssh=/Users/ugagent/.ssh
+agent_ssh=$agent_home/.ssh
 agent_is_new=1
-if [[ -e /Users/ugagent || -L /Users/ugagent ]] || dscl . -read /Users/ugagent UniqueID >/dev/null 2>&1; then agent_is_new=0; fi
-make_user ugagent "Underground agent" /bin/sh
-make_user ugauth "Underground logins" /usr/bin/false
+if [[ -e $agent_home || -L $agent_home ]] || dscl . -read "/Users/$agent_user" UniqueID >/dev/null 2>&1; then agent_is_new=0; fi
+make_user "$agent_user" "Underground agent" /bin/sh "$agent_home"
+make_user "$auth_user" "Underground logins" /usr/bin/false "$auth_home"
 
 make_group() {
   local group=$1 real=$2 name
@@ -101,14 +109,14 @@ make_group() {
   ug_say ok "group $group" "$*, not $owner"
 }
 
-make_group ugomp "Underground omp" ugagent ugauth
-make_group ugagent "Underground agent config" ugagent
+make_group "$omp_group" "Underground omp" "$agent_user" "$auth_user"
+make_group "$agent_group" "Underground agent config" "$agent_user"
 
-if [[ " $(dscl . -read /Groups/com.apple.access_ssh GroupMembership 2>/dev/null) " != *" ugagent "* ]]; then
-  dscl . -append /Groups/com.apple.access_ssh GroupMembership ugagent
-  ug_say changed "group com.apple.access_ssh" "ugagent added"
+if [[ " $(dscl . -read /Groups/com.apple.access_ssh GroupMembership 2>/dev/null) " != *" $agent_user "* ]]; then
+  dscl . -append /Groups/com.apple.access_ssh GroupMembership "$agent_user"
+  ug_say changed "group com.apple.access_ssh" "$agent_user added"
 else
-  ug_say same "group com.apple.access_ssh" "ugagent in place"
+  ug_say same "group com.apple.access_ssh" "$agent_user in place"
 fi
 
 if [[ $agent_is_new == 1 ]]; then
@@ -118,7 +126,7 @@ if [[ $agent_is_new == 1 ]]; then
 elif [[ ! -L $agent_ssh && $(stat -f '%Su %Lp' "$agent_ssh" 2>/dev/null) == "root 755" ]]; then
   ug_say same "$agent_ssh" "root-owned"
 else
-  ug_say ok "$agent_ssh" "not the root-owned folder that setup made; setup writes nothing in the agent's home after it makes the user, and the system sshd still denies ugagent"
+  ug_say ok "$agent_ssh" "not the root-owned folder that setup made; setup writes nothing in the agent's home after it makes the user, and the system sshd still denies $agent_user"
 fi
 
 omp_dir=$root/omp/$omp_pin
@@ -130,13 +138,13 @@ if [[ -n $staged ]]; then
   cleanup+=("$omp_tmp")
   cat "$staged" >"$omp_tmp"
   [[ $(ug_sha256 "$omp_tmp") == "$omp_sha" ]] || die "the downloaded omp does not have the pinned SHA-256; nothing changed"
-  chown root:ugomp "$omp_tmp"
+  chown "root:$omp_group" "$omp_tmp"
   chmod 550 "$omp_tmp"
   mv -f "$omp_tmp" "$omp_bin"
 fi
 [[ -f $omp_bin && ! -L $omp_bin ]] || die "no omp $omp_pin in $omp_dir; run host/bin/ug-setup, which downloads it"
 [[ $(ug_sha256 "$omp_bin") == "$omp_sha" ]] || die "$omp_bin does not have the pinned SHA-256; run host/bin/ug-setup, which downloads it again"
-ug_ensure_owner_mode "$omp_bin" root:ugomp 0550 || die "cannot make $omp_bin root:ugomp mode 0550; the agent could change the binary it runs"
+ug_ensure_owner_mode "$omp_bin" "root:$omp_group" 0550 || die "cannot make $omp_bin root:$omp_group mode 0550; the agent could change the binary it runs"
 printf '%s\n' "$omp_sha" >"$omp_dir/.omp.sha256.tmp"
 install -m 444 -o root -g wheel "$omp_dir/.omp.sha256.tmp" "$omp_bin.sha256"
 rm -f "$omp_dir/.omp.sha256.tmp"
@@ -146,7 +154,7 @@ for old in "$root"/omp/*; do
 done
 cat >"$root/bin/gh-broker.tmp" <<EOF
 #!/bin/sh
-BUN_BE_BUN=1 UG_GH_BROKER_SOCKET=$root/run/gh-broker.sock exec $root/omp/$omp_pin/omp $root/gh-broker/client.ts "\$@"
+BUN_BE_BUN=1 UG_GH_BROKER_SOCKET=$socket exec $root/omp/$omp_pin/omp $root/gh-broker/client.ts "\$@"
 EOF
 install -m 555 -o root -g wheel "$root/bin/gh-broker.tmp" "$root/bin/gh-broker"
 rm -f "$root/bin/gh-broker.tmp"
@@ -154,16 +162,30 @@ install -m 444 -o root -g wheel "$src/host/gh-broker/client.ts" "$root/gh-broker
 install -m 444 -o root -g wheel "$src/host/gh-broker/protocol.ts" "$root/gh-broker/protocol.ts"
 install -m 444 -o root -g wheel "$src/host/gh-broker/sweep.ts" "$root/gh-broker/sweep.ts"
 rm -rf "$root/broker" "$root/bin/broker" "$root/run/broker.sock" "$root/run/agent-sshd.pid"
-/usr/bin/sandbox-exec -f "$src/host/agent/pin.sb" /usr/bin/true || die "host/agent/pin.sb does not load under sandbox-exec; the installed pin is unchanged"
-install -m 444 -o root -g wheel "$src/host/agent/pin.sb" "$root/pin.sb"
-install -m 555 -o root -g wheel "$src/host/agent/agent-session" "$root/agent-session"
-install -m 555 -o root -g wheel "$src/host/agent/agent-start" "$root/agent-start"
-install -m 555 -o root -g wheel "$src/host/agent/agent-refresh" "$root/agent-refresh"
-install -m 444 -o root -g wheel "$src/host/agent/sshd_config" "$root/sshd_config"
-install -m 444 -o root -g wheel "$src/host/agent/config-names" "$root/config-names"
-ug_say ok "$root" "omp $omp_pin (old versions removed), pin.sb, bin/, gh-broker, agent-session, agent-start, agent-refresh, sshd_config installed"
 
-install -d -m 710 -o "$owner" -g ugagent "$root/run"
+rendered_dir=$(mktemp -d)
+cleanup+=("$rendered_dir")
+
+render() {
+  local template=$1 out
+  shift
+  out=$(ug_render "$rendered_dir/${template##*/}" "$src/$template" "$template" "$@") || die "$out"
+}
+
+install -m 444 -o root -g wheel "$src/host/facts" "$root/facts"
+for name in pin.sb agent-session agent-start agent-refresh sshd_config; do
+  render "host/agent/$name"
+done
+/usr/bin/sandbox-exec -f "$rendered_dir/pin.sb" /usr/bin/true || die "host/agent/pin.sb does not load under sandbox-exec; the installed pin is unchanged"
+install -m 444 -o root -g wheel "$rendered_dir/pin.sb" "$root/pin.sb"
+for name in agent-session agent-start agent-refresh; do
+  install -m 555 -o root -g wheel "$rendered_dir/$name" "$root/$name"
+done
+install -m 444 -o root -g wheel "$rendered_dir/sshd_config" "$root/sshd_config"
+install -m 444 -o root -g wheel "$src/host/agent/config-names" "$root/config-names"
+ug_say ok "$root" "omp $omp_pin (old versions removed), facts, pin.sb, bin/, gh-broker, agent-session, agent-start, agent-refresh, sshd_config installed"
+
+install -d -m 710 -o "$owner" -g "$agent_group" "$root/run"
 
 if [[ ! -f $root/ssh_host_ed25519_key ]]; then
   ssh-keygen -q -t ed25519 -N '' -f "$root/ssh_host_ed25519_key"
@@ -176,11 +198,11 @@ ug_say ok "agent sshd host key" "$root/ssh_host_ed25519_key"
 deny=/etc/ssh/sshd_config.d/010-underground-deny-ugagent.conf
 deny_tmp=$(mktemp)
 cleanup+=("$deny_tmp")
-printf 'DenyUsers ugagent\n' >"$deny_tmp"
+printf 'DenyUsers %s\n' "$agent_user" >"$deny_tmp"
 install -m 444 -o root -g wheel "$deny_tmp" "$deny"
 ug_sshd_denies_agent /etc/ssh/sshd_config "$root/ssh_host_ed25519_key" ||
-  die "the system sshd does not deny ugagent with $deny in place; keep Remote Login off"
-ug_say ok "system sshd" "$deny denies ugagent"
+  die "the system sshd does not deny $agent_user with $deny in place; keep Remote Login off"
+ug_say ok "system sshd" "$deny denies $agent_user"
 
 [[ -d $data ]] || die "$data does not exist; run host/bin/ug-setup first"
 install -d -m 700 -o "$owner" -g staff "$key_dir"
@@ -191,15 +213,15 @@ chown "$owner" "$owner_key" "$owner_key.pub"
 chmod 600 "$owner_key"
 ug_say ok "owner key for the agent login" "$owner_key"
 
-{ cut -d ' ' -f 1,2 "$owner_key.pub"; } >"$root/authorized_keys/ugagent.tmp"
-install -m 444 -o root -g wheel "$root/authorized_keys/ugagent.tmp" "$root/authorized_keys/ugagent"
-rm -f "$root/authorized_keys/ugagent.tmp"
+{ cut -d ' ' -f 1,2 "$owner_key.pub"; } >"$root/authorized_keys/$agent_user.tmp"
+install -m 444 -o root -g wheel "$root/authorized_keys/$agent_user.tmp" "$root/authorized_keys/$agent_user"
+rm -f "$root/authorized_keys/$agent_user.tmp"
 
 host_key=$(cut -d ' ' -f 1,2 "$root/ssh_host_ed25519_key.pub")
-printf '[127.0.0.1]:2222 %s\n' "$host_key" >"$known_hosts.tmp"
+printf '[127.0.0.1]:%s %s\n' "$agent_port" "$host_key" >"$known_hosts.tmp"
 install -m 600 -o "$owner" -g staff "$known_hosts.tmp" "$known_hosts"
 rm -f "$known_hosts.tmp"
-ug_say ok "known_hosts for 127.0.0.1:2222" "$known_hosts"
+ug_say ok "known_hosts for 127.0.0.1:$agent_port" "$known_hosts"
 
 vet_item() {
   local item=$1 base=$2 what=$3 secrets=$4 odd leak
@@ -273,7 +295,7 @@ stage_config() {
   if grep -qE '@[A-Z_]+@' "$stage/out/models.yml"; then die "models.yml of the config repo has an unknown placeholder"; fi
   rm -rf "$root/config.new" "$root/config.old"
   cp -R "$stage/out" "$root/config.new"
-  chown -R root:ugagent "$root/config.new"
+  chown -R "root:$agent_group" "$root/config.new"
   chmod -R u=rwX,g=rX,o= "$root/config.new"
   [[ ! -e $root/config ]] || mv "$root/config" "$root/config.old"
   mv "$root/config.new" "$root/config"
@@ -281,25 +303,24 @@ stage_config() {
   ug_say ok "agent config" "$root/config from $cfg, gateway $gateway"
 }
 
-auth_home=/Users/ugauth
-install -d -m 700 -o ugauth -g staff "$auth_home/.omp" "$auth_home/logs"
+install -d -m 700 -o "$auth_user" -g staff "$auth_home/.omp" "$auth_home/logs"
 if [[ ! -s $auth_home/.omp/auth-gateway.token ]]; then
   token_tmp=$(mktemp)
   cleanup+=("$token_tmp")
   openssl rand -hex 32 >"$token_tmp"
-  install -m 600 -o ugauth -g staff "$token_tmp" "$auth_home/.omp/auth-gateway.token"
+  install -m 600 -o "$auth_user" -g staff "$token_tmp" "$auth_home/.omp/auth-gateway.token"
   ug_say changed "gateway bearer" "new, in $auth_home/.omp/auth-gateway.token"
 fi
 stage_config
 
 start_login_services() {
-  local owner_uid gateway engine label rendered f url err out fp inputs broker_out=""
+  local owner_uid gateway engine label f url err out fp inputs broker_out=""
   owner_uid=$(id -u "$owner")
   gateway=$(sed -n 's/^gateway=//p' "$data/addresses")
   engine=$(sed -n 's/^engine=//p' "$data/addresses")
   [[ $gateway =~ $ip_port && $engine =~ $ip_port ]] || die "$data/addresses needs a gateway=<ip>:<port> and an engine=<ip>:<port> line"
   install -d -m 755 -o root -g wheel "$root/usage-broker"
-  for f in usage-broker.ts addresses.ts protocol.ts; do
+  for f in usage-broker.ts addresses.ts protocol.ts facts.ts; do
     install -m 444 -o root -g wheel "$src/host/gh-broker/$f" "$root/usage-broker/$f"
   done
   install -m 444 -o root -g wheel "$data/addresses" "$root/addresses"
@@ -307,13 +328,12 @@ start_login_services() {
   for label in com.underground.auth-broker com.underground.auth-gateway com.underground.usage-broker; do
     err=$(ug_stop_service "gui/$owner_uid/$label") || die "$err"
     rm -f "$owner_home/Library/LaunchAgents/$label.plist"
-    rendered=$(mktemp)
-    cleanup+=("$rendered")
-    out=$(ug_render_plist "$rendered" "$src/host/agent/$label.plist" "host/agent/$label.plist" -e "s|@OMP@|$omp_bin|g" -e "s|@GATEWAY@|$gateway|g" -e "s|@ENGINE@|$engine|g") || die "$out"
+    render "host/agent/$label.plist" -e "s|@OMP@|$omp_bin|g" -e "s|@GATEWAY@|$gateway|g" -e "s|@ENGINE@|$engine|g"
+    rendered=$rendered_dir/$label.plist
     inputs=()
     case $label in
       com.underground.auth-broker)
-        url=http://127.0.0.1:8765/v1/healthz
+        url=http://127.0.0.1:$(ug_fact auth_broker_port)/v1/healthz
         inputs=("$omp_bin.sha256")
         [[ ! -e $auth_home/.omp/auth-broker.token ]] || inputs+=("$auth_home/.omp/auth-broker.token")
         ;;
@@ -323,8 +343,8 @@ start_login_services() {
         [[ ! -e $auth_home/.omp/auth-broker.token ]] || inputs+=("$auth_home/.omp/auth-broker.token")
         ;;
       com.underground.usage-broker)
-        url=http://127.0.0.1:18765/v1/healthz
-        inputs=("$omp_bin.sha256" "$root/usage-broker/usage-broker.ts" "$root/usage-broker/addresses.ts" "$root/usage-broker/protocol.ts")
+        url=http://127.0.0.1:$(ug_fact usage_broker_port)/v1/healthz
+        inputs=("$omp_bin.sha256" "$root/facts" "$root/usage-broker"/*.ts)
         ;;
     esac
     out=$(ug_trusted_daemon "$rendered") || die "a wall is open in the service $label: $out, so a user with fewer rights could change what it runs"
@@ -332,27 +352,29 @@ start_login_services() {
     [[ $label != com.underground.auth-gateway || $broker_out != restarted* ]] || rm -f "$root/state/$label.fingerprint"
     fp=$(ug_fingerprint "$rendered" "${inputs[@]}") || die "cannot read the inputs of $label: ${inputs[*]}"
     out=$(ug_ensure_service system "$label" "$rendered" "/Library/LaunchDaemons/$label.plist" "$root/state/$label.fingerprint" "$fp" ug_http_answers "$url") ||
-      die "$out; read /Users/ugauth/logs/${label#com.underground.}.log"
+      die "$out; read $auth_home/logs/${label#com.underground.}.log"
     [[ $label != com.underground.auth-broker ]] || broker_out=$out
     ug_say "$(ug_service_kind "$out")" "login service $label at $url" "$out"
   done
-  ug_say ok "login services" "auth-broker, auth-gateway, usage-broker run as ugauth from /Library/LaunchDaemons"
+  ug_say ok "login services" "auth-broker, auth-gateway, usage-broker run as $auth_user from /Library/LaunchDaemons"
 }
 start_login_services
 
-plist=/Library/LaunchDaemons/com.underground.agent-sshd.plist
 /usr/sbin/sshd -t -f "$root/sshd_config" || die "sshd rejects $root/sshd_config; nothing was loaded"
 for label in com.underground.agent-sshd com.underground.agent-refresh; do
-  out=$(ug_trusted_daemon "$src/host/agent/$label.plist") || die "a wall is open in the service $label: $out, so a user with fewer rights could change what it runs"
+  render "host/agent/$label.plist"
+  out=$(ug_trusted_daemon "$rendered_dir/$label.plist") || die "a wall is open in the service $label: $out, so a user with fewer rights could change what it runs"
 done
-fp=$(ug_fingerprint "$src/host/agent/com.underground.agent-sshd.plist" "$root/sshd_config" "$root/ssh_host_ed25519_key.pub") || die "cannot read the inputs of the agent sshd"
-out=$(ug_ensure_service system com.underground.agent-sshd "$src/host/agent/com.underground.agent-sshd.plist" "$plist" "$root/state/com.underground.agent-sshd.fingerprint" "$fp" ug_port_answers 127.0.0.1 2222) ||
-  die "agent sshd: $out; check it with: sudo launchctl print system/com.underground.agent-sshd"
-ug_say "$(ug_service_kind "$out")" "agent sshd at 127.0.0.1:2222" "$out"
+
+label=com.underground.agent-sshd
+fp=$(ug_fingerprint "$rendered_dir/$label.plist" "$root/sshd_config" "$root/ssh_host_ed25519_key.pub") || die "cannot read the inputs of the agent sshd"
+out=$(ug_ensure_service system "$label" "$rendered_dir/$label.plist" "/Library/LaunchDaemons/$label.plist" "$root/state/$label.fingerprint" "$fp" ug_port_answers 127.0.0.1 "$agent_port") ||
+  die "agent sshd: $out; check it with: sudo launchctl print system/$label"
+ug_say "$(ug_service_kind "$out")" "agent sshd at 127.0.0.1:$agent_port" "$out"
 
 label=com.underground.agent-refresh
-fp=$(ug_fingerprint "$src/host/agent/$label.plist") || die "cannot read host/agent/$label.plist"
-out=$(ug_ensure_service system "$label" "$src/host/agent/$label.plist" "/Library/LaunchDaemons/$label.plist" "$root/state/$label.fingerprint" "$fp" launchctl print "system/$label") ||
+fp=$(ug_fingerprint "$rendered_dir/$label.plist") || die "cannot read host/agent/$label.plist"
+out=$(ug_ensure_service system "$label" "$rendered_dir/$label.plist" "/Library/LaunchDaemons/$label.plist" "$root/state/$label.fingerprint" "$fp" launchctl print "system/$label") ||
   die "agent clone refresh: $out; check it with: sudo launchctl print system/$label"
 ug_say "$(ug_service_kind "$out")" "agent clone refresh every 30 s" "$out"
 
@@ -361,12 +383,14 @@ install -d -m 700 -o "$owner" -g staff "$agent_dir" "$agent_dir/bin" "$agent_dir
 [[ -d $bin_dir ]] || install -d -m 755 -o "$owner" -g staff "$bin_dir"
 install -m 555 -o "$owner" -g staff "$src/host/bin/ug-agent" "$agent_dir/bin/ug-agent"
 install -m 444 -o "$owner" -g staff "$src/host/lib/ug.bash" "$agent_dir/lib/ug.bash"
+install -m 444 -o "$owner" -g staff "$src/host/facts" "$agent_dir/facts"
 [[ ! -e $bin_dir/omp || -L $bin_dir/omp ]] || die "$bin_dir/omp is a file, not setup's link; move it away, then run setup again"
 ln -sfn "$agent_dir/bin/ug-agent" "$bin_dir/omp"
 chown -h "$owner" "$bin_dir/omp"
 ug_say ok "omp on PATH" "$bin_dir/omp, the agent's launcher"
 
-install -m 555 -o root -g wheel "$src/host/agent/agent-home-tar" "$root/bin/agent-home-tar"
+render host/agent/agent-home-tar
+install -m 555 -o root -g wheel "$rendered_dir/agent-home-tar" "$root/bin/agent-home-tar"
 sudoers_tmp=$(mktemp) || die "cannot make a temp file for the backup sudoers rule"
 cleanup+=("$sudoers_tmp")
 printf '%s ALL=(root) NOPASSWD: %s\n' "$owner" "$root/bin/agent-home-tar" >"$sudoers_tmp"

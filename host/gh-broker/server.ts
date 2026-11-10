@@ -37,6 +37,7 @@ import type {
   Request,
 } from "./protocol.ts";
 import { appFiles, basicAuth, createAppTokens, redactTokens } from "./github-app.ts";
+import { readHostFacts } from "./facts.ts";
 import type { GithubTokens, TokenScope } from "./github-app.ts";
 import { dropPushRecord, listPushRecords, readPushRecord, writePushRecord } from "./push-record.ts";
 import type { PushedBranch } from "./push-record.ts";
@@ -78,16 +79,17 @@ function defaultGitPath(): string {
 }
 
 export function defaultConfig(): ServerConfig {
-  const host = join(HOME, ".local/share/underground");
+  const facts = readHostFacts();
+  const host = join(HOME, facts.ownerData);
   return {
-    socketPath: "/Library/Underground/run/gh-broker.sock",
+    socketPath: facts.ghBrokerSocket,
     reposRoot: join(host, "gh-broker/repos"),
     reviewsDir: join(host, "gh-broker/reviews"),
     pushesDir: join(host, "gh-broker/pushes"),
     protectedDir: join(host, "protected-paths"),
     ghPath: "/opt/homebrew/bin/gh",
     gitPath: defaultGitPath(),
-    github: createAppTokens({ files: appFiles(HOME) }),
+    github: createAppTokens({ files: appFiles(host) }),
     home: HOME,
     tempRoot: join(host, "gh-broker/tmp"),
   };

@@ -5,12 +5,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { tempDir } from "../temp.ts";
+import { factTokens } from "./render.ts";
 
 const DIR = join(import.meta.dirname, "../../host/launchd");
 const LIB = join(import.meta.dirname, "../../host/lib/ug.bash");
 const AGENT_DIR = join(import.meta.dirname, "../../host/agent");
-const FILLED = new Set(["@DATA@"]);
-const DAEMON_FILLED = new Set(["@OMP@", "@GATEWAY@", "@ENGINE@"]);
+const FILLED = new Set(["@DATA@", ...(await factTokens())]);
+const DAEMON_FILLED = new Set(["@OMP@", "@GATEWAY@", "@ENGINE@", ...(await factTokens())]);
 const DAEMONS = ["com.underground.auth-broker", "com.underground.auth-gateway", "com.underground.usage-broker"];
 
 const programArguments = (text: string): string[] => {
@@ -30,20 +31,20 @@ test("every owner launchd template uses only the placeholders that setup fills, 
 
 test("the gh-broker and the backup run setup's copy as the owner, never the checkout", async () => {
   const args = async (label: string) => programArguments(await readFile(join(DIR, `${label}.plist`), "utf8"));
-  assert.deepEqual(await args("com.underground.gh-broker"), ["/opt/homebrew/bin/node", "@DATA@/services/host/gh-broker/server.ts"]);
+  assert.deepEqual(await args("com.underground.gh-broker"), ["@NODE@", "@DATA@/services/host/gh-broker/server.ts"]);
   assert.deepEqual(await args("com.underground.backup"), ["/bin/bash", "@DATA@/services/host/bin/ug-backup"]);
 });
 
-test("the login services run as ugauth from root-owned code, with no profile or config dir that the owner's omp could share", async () => {
+test("the login services run as the login user from root-owned code, with no profile or config dir that the owner's omp could share", async () => {
   const args = async (label: string) => programArguments(await readFile(join(AGENT_DIR, `${label}.plist`), "utf8"));
   assert.deepEqual((await args("com.underground.auth-broker")).slice(0, 3), ["@OMP@", "auth-broker", "serve"]);
   assert.deepEqual((await args("com.underground.auth-gateway")).slice(0, 3), ["@OMP@", "auth-gateway", "serve"]);
-  assert.deepEqual(await args("com.underground.usage-broker"), ["@OMP@", "/Library/Underground/usage-broker/usage-broker.ts"]);
+  assert.deepEqual(await args("com.underground.usage-broker"), ["@OMP@", "@ROOT@/usage-broker/usage-broker.ts"]);
   for (const label of DAEMONS) {
     const text = await readFile(join(AGENT_DIR, `${label}.plist`), "utf8");
-    assert.match(text, /<key>UserName<\/key>\s*<string>ugauth<\/string>/, label);
-    assert.match(text, /<key>HOME<\/key>\s*<string>\/Users\/ugauth<\/string>/, label);
-    assert.doesNotMatch(text, /OMP_PROFILE|PI_CONFIG_DIR|PI_CODING_AGENT_DIR|\/Users\/(?!ugauth\/|ugauth<)|@HOME@|@DATA@|\/opt\/homebrew/, label);
+    assert.match(text, /<key>UserName<\/key>\s*<string>@AUTH_USER@<\/string>/, label);
+    assert.match(text, /<key>HOME<\/key>\s*<string>@AUTH_HOME@<\/string>/, label);
+    assert.doesNotMatch(text, /OMP_PROFILE|PI_CONFIG_DIR|PI_CODING_AGENT_DIR|\/Users\/|@HOME@|@DATA@|\/opt\/homebrew/, label);
     for (const placeholder of text.match(/@[A-Z_]+@/g) ?? []) assert.ok(DAEMON_FILLED.has(placeholder), `${label}: ${placeholder}`);
   }
 });
