@@ -360,6 +360,7 @@ async function setUp(github: GithubTokens): Promise<void> {
     github,
     home: join(root, "home"),
     tempRoot: join(root, "tmp"),
+    statusFile: join(root, "status"),
   };
   await mkdir(config.home);
   await writeFile(config.ghPath, FAKE_GH, { mode: 0o755 });

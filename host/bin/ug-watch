@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+if [[ $# -ne 0 ]]; then
+  printf 'usage: ug-watch\n' >&2
+  exit 64
+fi
+
+src=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)
+# shellcheck source=host/lib/ug.bash disable=SC1091
+source "$src/host/lib/ug.bash"
+data=$HOME/$(ug_fact owner_data)
+watch=$data/watch
+status=$watch/status
+ping_file=$watch/ping
+retry=${UG_WATCH_RETRY_SECONDS:-60}
+broker_stale=120
+backup_stale=$((36 * 3600))
+
+log() { printf '%s ug-watch: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >&2; }
+
+record_value() { sed -n "s/^$2=//p" "$1" 2>/dev/null | head -n 1; }
+
+job_problem() {
+  local target=$1 name=$2 out code
+  out=$(launchctl print "$target" 2>/dev/null) || { printf '%s: launchd has no job %s\n' "$name" "$target"; return; }
+  code=$(sed -n 's/^[[:space:]]*last exit code = \([0-9][0-9]*\).*/\1/p' <<<"$out" | head -n 1)
+  [[ -z $code || $code == 0 ]] || printf '%s: its last run exited with %s\n' "$name" "$code"
+}
+
+problems() {
+  local now at failed gateway
+  now=$(date +%s)
+  at=$(record_value "$data/gh-broker/status" at)
+  if [[ ! $at =~ ^[0-9]+$ ]] || (( now - 10#$at > broker_stale )); then
+    printf 'gh-broker: its refresh loop wrote no status in the last %s s; see %s\n' "$broker_stale" "$data/gh-broker/gh-broker.log"
+  else
+    failed=$(record_value "$data/gh-broker/status" failed)
+    [[ -z $failed ]] || printf 'gh-broker: the last refresh failed for %s; see %s\n' "$failed" "$data/gh-broker/gh-broker.log"
+  fi
+  at=$(cat "$data/backup/last" 2>/dev/null)
+  if [[ ! $at =~ ^[0-9]+$ ]] || (( now - 10#$at > backup_stale )); then
+    printf 'backup: no good backup in the last 36 hours; see %s\n' "$data/backup/backup.log"
+  fi
+  job_problem "gui/$UID/com.underground.backup" backup
+  job_problem system/com.underground.agent-refresh "agent refresh"
+  ug_http_answers "http://127.0.0.1:$(ug_fact auth_broker_port)/v1/healthz" 2>/dev/null || printf 'auth broker: no answer on port %s\n' "$(ug_fact auth_broker_port)"
+  gateway=$(record_value "$data/addresses" gateway)
+  if [[ -z $gateway ]]; then
+    printf 'auth gateway: %s has no gateway= line\n' "$data/addresses"
+  else
+    ug_http_answers "http://$gateway/healthz" 2>/dev/null || printf 'auth gateway: no answer on %s\n' "$gateway"
+  fi
+  ug_http_answers "http://127.0.0.1:$(ug_fact usage_broker_port)/v1/healthz" 2>/dev/null || printf 'usage broker: no answer on port %s\n' "$(ug_fact usage_broker_port)"
+  ug_port_answers 127.0.0.1 "$(ug_fact agent_sshd_port)" 2>/dev/null || printf 'agent sshd: no answer on port %s\n' "$(ug_fact agent_sshd_port)"
+}
+
+found=$(problems)
+if [[ -n $found ]]; then
+  sleep "$retry"
+  found=$(problems)
+fi
+
+url=$(head -n 1 "$ping_file" 2>/dev/null)
+report=$found
+if [[ ! $url =~ ^https://[^[:space:]]+$ ]]; then
+  report+="${report:+$'\n'}watch: $ping_file has no https ping address, so nothing outside this mac alerts you"
+fi
+
+tmp=$(mktemp "$watch/.status.XXXXXX") || { log "cannot write in $watch"; exit 1; }
+if ! { printf 'at=%s\n%s%s' "$(date +%s)" "$report" "${report:+$'\n'}" >"$tmp" && mv -f "$tmp" "$status"; }; then
+  rm -f "$tmp"
+  log "cannot write $status"
+  exit 1
+fi
+[[ -z $found ]] || log "${found//$'\n'/; }"
+
+[[ $url =~ ^https://[^[:space:]]+$ ]] || exit 0
+if [[ -z $found ]]; then
+  curl -fsS -o /dev/null --max-time 10 --retry 3 "$url" || log "the ping to the outside check failed"
+else
+  printf '%s\n' "$found" | curl -fsS -o /dev/null --max-time 10 --retry 3 --data-binary @- "$url/fail" || log "the failure ping to the outside check failed"
+fi

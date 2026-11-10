@@ -9,6 +9,7 @@ root=@ROOT@
 limit=20
 log=$HOME/logs/agent-refresh.log
 re='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'
+failed=0
 
 mkdir -p "${log%/*}"
 if [[ -f $log && $(stat -f %z "$log") -gt 1048576 ]]; then : >"$log"; fi
@@ -24,7 +25,9 @@ sync_clone() {
   wait "$pid" || status=$?
   /usr/bin/pkill -TERM -P "$watchdog" 2>/dev/null
   wait "$watchdog" 2>/dev/null
-  (( status == 0 || status == 75 )) || printf '%s sync %s failed with exit %s\n' "$(date -u +%FT%TZ)" "$repo" "$status"
+  (( status == 0 || status == 75 )) && return 0
+  printf '%s sync %s failed with exit %s\n' "$(date -u +%FT%TZ)" "$repo" "$status"
+  failed=1
 }
 
 for git_dir in "$HOME"/work/*/*/.git; do
@@ -34,3 +37,4 @@ for git_dir in "$HOME"/work/*/*/.git; do
   [[ $repo =~ $re ]] || continue
   sync_clone "$clone" "$repo"
 done
+exit "$failed"

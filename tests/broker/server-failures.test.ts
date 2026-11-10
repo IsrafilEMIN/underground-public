@@ -222,6 +222,7 @@ beforeEach(async () => {
     github: fakeTokens(),
     home: join(root, "home"),
     tempRoot: join(root, "tmp"),
+    statusFile: join(root, "status"),
   };
   await mkdir(config.home);
   await writeHome("repo.json", '{"defaultBranchRef":{"name":"main"}}\n');
@@ -385,11 +386,20 @@ test("a check whose GitHub call hangs stops at its deadline, and a later sync of
   assert.equal(ok.exit, 0, JSON.stringify(ok));
 });
 
-test("a refresh whose copy of the repo cannot be made logs and resolves, so the timer never throws", async () => {
+test("each refresh tick writes its time and the repos that failed, also when no repo is due, and never throws", async () => {
+  const signal = new AbortController().signal;
+  const status = () => readFile(config.statusFile, "utf8");
+  await refreshRepos(config, signal);
+  assert.match(await status(), /^at=\d+\nfailed=\n$/);
   assert.equal((await request({ verb: "sync" })).exit, 0);
+  await refreshRepos(config, signal);
+  assert.match(await status(), /^at=\d+\nfailed=\n$/);
   await writeFile(join(root, "not-a-dir"), "");
   config.reposRoot = join(root, "not-a-dir", "bare");
-  await refreshRepos(config, new AbortController().signal);
+  await refreshRepos(config, signal);
+  assert.match(await status(), new RegExp(`^at=\\d+\\nfailed=${REPO}\\n$`));
+  config.statusFile = join(root, "not-a-dir", "status");
+  await refreshRepos(config, signal);
 });
 
 test("push with an unreadable default branch pushes nothing and writes no push record", async () => {

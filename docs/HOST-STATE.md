@@ -21,13 +21,14 @@ Setup first asks GitHub, with your `gh` login, whether `main` of the checkout's 
      gh-broker sync ─────────────────────► /Users/ugagent/work/<owner>/<repo>
 
  (3) ALL THE TIME (launchd jobs)
-     gh-broker     reads  github-app.pem/.json, protected-paths/   writes  gh-broker/{repos,pushes,reviews}
+     gh-broker     reads  github-app.pem/.json, protected-paths/   writes  gh-broker/{repos,pushes,reviews,status}
      agent refresh every 30 s syncs each clone that a session used in the last 7 days
      agent firewall every 30 s loads /Library/Underground/pf.conf into the pf anchor com.apple/underground
      auth broker   reads/writes  /Users/ugauth/.omp  (logins, tokens)
      auth gateway  reads  /Users/ugauth/.omp, listens on the gateway address
      usage broker  reads  /Library/Underground/addresses, /Users/ugauth/.omp/auth-gateway.token
      backup 20:00  reads  backup/config, backup/password, all of /Users/ugagent  writes  backup/last
+     watch 5 min   reads  gh-broker/status, backup/last, addresses, watch/ping, launchd, health routes  writes  watch/status, pings the outside check
 ```
 
 ## Files that you write by hand
@@ -40,6 +41,7 @@ No code makes these files. Setup or the service reads them as they are.
 | `skill-repos` in the config repo | One skill repo path on each line (`skill-repos`, `host/bin/ug-agent-setup`). | If a path is not a folder or is outside your home, setup stops (`skill-repos`, `host/bin/ug-agent-setup`). |
 | `~/.local/share/underground/backup/config` | The lines `repo=sftp:<user>@<host>:<path>`, `wake=` and `sleep=` (`backup_target_read`, `host/lib/backup-target.bash`). | Setup gives only a warning (`setup_backup`, `host/bin/ug-setup`). The nightly backup then fails, and only `backup/backup.log` records it. |
 | `~/.local/share/underground/protected-paths/<owner>/<repo>` | Globs, one on each line. A PR that changes a matching path gets a hold, so you merge it on GitHub (`protected-path`, `host/gh-broker/protocol.ts`). | If it is missing, the gh-broker reads it as empty and gives no warning (`readOptional`, `host/gh-broker/server.ts`). Then only `.github/**` and `CODEOWNERS` are protected (`isProtectedPath`, `host/gh-broker/protocol.ts`). |
+| `~/.local/share/underground/watch/ping` | One `https://` line: the ping address of a check on an outside service (`ping_file`, `host/bin/ug-watch`; `adr/0022-failures-reach-the-owner.md`). It is a secret: anyone with it can send "ok". | Setup lists it as left to do (`prepare_services`, `host/bin/ug-setup`). The watch still runs, but nothing outside the mac alerts you, and each launch warns about it. |
 
 ## Data folder: `~/.local/share/underground` (yours, mode 700)
 
@@ -47,14 +49,16 @@ No code makes these files. Setup or the service reads them as they are.
 |---|---|---|---|---|
 | `addresses` | `gateway=<tailscale-ip>:4000` is where the auth gateway listens. `engine=<ip>:<port>` is the inference engine. | setup, once only (`write_addresses`, `host/bin/ug-setup`) | setup (`stage_config`, `start_login_services`, `host/bin/ug-agent-setup`) | Only at the next setup. Setup never rewrites the file, so after a tailscale IP change you must edit it by hand. |
 | `backup/password` | The restic repo password | setup, once only (`setup_backup`, `host/bin/ug-setup`) | `RESTIC_PASSWORD_FILE`, `host/bin/ug-backup` | If you lose it, you cannot open the backup. |
-| `backup/last` | The time of the last good backup | `backup/last`, `host/bin/ug-backup` | `last_ts`, `host/bin/ug-agent` warns after 36 hours | at once |
+| `backup/last` | The time of the last good backup | `backup/last`, `host/bin/ug-backup` | `backup_stale`, `host/bin/ug-watch` reports it after 36 hours | at once |
 | `github-app.pem`, `github-app.json` | The gh-broker app key and client ID | `scripts/gh-broker-app-wizard.sh` | `appFiles`, `host/gh-broker/github-app.ts` | at the next token mint |
 | `gh-broker/repos/`, `pushes/`, `reviews/`, `tmp/` | The gh-broker's mirrors and its push and review records | the gh-broker (`defaultConfig`, `host/gh-broker/server.ts`) | the gh-broker | at once. Nothing deletes old review records or runs `git gc` on the mirrors. |
-| `services/` | Setup's copy of the gh-broker code, `ug-backup`, `ug-auth`, `ug.bash`, `backup-target.bash`, and `VERSIONS` | setup deletes and remakes it (`install_service_code`, `host/bin/ug-setup`) | the launchd jobs (`ProgramArguments`, `host/launchd/com.underground.gh-broker.plist`, `host/launchd/com.underground.backup.plist`) | Only at the next setup. An edit in your checkout does not change the running services. |
+| `gh-broker/status` | The time of the last 30 s refresh and the repos that failed in it | the gh-broker, each tick (`writeRefreshStatus`, `host/gh-broker/server.ts`) | `broker_stale`, `host/bin/ug-watch` reports it after 120 s | at once |
+| `watch/status` | The time of the last watch run and one line for each problem it found | `status`, `host/bin/ug-watch` | `status`, `host/bin/ug-agent` prints each problem at launch, and warns when it is older than 15 minutes | at once |
+| `services/` | Setup's copy of the gh-broker code, `ug-backup`, `ug-watch`, `ug-auth`, `ug.bash`, `backup-target.bash`, and `VERSIONS` | setup deletes and remakes it (`install_service_code`, `host/bin/ug-setup`) | the launchd jobs (`ProgramArguments`, `host/launchd/com.underground.gh-broker.plist`, `host/launchd/com.underground.backup.plist`, `host/launchd/com.underground.watch.plist`) | Only at the next setup. An edit in your checkout does not change the running services. |
 | `restic/<pin>/restic` | The pinned restic | `install_restic`, `host/bin/ug-setup` | `restic_bin`, `host/bin/ug-backup` | at the next setup |
 | `agent-ssh/` | Your key for the agent login, and `known_hosts` for `127.0.0.1:2222` | `known_hosts`, `host/bin/ug-agent-setup` | `known_hosts`, `host/bin/ug-agent` | at once |
 | `agent/bin/ug-agent` | The launcher. `~/.local/bin/omp` links to it. | `agent_dir`, `host/bin/ug-agent-setup` | your shell | at the next setup |
-| `state/`, `gh-broker/gh-broker.log`, `backup/backup.log` | Setup fingerprints and the service logs | setup, launchd | you | none |
+| `state/`, `gh-broker/gh-broker.log`, `backup/backup.log`, `watch/watch.log` | Setup fingerprints and the service logs | setup, launchd | you | none |
 
 ## Root zone: `/Library/Underground` (root-owned)
 
@@ -94,7 +98,7 @@ No code makes these files. Setup or the service reads them as they are.
 | path | what it is for | who writes it |
 |---|---|---|
 | `/Library/LaunchDaemons/com.underground.{auth-broker,auth-gateway,usage-broker,agent-sshd,agent-refresh}.plist` | The login services, the agent sshd, and the clone refresh. Before setup loads one, it checks each program, folder, and `PATH` entry that the service names: root or the service's own user must own it and each folder above it, and no group, other user, or access rule may let another user write it (`ug_trusted_daemon`, `host/lib/ug.bash`). If not, setup stops. | `start_login_services`, `host/bin/ug-agent-setup` |
-| `~/Library/LaunchAgents/com.underground.{gh-broker,backup}.plist` | Your gh-broker and the nightly backup | `start_services`, `host/bin/ug-setup` |
+| `~/Library/LaunchAgents/com.underground.{gh-broker,backup,watch}.plist` | Your gh-broker, the nightly backup, and the watch | `start_services`, `host/bin/ug-setup` |
 | `/etc/ssh/sshd_config.d/010-underground-deny-ugagent.conf` | It keeps `ugagent` out of the system sshd. | `DenyUsers`, `host/bin/ug-agent-setup` |
 | `/etc/sudoers.d/underground-backup` | It lets you run `agent-home-tar` with no password. | `NOPASSWD`, `host/bin/ug-agent-setup` |
 | `/Library/LaunchDaemons/com.underground.agent-pf.plist` | The firewall loader, as root. Setup checks it with `ug_trusted_daemon` like the other services, and stops unless pf is on and the anchor holds the line (`ug_pf_refuses_listener`, `host/lib/ug.bash`). | `agent-pf`, `host/bin/ug-agent-setup` |

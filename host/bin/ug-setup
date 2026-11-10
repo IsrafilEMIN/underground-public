@@ -23,7 +23,7 @@ err_red=$(ug_paint 2 red) err_plain=$(ug_paint 2 off)
 bin_dir="$HOME/.local/bin"
 root=$(ug_fact root)
 node_bin=$(ug_fact node)
-labels=(com.underground.gh-broker com.underground.backup)
+labels=(com.underground.gh-broker com.underground.backup com.underground.watch)
 agents_dir="$HOME/Library/LaunchAgents"
 addresses_file="$data/addresses"
 tailscale_app=/Applications/Tailscale.app/Contents/MacOS/Tailscale
@@ -184,11 +184,11 @@ install_service_code() {
   local dir="$data/services" f
   rm -rf "$dir"
   install -d -m 700 "$dir" "$dir/host/bin" "$dir/host/lib" "$dir/host/gh-broker"
-  for f in host/bin/ug-backup host/bin/ug-auth host/lib/backup-target.bash host/lib/ug.bash host/facts VERSIONS "$src"/host/gh-broker/*.ts; do
+  for f in host/bin/ug-backup host/bin/ug-watch host/bin/ug-auth host/lib/backup-target.bash host/lib/ug.bash host/facts VERSIONS "$src"/host/gh-broker/*.ts; do
     f=${f#"$src/"}
     put "$src/$f" "$dir/$f" 444
   done
-  chmod 555 "$dir/host/bin/ug-backup" "$dir/host/bin/ug-auth"
+  chmod 555 "$dir/host/bin/ug-backup" "$dir/host/bin/ug-watch" "$dir/host/bin/ug-auth"
   link "$dir/host/bin/ug-auth" "$bin_dir/ug-auth"
   ug_say ok services "code installed in $dir, ug-auth on PATH as $bin_dir/ug-auth"
 }
@@ -224,7 +224,10 @@ write_addresses() {
 }
 
 prepare_services() {
-  install -d -m 700 "$data/gh-broker" "$data/gh-broker/repos" "$data/gh-broker/tmp" "$data/gh-broker/reviews" "$data/gh-broker/pushes" "$data/state"
+  install -d -m 700 "$data/gh-broker" "$data/gh-broker/repos" "$data/gh-broker/tmp" "$data/gh-broker/reviews" "$data/gh-broker/pushes" "$data/state" "$data/watch"
+  if [[ ! -s $data/watch/ping ]]; then
+    later+=("write the ping address of an outside check (docs/adr/0022-failures-reach-the-owner.md) into $data/watch/ping; until then, nothing outside this mac tells you when the mac or the watch stops")
+  fi
   write_addresses
 }
 
@@ -240,6 +243,11 @@ start_services() {
         inputs=("$node_bin" "$data/services/host/facts" "$data"/services/host/gh-broker/*.ts)
         answers=(ug_socket_answers "$root/$(ug_fact gh_broker_socket)")
         log=$data/gh-broker/gh-broker.log
+        ;;
+      com.underground.watch)
+        inputs=()
+        answers=(true)
+        log=$data/watch/watch.log
         ;;
       *)
         inputs=()
