@@ -52,7 +52,13 @@ jobs:
       - name: Broker and host tests
         run: |
           set -euo pipefail
-          node --test --test-reporter=tap tests/broker/*.test.ts tests/host/*.test.ts | tee tests.tap
+          status=0
+          node --test --test-reporter=tap tests/broker/*.test.ts tests/host/*.test.ts | tee tests.tap || status=$?
+          if [ "$status" -ne 0 ]; then
+            echo "failed tests:" >&2
+            grep -E '^ *not ok ' tests.tap >&2 || true
+            exit "$status"
+          fi
           if grep -E '^ok [0-9]+ - \[mac\] .* # SKIP' tests.tap; then
             echo "a [mac] test skipped, so it checked nothing" >&2
             exit 1
