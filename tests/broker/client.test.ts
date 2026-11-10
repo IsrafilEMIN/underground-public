@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile, execFileSync } from "node:child_process";
-import { rm, writeFile } from "node:fs/promises";
+import { rm } from "node:fs/promises";
 import { createServer } from "node:net";
 import type { Server } from "node:net";
 import { tmpdir } from "node:os";
@@ -8,13 +8,10 @@ import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
 import { promisify } from "node:util";
 import { send } from "../../host/gh-broker/client.ts";
+import { BRANCH, GIT_ENV, REPO, commit, git, initRepo } from "./fixture.ts";
 import { tempDir } from "../temp.ts";
 
-const REPO = "o/r";
-const BRANCH = "agent/x";
 const CLIENT = join(import.meta.dirname, "../../host/gh-broker/client.ts");
-const GIT_ENV = { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" };
-const REAL_GIT = execFileSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).trim();
 const execFileAsync = promisify(execFile);
 
 let root: string;
@@ -22,14 +19,6 @@ let work: string;
 let socket: string;
 let server: Server | undefined;
 let requests: unknown[];
-
-function git(cwd: string, ...args: string[]): string {
-  return execFileSync(REAL_GIT, ["-c", "user.name=t", "-c", "user.email=t@example.com", ...args], {
-    cwd,
-    env: GIT_ENV,
-    encoding: "utf8",
-  }).trim();
-}
 
 async function broker(...replies: string[]): Promise<void> {
   server = createServer({ allowHalfOpen: true }, (conn) => {
@@ -66,19 +55,11 @@ function brokerAt(cwd: string, ...args: string[]): Promise<Run> {
   return client(cwd, {}, ...args);
 }
 
-async function commit(cwd: string, file: string): Promise<string> {
-  await writeFile(join(cwd, file), `${file}\n`);
-  git(cwd, "add", file);
-  git(cwd, "commit", "--quiet", "-m", file);
-  return git(cwd, "rev-parse", "HEAD");
-}
-
 beforeEach(async () => {
   root = await tempDir(join(process.env.XDG_STATE_HOME ?? tmpdir(), "ug-cl-"));
   socket = join(root, "b.sock");
   requests = [];
-  work = join(root, "work");
-  execFileSync(REAL_GIT, ["init", "--quiet", "-b", "main", work], { env: GIT_ENV });
+  work = initRepo(join(root, "work"));
   await commit(work, "base.txt");
 });
 

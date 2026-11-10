@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, readFile, rm, writeFile } from "node:fs/promises";
 import { connect, createServer } from "node:net";
 import type { Server, Socket } from "node:net";
 import { tmpdir } from "node:os";
@@ -9,16 +8,13 @@ import { afterEach, beforeEach, test } from "node:test";
 import { MAX_REQUEST_BYTES } from "../../host/gh-broker/protocol.ts";
 import type { PushRecord, Reply } from "../../host/gh-broker/protocol.ts";
 import { readPushRecord } from "../../host/gh-broker/push-record.ts";
-import { defaultConfig, handleRequest, refreshRepos, serveConnection } from "../../host/gh-broker/server.ts";
+import { refreshRepos, serveConnection } from "../../host/gh-broker/server.ts";
 import type { ServerConfig } from "../../host/gh-broker/server.ts";
-import { FAKE_TOKEN, fakeTokens, githubRemote, tokenRemote } from "./fake-app.ts";
+import { FAKE_TOKEN, githubRemote, tokenRemote } from "./fake-app.ts";
+import { BRANCH, REAL_GIT, REPO, brokerConfig, bundleOf, commit, git, initRepo, remoteRef, request, seedMain } from "./fixture.ts";
 import { tempDir } from "../temp.ts";
 
-const REPO = "o/r";
-const BRANCH = "agent/x";
 const CI_HEAD = "a".repeat(40);
-const REAL_GIT = defaultConfig("/unused/gh").gitPath;
-const GIT_ENV = { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" };
 const UNREADABLE_DEFAULT_BRANCHES = [
   '{"defaultBranchRef":{"name":"-main"}}',
   '{"defaultBranchRef":{"name":"a..b"}}',
@@ -74,32 +70,8 @@ let config: ServerConfig;
 let work: string;
 let remote: string;
 
-function git(cwd: string, ...args: string[]): string {
-  return execFileSync(REAL_GIT, ["-c", "user.name=t", "-c", "user.email=t@example.com", ...args], { cwd, env: GIT_ENV, encoding: "utf8" }).trim();
-}
-
-async function commit(branch: string, file: string): Promise<string> {
-  git(work, "checkout", "--quiet", "-B", branch);
-  await writeFile(join(work, file), `${file}\n`);
-  git(work, "add", file);
-  git(work, "commit", "--quiet", "-m", file);
-  return git(work, "rev-parse", "HEAD");
-}
-
-function bundleOf(branch: string): string {
-  return execFileSync(REAL_GIT, ["bundle", "create", "-", `refs/heads/${branch}`], { cwd: work, env: GIT_ENV }).toString("base64");
-}
-
-function request(input: Record<string, unknown>): Promise<Reply> {
-  return handleRequest(config, { repo: REPO, ...input }, new AbortController().signal);
-}
-
 function push(branch: string, sha: string, bundleBranch: string = branch): Promise<Reply> {
-  return request({ verb: "push", branch, sha, bundle_b64: bundleOf(bundleBranch) });
-}
-
-function remoteRef(branch: string): string {
-  return git(remote, "for-each-ref", "--format=%(objectname)", `refs/heads/${branch}`);
+  return request(config, { verb: "push", branch, sha, bundle_b64: bundleOf(work, bundleBranch) });
 }
 
 function brokerTempRefs(): string {
@@ -168,7 +140,7 @@ async function ciGithub(pr: Record<string, unknown> = {}): Promise<void> {
 }
 
 function ciLog(): Promise<Reply> {
-  return request({ verb: "ci-log", number: 7 });
+  return request(config, { verb: "ci-log", number: 7 });
 }
 
 async function apiCalls(): Promise<string[]> {
@@ -177,28 +149,13 @@ async function apiCalls(): Promise<string[]> {
 
 beforeEach(async () => {
   root = await tempDir(join(tmpdir(), "ug-srvfail-"));
-  remote = join(root, "remote.git");
-  config = {
-    ...defaultConfig("/unused/gh"),
-    socketPath: join(root, "run", "gh-broker.sock"),
-    reposRoot: join(root, "bare"),
-    pushesDir: join(root, "pushes"),
-    ghPath: join(root, "gh"),
-    gitPath: join(root, "git"),
-    github: fakeTokens(),
-    home: join(root, "home"),
-    tempRoot: join(root, "tmp"),
-    statusFile: join(root, "status"),
-  };
-  await mkdir(config.home);
+  config = await brokerConfig(root, FAKE_GH);
+  remote = initRepo(join(root, "remote.git"), true);
+  config.gitPath = join(root, "git");
   await writeHome("repo.json", '{"defaultBranchRef":{"name":"main"}}\n');
-  await writeFile(config.ghPath, FAKE_GH, { mode: 0o755 });
   await writeFile(config.gitPath, fakeGit(remote), { mode: 0o755 });
-  execFileSync(REAL_GIT, ["init", "--bare", "--quiet", "-b", "main", remote], { env: GIT_ENV });
-  work = join(root, "work");
-  execFileSync(REAL_GIT, ["init", "--quiet", "-b", "main", work], { env: GIT_ENV });
-  await commit("main", "base.txt");
-  git(work, "push", "--quiet", remote, "main:main");
+  work = initRepo(join(root, "work"));
+  await seedMain(work, remote);
 });
 
 afterEach(async () => {
@@ -323,14 +280,14 @@ test("a request one byte over the limit is refused before it reaches a handler",
 test("sync with an unreadable default branch from GitHub fails and fetches nothing; a readable one syncs", async () => {
   for (const answer of UNREADABLE_REMOTE_HEADS) {
     await writeHome("ls-remote", answer);
-    const reply = await request({ verb: "sync" });
+    const reply = await request(config, { verb: "sync" });
     assertCannotReadDefaultBranch(reply);
     assert.ok(!("bundle_b64" in reply), answer);
   }
   assert.doesNotMatch(await readHome("git-calls"), / fetch /);
 
   await rm(join(config.home, "ls-remote"));
-  const ok = await request({ verb: "sync" });
+  const ok = await request(config, { verb: "sync" });
   assert.equal(ok.exit, 0, JSON.stringify(ok));
   assert.ok("branch" in ok && ok.branch === "main", JSON.stringify(ok));
 });
@@ -338,15 +295,15 @@ test("sync with an unreadable default branch from GitHub fails and fetches nothi
 test("a check whose GitHub call hangs stops at its deadline, and a later sync of the repo still answers", async () => {
   config.checkTimeoutMs = 500;
   const signal = new AbortController().signal;
-  assert.equal((await request({ verb: "sync" })).exit, 0);
+  assert.equal((await request(config, { verb: "sync" })).exit, 0);
   await writeHome("ls-remote-hangs", "");
   const started = Date.now();
   await refreshRepos(config, signal);
-  const hung = await request({ verb: "sync" });
+  const hung = await request(config, { verb: "sync" });
   assert.notEqual(hung.exit, 0, JSON.stringify(hung));
   assert.ok(Date.now() - started < 10_000, "neither the refresh nor the sync waits for the hung call");
   await rm(join(config.home, "ls-remote-hangs"));
-  const ok = await request({ verb: "sync" });
+  const ok = await request(config, { verb: "sync" });
   assert.equal(ok.exit, 0, JSON.stringify(ok));
 });
 
@@ -355,7 +312,7 @@ test("each refresh tick writes its time and the repos that failed, also when no 
   const status = () => readFile(config.statusFile, "utf8");
   await refreshRepos(config, signal);
   assert.match(await status(), /^at=\d+\nfailed=\n$/);
-  assert.equal((await request({ verb: "sync" })).exit, 0);
+  assert.equal((await request(config, { verb: "sync" })).exit, 0);
   await refreshRepos(config, signal);
   assert.match(await status(), /^at=\d+\nfailed=\n$/);
   await writeFile(join(root, "not-a-dir"), "");
@@ -367,11 +324,11 @@ test("each refresh tick writes its time and the repos that failed, also when no 
 });
 
 test("push with an unreadable default branch pushes nothing and writes no push record", async () => {
-  const head = await commit(BRANCH, "a.txt");
+  const head = await commit(work, "a.txt", BRANCH);
   for (const answer of UNREADABLE_DEFAULT_BRANCHES) {
     await writeHome("repo.json", answer);
     assertCannotReadDefaultBranch(await push(BRANCH, head));
-    assert.equal(remoteRef(BRANCH), "", answer);
+    assert.equal(remoteRef(remote, BRANCH), "", answer);
     assert.deepEqual(await pushRecord(), { kind: "none" }, answer);
   }
 });
@@ -379,77 +336,77 @@ test("push with an unreadable default branch pushes nothing and writes no push r
 test("pr-create with an unreadable default branch opens no PR", async () => {
   for (const answer of UNREADABLE_DEFAULT_BRANCHES) {
     await writeHome("repo.json", answer);
-    assertCannotReadDefaultBranch(await request({ verb: "pr-create", head: BRANCH, title: "t", body: "" }));
+    assertCannotReadDefaultBranch(await request(config, { verb: "pr-create", head: BRANCH, title: "t", body: "" }));
     assert.equal(await readHome("created"), "", answer);
   }
 });
 
 test("sync and push fail with git's error when the gh-broker cannot create its bare repo, and push lands nothing", async () => {
   await failGit("init --bare");
-  const synced = await request({ verb: "sync" });
+  const synced = await request(config, { verb: "sync" });
   assertForwarded(synced, 3, "fake git: cannot init --bare");
   assert.ok(!("bundle_b64" in synced), JSON.stringify(synced));
 
-  const head = await commit(BRANCH, "a.txt");
+  const head = await commit(work, "a.txt", BRANCH);
   assertForwarded(await push(BRANCH, head), 3, "fake git: cannot init --bare");
-  assert.equal(remoteRef(BRANCH), "");
+  assert.equal(remoteRef(remote, BRANCH), "");
   assert.deepEqual(await pushRecord(), { kind: "none" });
 });
 
 test("sync whose bundle cannot be made fails with git's error and returns no bundle", async () => {
   await failGit("bundle create");
-  const reply = await request({ verb: "sync" });
+  const reply = await request(config, { verb: "sync" });
   assertForwarded(reply, 3, "fake git: cannot bundle create");
   assert.ok(!("bundle_b64" in reply), JSON.stringify(reply));
 });
 
 test("sync --pr refuses a PR whose head commit it cannot read, and fetches nothing", async () => {
   await writeHome("pr.json", JSON.stringify({ headRefOid: "nope" }));
-  assertRefused(await request({ verb: "sync", pr: 7 }), "cannot read pull request head commit");
+  assertRefused(await request(config, { verb: "sync", pr: 7 }), "cannot read pull request head commit");
   assert.equal(await readHome("git-calls"), "");
 });
 
 test("sync --pr whose fetch from GitHub fails gives git's error and leaves no temp ref", async () => {
-  const head = await commit(BRANCH, "a.txt");
+  const head = await commit(work, "a.txt", BRANCH);
   git(work, "push", "--quiet", remote, `${BRANCH}:refs/pull/7/head`);
   await writeHome("pr.json", JSON.stringify({ headRefOid: head }));
   await failGit("refs/pull/7/head");
 
-  const reply = await request({ verb: "sync", pr: 7 });
+  const reply = await request(config, { verb: "sync", pr: 7 });
   assertForwarded(reply, 3, "fake git: cannot refs/pull/7/head");
   assert.ok(!("bundle_b64" in reply), JSON.stringify(reply));
   assert.equal(brokerTempRefs(), "");
 });
 
 test("sync --pr whose bundle cannot be made gives git's error and leaves no temp ref", async () => {
-  const head = await commit(BRANCH, "a.txt");
+  const head = await commit(work, "a.txt", BRANCH);
   git(work, "push", "--quiet", remote, `${BRANCH}:refs/pull/7/head`);
   await writeHome("pr.json", JSON.stringify({ headRefOid: head }));
   await failGit("bundle create");
 
-  const reply = await request({ verb: "sync", pr: 7 });
+  const reply = await request(config, { verb: "sync", pr: 7 });
   assertForwarded(reply, 3, "fake git: cannot bundle create");
   assert.ok(!("bundle_b64" in reply), JSON.stringify(reply));
   assert.equal(brokerTempRefs(), "");
 });
 
 test("a push whose bundle lacks the branch fails with git's error, lands nothing, and leaves no temp ref", async () => {
-  const other = await commit("agent/y", "a.txt");
+  const other = await commit(work, "a.txt", "agent/y");
   const reply = await push(BRANCH, other, "agent/y");
   assert.ok(!("refused" in reply), JSON.stringify(reply));
   assert.notEqual(reply.exit, 0, JSON.stringify(reply));
-  assert.equal(remoteRef(BRANCH), "");
+  assert.equal(remoteRef(remote, BRANCH), "");
   assert.deepEqual(await pushRecord(), { kind: "none" });
   assert.equal(brokerTempRefs(), "");
 });
 
 test("a push that GitHub rejects gives the error and keeps the push record at the last pushed commit", async () => {
-  const first = await commit(BRANCH, "a.txt");
+  const first = await commit(work, "a.txt", BRANCH);
   const one = await push(BRANCH, first);
   assert.equal(one.exit, 0, JSON.stringify(one));
   assert.deepEqual(await pushRecord(), { kind: "pushed", sha: first });
 
-  const second = await commit(BRANCH, "b.txt");
+  const second = await commit(work, "b.txt", BRANCH);
   await rm(remote, { recursive: true, force: true });
   const two = await push(BRANCH, second);
   assert.ok(!("refused" in two), JSON.stringify(two));
@@ -458,31 +415,31 @@ test("a push that GitHub rejects gives the error and keeps the push record at th
 });
 
 test("a push replaces a branch that the new commit does not descend from, and records the new commit", async () => {
-  const first = await commit(BRANCH, "a.txt");
+  const first = await commit(work, "a.txt", BRANCH);
   assert.equal((await push(BRANCH, first)).exit, 0);
   git(work, "reset", "--quiet", "--hard", "main");
-  const rewritten = await commit(BRANCH, "b.txt");
+  const rewritten = await commit(work, "b.txt", BRANCH);
 
   const reply = await push(BRANCH, rewritten);
   assert.equal(reply.exit, 0, JSON.stringify(reply));
-  assert.equal(remoteRef(BRANCH), rewritten);
+  assert.equal(remoteRef(remote, BRANCH), rewritten);
   assert.deepEqual(await pushRecord(), { kind: "pushed", sha: rewritten });
 });
 
 test("a push leaves no temp ref in the gh-gh-broker's bare repo, whether it lands or is refused", async () => {
-  const head = await commit(BRANCH, "a.txt");
+  const head = await commit(work, "a.txt", BRANCH);
   assert.equal((await push(BRANCH, head)).exit, 0);
   assert.equal(brokerTempRefs(), "");
 
-  const next = await commit(BRANCH, "b.txt");
+  const next = await commit(work, "b.txt", BRANCH);
   assertRefused(await push(BRANCH, head, BRANCH), "bundle ref does not match sha");
-  assert.equal(remoteRef(BRANCH), head);
+  assert.equal(remoteRef(remote, BRANCH), head);
   assert.notEqual(next, head);
   assert.equal(brokerTempRefs(), "");
 });
 
 async function mergedOnGithub(): Promise<string> {
-  const head = await commit(BRANCH, "a.txt");
+  const head = await commit(work, "a.txt", BRANCH);
   assert.equal((await push(BRANCH, head)).exit, 0);
   git(remote, "update-ref", "refs/heads/main", head);
   return head;
@@ -494,7 +451,7 @@ test("a refresh whose branch delete fails keeps the branch and its record, and n
 
   await refreshRepos(config, new AbortController().signal);
   assert.match(await readFile(config.statusFile, "utf8"), new RegExp(`\\nfailed=${REPO}\\n$`));
-  assert.equal(remoteRef(BRANCH), head);
+  assert.equal(remoteRef(remote, BRANCH), head);
   assert.deepEqual(await pushRecord(), { kind: "pushed", sha: head });
 });
 
@@ -505,7 +462,7 @@ test("a refresh whose bare repo cannot be created keeps the branch and its recor
 
   await refreshRepos(config, new AbortController().signal);
   assert.match(await readFile(config.statusFile, "utf8"), new RegExp(`\\nfailed=${REPO}\\n$`));
-  assert.equal(remoteRef(BRANCH), head);
+  assert.equal(remoteRef(remote, BRANCH), head);
   assert.deepEqual(await pushRecord(), { kind: "pushed", sha: head });
 });
 
@@ -518,20 +475,20 @@ test("a refresh whose push record cannot be dropped deletes the branch, keeps th
     await chmod(join(config.pushesDir, REPO), 0o700);
   }
   assert.match(await readFile(config.statusFile, "utf8"), new RegExp(`\\nfailed=${REPO}\\n$`));
-  assert.equal(remoteRef(BRANCH), "");
+  assert.equal(remoteRef(remote, BRANCH), "");
   assert.deepEqual(await pushRecord(), { kind: "pushed", sha: head });
 });
 
 test("pr-create opens the PR against the default branch that GitHub names", async () => {
   await writeHome("repo.json", '{"defaultBranchRef":{"name":"trunk"}}');
-  const reply = await request({ verb: "pr-create", head: BRANCH, title: "t", body: "" });
+  const reply = await request(config, { verb: "pr-create", head: BRANCH, title: "t", body: "" });
   assert.equal(reply.exit, 0, JSON.stringify(reply));
   assert.ok((await readHome("created")).split(" ").includes("--base=trunk"), await readHome("created"));
 });
 
 test("pr-create that gh fails gives gh's exit code and error", async () => {
   await failGh("pr create");
-  assertForwarded(await request({ verb: "pr-create", head: BRANCH, title: "t", body: "" }), 4, "HTTP 502");
+  assertForwarded(await request(config, { verb: "pr-create", head: BRANCH, title: "t", body: "" }), 4, "HTTP 502");
   assert.equal(await readHome("created"), "");
 });
 
@@ -546,7 +503,7 @@ for (const verb of PR_VERBS) {
     await prView(CI_HEAD);
     await failGh("pr view");
 
-    const reply = await request(verb.input);
+    const reply = await request(config, verb.input);
     assertForwarded(reply, 4, "HTTP 502");
     assert.equal(reply.stdout, "");
     assert.deepEqual(await apiCalls(), []);
@@ -557,7 +514,7 @@ for (const verb of PR_VERBS) {
     await prView(CI_HEAD);
     for (const answer of ["not json", "[1]", "null"]) {
       await writeHome("pr.json", answer);
-      assert.deepEqual(await request(verb.input), { exit: 2, refused: "cannot read pull request" }, answer);
+      assert.deepEqual(await request(config, verb.input), { exit: 2, refused: "cannot read pull request" }, answer);
     }
     assert.deepEqual(await apiCalls(), []);
     assert.equal(await readHome("git-calls"), "");
