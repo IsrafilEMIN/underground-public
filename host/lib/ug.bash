@@ -187,7 +187,7 @@ ug_ensure_owner_mode() {
 }
 
 ug_trusted_path() {
-  local path=$1 part=$1 owner mode acl
+  local path=$1 part=$1 owner mode acl rule=' allow [^'$'\n'']*(write|add_file|add_subdirectory|delete|append|chown)'
   shift
   [[ $path == /* ]] || { printf '%s is not an absolute path\n' "$path"; return 1; }
   while :; do
@@ -197,8 +197,8 @@ ug_trusted_path() {
     owner=${owner% *}
     [[ " $* " == *" $owner "* ]] || { printf '%s belongs to %s\n' "$part" "$owner"; return 1; }
     (( (8#$mode & 8#022) == 0 )) || { printf '%s has mode %s, so its group or every user can write it\n' "$part" "$mode"; return 1; }
-    acl=$(ls -lde "$part" 2>/dev/null | sed 1d | grep -E ' allow .*(write|add_file|add_subdirectory|delete|append|chown)' | head -1) || true
-    [[ -z $acl ]] || { printf '%s has an access rule that lets a user change it:%s\n' "$part" "${acl#*:}"; return 1; }
+    acl=$(ls -lde "$part" 2>/dev/null) || acl=""
+    [[ ! $acl =~ $rule ]] || { printf '%s has an access rule that lets a user change it: %s\n' "$part" "${BASH_REMATCH[0]# }"; return 1; }
     [[ $part != / ]] || return 0
     part=${part%/*}
     part=${part:-/}
