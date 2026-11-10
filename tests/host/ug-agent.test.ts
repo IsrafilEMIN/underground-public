@@ -493,10 +493,10 @@ async function freePort(): Promise<number> {
 test("[mac] the pin refuses a write outside the agent home and the temp folders, and allows one inside the home", { skip: pinSkip }, async (t) => {
   const dir = await tempDir(join(tmpdir(), "ug-pin-"));
   const outside = await realpath(await mkdtemp("/tmp/ug-pin-out-"));
+  const home = await realpath(await mkdtemp("/tmp/ug-pin-home-"));
   t.after(() => rm(dir, { recursive: true, force: true }));
   t.after(() => rm(outside, { recursive: true, force: true }));
-  const home = join(dir, "home");
-  await mkdir(home);
+  t.after(() => rm(home, { recursive: true, force: true }));
   const pin = await render(dir, "host/agent/pin.sb", { agent_home: home });
   const write = (path: string) => underPin(pin, ["/bin/sh", "-c", 'echo x > "$1"', "_", path]);
 

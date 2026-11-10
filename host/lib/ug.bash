@@ -224,7 +224,8 @@ def rule(t): [.rules[]? | select(.type == t)][0];
   (if rule("non_fast_forward") then empty else "it does not block force pushes" end),
   (if rule("deletion") then empty else "it does not restrict deletions" end),
   ((rule("required_status_checks").parameters.required_status_checks // []) as $checks
-    | if ($checks | length) > 0 and ($checks | all(.integration_id == 15368)) then empty else "it requires no status check from GitHub Actions" end),
+    | (("checks", "tests") as $job | if ($checks | any(.context == $job and .integration_id == 15368)) then empty else "it does not require the check \($job) from GitHub Actions" end),
+      (if ($checks | all(.integration_id == 15368)) then empty else "it requires a status check from an app other than GitHub Actions" end)),
   (if .bypass_actors == null then "its bypass list is not readable with your login"
     else (.bypass_actors[] | select(((.actor_type == "RepositoryRole" and .actor_id == 5) or .actor_type == "OrganizationAdmin") | not) | "its bypass list holds \(.actor_type) \(.actor_id)") end)
 ] | join("; ")
@@ -348,9 +349,6 @@ ug_trusted_daemon() {
   for key in WorkingDirectory EnvironmentVariables.HOME; do
     ! value=$(plutil -extract "$key" raw -o - "$plist" 2>/dev/null) || paths+=("$value")
   done
-  for key in StandardOutPath StandardErrorPath; do
-    ! value=$(plutil -extract "$key" raw -o - "$plist" 2>/dev/null) || paths+=("${value%/*}")
-  done
   if value=$(plutil -extract EnvironmentVariables.PATH raw -o - "$plist" 2>/dev/null); then
     IFS=: read -r -a dirs <<<"$value"
     paths+=("${dirs[@]}")
@@ -358,6 +356,15 @@ ug_trusted_daemon() {
   [[ ${#paths[@]} -gt 0 ]] || { printf 'it names no program\n'; return 1; }
   for value in "${paths[@]}"; do
     why=$(ug_trusted_path "$value" root "$user") || { printf 'it runs as %s and uses %s, but %s\n' "$user" "$value" "$why"; return 1; }
+  done
+  for key in StandardOutPath StandardErrorPath; do
+    value=$(plutil -extract "$key" raw -o - "$plist" 2>/dev/null) || continue
+    [[ ! -L $value ]] || { printf 'it logs to %s, which is a link\n' "$value"; return 1; }
+    if [[ -e $value ]]; then
+      why=$(stat -f %Su "$value") || why=unknown
+      [[ $why == root || $why == "$user" ]] || { printf 'it logs to %s, which belongs to %s\n' "$value" "$why"; return 1; }
+    fi
+    why=$(ug_trusted_path "${value%/*}" root) || { printf 'it logs to %s, but %s; launchd opens the log before the job runs, so only root may own its folder\n' "$value" "$why"; return 1; }
   done
 }
 

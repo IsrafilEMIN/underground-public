@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
 import { generateKeyPairSync, verify } from "node:crypto";
 import { constants, lstatSync } from "node:fs";
 import type { KeyObject } from "node:crypto";
@@ -10,13 +9,11 @@ import { afterEach, beforeEach, test } from "node:test";
 import { appFiles, appJwt, createAppTokens, redactTokens } from "../../host/gh-broker/github-app.ts";
 import type { AppFiles, Fetch, GithubTokens } from "../../host/gh-broker/github-app.ts";
 import type { Reply } from "../../host/gh-broker/protocol.ts";
-import { defaultConfig, handleRequest } from "../../host/gh-broker/server.ts";
 import type { ServerConfig } from "../../host/gh-broker/server.ts";
 import { FAKE_TOKEN, fakeTokens, githubRemote, tokenRemote } from "./fake-app.ts";
 import { tempDir } from "../temp.ts";
+import { REPO, brokerConfig, git, initMirror, initRepo, request, seedMain } from "./fixture.ts";
 
-const REPO = "o/r";
-const GIT_ENV = { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" };
 const NOW = Date.parse("2026-10-31T12:00:00Z");
 const basic = (token: string): string => Buffer.from(`x-access-token:${token}`).toString("base64");
 const { privateKey, publicKey } = generateKeyPairSync("rsa", {
@@ -344,39 +341,22 @@ function rotatingTokens(revoked = `${FAKE_TOKEN}0`): GithubTokens {
 }
 
 function sync(): Promise<Reply> {
-  return handleRequest(config, { verb: "sync", repo: REPO }, new AbortController().signal);
+  return request(config, { verb: "sync" });
 }
 
 function prCreate(): Promise<Reply> {
-  return handleRequest(config, { verb: "pr-create", repo: REPO, head: "agent/x", title: "t", body: "" }, new AbortController().signal);
+  return request(config, { verb: "pr-create", head: "agent/x", title: "t", body: "" });
 }
 
 async function setUp(github: GithubTokens): Promise<void> {
-  config = {
-    ...defaultConfig("/unused/gh"),
-    socketPath: join(root, "run", "gh-broker.sock"),
-    reposRoot: join(root, "bare"),
-    pushesDir: join(root, "pushes"),
-    ghPath: join(root, "gh"),
-    github,
-    home: join(root, "home"),
-    tempRoot: join(root, "tmp"),
-    statusFile: join(root, "status"),
-  };
-  await mkdir(config.home);
-  await writeFile(config.ghPath, FAKE_GH, { mode: 0o755 });
-  remote = join(root, "remote.git");
-  execFileSync(config.gitPath, ["init", "--bare", "--quiet", "-b", "main", remote], { env: GIT_ENV });
-  const work = join(root, "work");
-  execFileSync(config.gitPath, ["init", "--quiet", "-b", "main", work], { env: GIT_ENV });
-  execFileSync(config.gitPath, ["-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "--quiet", "--allow-empty", "-m", "base"], { cwd: work, env: GIT_ENV });
-  execFileSync(config.gitPath, ["push", "--quiet", remote, "main:main"], { cwd: work, env: GIT_ENV });
-  const bare = join(config.reposRoot, `${REPO}.git`);
-  execFileSync(config.gitPath, ["init", "--bare", "--quiet", bare], { env: GIT_ENV });
+  config = await brokerConfig(root, FAKE_GH, github);
+  remote = initRepo(join(root, "remote.git"), true);
+  await seedMain(initRepo(join(root, "work")), remote);
+  initMirror(config);
 }
 
 function routeRemote(url: string): void {
-  execFileSync(config.gitPath, ["-C", join(config.reposRoot, `${REPO}.git`), "config", `url.file://${remote}.insteadOf`, url], { env: GIT_ENV });
+  git(join(config.reposRoot, `${REPO}.git`), "config", `url.file://${remote}.insteadOf`, url);
 }
 
 async function wrapGit(before: string = ""): Promise<void> {

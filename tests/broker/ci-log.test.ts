@@ -1,16 +1,14 @@
 import assert from "node:assert/strict";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
 import { MAX_CI_LOG_BYTES, failedPullRequestRuns, tailLog } from "../../host/gh-broker/protocol.ts";
 import type { Reply } from "../../host/gh-broker/protocol.ts";
-import { defaultConfig, handleRequest } from "../../host/gh-broker/server.ts";
 import type { ServerConfig } from "../../host/gh-broker/server.ts";
-import { fakeTokens } from "./fake-app.ts";
 import { tempDir } from "../temp.ts";
+import { REPO, brokerConfig, request } from "./fixture.ts";
 
-const REPO = "o/r";
 const HEAD = "a".repeat(40);
 const OTHER = "b".repeat(40);
 
@@ -28,7 +26,7 @@ let root: string;
 let config: ServerConfig;
 
 function ciLog(): Promise<Reply> {
-  return handleRequest(config, { verb: "ci-log", repo: REPO, number: 7 }, new AbortController().signal);
+  return request(config, { verb: "ci-log", number: 7 });
 }
 
 function run(id: number, extra: Record<string, unknown> = {}): Record<string, unknown> {
@@ -43,19 +41,7 @@ async function github(runs: Record<string, unknown>[], deployments: unknown[] = 
 
 beforeEach(async () => {
   root = await tempDir(join(tmpdir(), "ug-b14-"));
-  config = {
-    ...defaultConfig("/unused/gh"),
-    socketPath: join(root, "run", "gh-broker.sock"),
-    reposRoot: join(root, "bare"),
-    pushesDir: join(root, "pushes"),
-    ghPath: join(root, "gh"),
-    github: fakeTokens(),
-    home: join(root, "home"),
-    tempRoot: join(root, "tmp"),
-    statusFile: join(root, "status"),
-  };
-  await mkdir(config.home);
-  await writeFile(config.ghPath, FAKE_GH, { mode: 0o755 });
+  config = await brokerConfig(root, FAKE_GH);
 });
 
 afterEach(async () => {
