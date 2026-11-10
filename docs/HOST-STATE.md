@@ -70,7 +70,7 @@ No code makes these files. Setup or the service reads them as they are.
 
 | path | what it is for | who writes it | when a change takes effect |
 |---|---|---|---|
-| `.omp/` (omp's default profile) | The model logins and API keys | omp, through `ug-auth auth-broker login`, `logout`, and `ug-auth key` (`host/bin/ug-auth:59-67`), and the auth broker, through `ug-auth revoke` (`:56-58`) | at once, in the auth broker |
+| `.omp/` (omp's default profile) | The model logins and API keys | omp, through `ug-auth login` and `ug-auth key` (`host/bin/ug-auth:60-68`), and the auth broker, through `ug-auth revoke` (`:57-59`) | at once, in the auth broker |
 | `.omp/auth-gateway.token` | The bearer for the auth gateway. Setup puts it into `models.yml`. | setup, if it is empty (`host/bin/ug-agent-setup:278-283`), or `ug-auth auth-gateway token --regenerate` | Sessions get the new bearer only after the next setup (`host/bin/ug-agent-setup:213,263`). |
 | `.omp/auth-broker.token` | The bearer that the auth broker asks its clients for | omp, not this repo | Setup uses it only to look for leaks in the config (`:221-224`) and as a restart input (`:310,315`). |
 | `logs/` | The logs of the auth broker, the auth gateway, and the usage broker | launchd | none |
@@ -99,9 +99,9 @@ Each value below is typed out in each file that uses it. Nothing defines it once
 
 | value | where |
 |---|---|
-| `/Library/Underground` | `host/bin/ug-setup:24`, `host/bin/ug-agent-setup:35`, `host/bin/ug-auth:26`, `host/bin/ug-backup:16`, `host/agent/agent-start:5,8`, `host/agent/agent-refresh:5,8`, `host/agent/agent-session:15`, `host/agent/agent-home-tar:6`, `host/agent/sshd_config:2-3,9-10`, `host/agent/com.underground.usage-broker.plist:12`, `host/agent/pin.sb:8`, `host/gh-broker/server.ts:82`, `host/gh-broker/usage-broker.ts:25`, `scripts/gh-broker-app-wizard.sh:205` |
+| `/Library/Underground` | `host/bin/ug-setup:24`, `host/bin/ug-agent-setup:35`, `host/bin/ug-auth:27`, `host/bin/ug-backup:16`, `host/agent/agent-start:5,8`, `host/agent/agent-refresh:5,8`, `host/agent/agent-session:15`, `host/agent/agent-home-tar:6`, `host/agent/sshd_config:2-3,9-10`, `host/agent/com.underground.usage-broker.plist:12`, `host/agent/pin.sb:8`, `host/gh-broker/server.ts:82`, `host/gh-broker/usage-broker.ts:25`, `scripts/gh-broker-app-wizard.sh:205` |
 | `.local/share/underground` | `host/bin/ug-setup:10`, `host/bin/ug-agent-setup:36`, `host/bin/ug-agent:13`, `host/bin/ug-backup:13-14`, `host/gh-broker/server.ts:80`, `host/gh-broker/github-app.ts:25-26`, `scripts/gh-broker-app-wizard.sh:121` |
-| port `8765` (auth broker) | `host/agent/com.underground.auth-broker.plist:14`, `host/agent/com.underground.auth-gateway.plist:33`, `host/bin/ug-auth:29,57,60`, `host/bin/ug-agent-setup:308` |
+| port `8765` (auth broker) | `host/agent/com.underground.auth-broker.plist:14`, `host/agent/com.underground.auth-gateway.plist:33`, `host/bin/ug-auth:30,58,61`, `host/bin/ug-agent-setup:308` |
 | port `18765` (usage broker) | `host/agent/agent-start:6`, `host/gh-broker/usage-broker.ts:9`, `host/bin/ug-agent-setup:318` |
 | port `2222` (agent sshd) | `host/agent/sshd_config:1`, `host/bin/ug-agent:47-50`, `host/bin/ug-agent-setup:191,337-339` |
 | port `4000` (auth gateway) | `host/bin/ug-setup:198,219`, then only in your `addresses` file |

@@ -47,6 +47,10 @@ test("the installed ug-auth runs the pinned omp as ugauth in a clean environment
   const login = run(home, "auth-broker", "login", "anthropic");
   assert.equal(login.status, 0, login.stderr);
   assert.equal(login.stdout.trim(), `SUDO -u ugauth -H /usr/bin/env -i HOME=/Users/ugauth PATH=/usr/bin:/bin ${omp} auth-broker login anthropic`);
+  const short = run(home, "login", "anthropic");
+  assert.equal(short.status, 0, short.stderr);
+  assert.equal(short.stdout, login.stdout, "ug-auth login <provider> is the short form of auth-broker login");
+  for (const bad of [["login", "anthropic", "x"], ["login", "--via=owner@host"]]) assert.equal(run(home, ...bad).status, 64, bad.join(" "));
   const token = run(home, "auth-gateway", "token", "--regenerate");
   assert.equal(token.status, 0, token.stderr);
   assert.equal(
@@ -121,11 +125,11 @@ test("ug-auth list shows each credential with its key redacted, and revoke turns
 
   const list = await ugAuth("list");
   assert.equal(list.status, 0, list.stderr);
-  assert.deepEqual(list.stdout.trim().split("\n").slice(1), ["3\tanthropic\toauth\towner@example.com", "7\tanthropic\tapi_key\tsk-ant-api03...ABCD"]);
+  assert.deepEqual(list.stdout.trim().split("\n").slice(1), ["3\tanthropic\toauth\towner@example.com", "7\tanthropic\tapi_key\tsk-ant-api03-0123...ABCD"]);
 
   const revoke = await ugAuth("revoke", "7");
   assert.equal(revoke.status, 0, revoke.stderr);
-  assert.match(revoke.stdout, /^7\tanthropic\tapi_key\tsk-ant-api03\.\.\.ABCD$/m);
+  assert.match(revoke.stdout, /^7\tanthropic\tapi_key\tsk-ant-api03-0123\.\.\.ABCD$/m);
   assert.deepEqual(seen.filter((line) => line.startsWith("POST")), [`POST /v1/credential/7/disable Bearer ${bearer} {"cause":"logged out by user"}`]);
 
   const missing = await ugAuth("revoke", "9");

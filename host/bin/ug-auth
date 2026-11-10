@@ -2,12 +2,13 @@
 set -euo pipefail
 
 usage() {
-  printf 'usage: ug-auth auth-broker|auth-gateway <args>\n       ug-auth key <NAME>_API_KEY\n       ug-auth list\n       ug-auth revoke <id>\n' >&2
+  printf 'usage: ug-auth login [<provider>]\n       ug-auth key <NAME>_API_KEY\n       ug-auth list\n       ug-auth revoke <id>\n       ug-auth auth-broker|auth-gateway <args>\n' >&2
   exit 64
 }
 
 case ${1:-} in
   auth-broker | auth-gateway) ;;
+  login) [[ $# -le 2 && ${2:-a} =~ ^[a-z0-9][a-z0-9._-]*$ ]] || usage; set -- auth-broker "$@" ;;
   key) [[ $# -eq 2 && $2 =~ ^[A-Z][A-Z0-9_]*_API_KEY$ ]] || usage ;;
   list) [[ $# -eq 1 ]] || usage ;;
   revoke) [[ $# -eq 2 && $2 =~ ^[0-9]+$ ]] || usage ;;
@@ -34,7 +35,7 @@ t=$(tr -d '[:space:]' <"$HOME/.omp/auth-broker.token")
 call() { printf 'header = "Authorization: Bearer %s"\n' "$t" | curl -K - -fsS --max-time 10 "$@"; }
 snap=$(call "$OMP_AUTH_BROKER_URL/v1/snapshot") || { echo "ug-auth: the auth broker did not answer at $OMP_AUTH_BROKER_URL" >&2; exit 1; }
 rows=$(printf '%s' "$snap" | jq -r --arg id "${UG_ID-}" '
-  def redact: length as $n | ([12, ($n / 4 | floor)] | min) as $h | ([4, ($n / 8 | floor)] | min) as $t
+  def redact: length as $n | ([4, ($n / 8 | floor)] | min) as $t | (if $n < 48 then ($n / 4 | floor) else ([.[:16] | match("[-_]"; "g").offset] | last // -1) + 5 end) as $h
     | .[:$h] + "..." + (if $t > 0 then .[-$t:] else "" end);
   .credentials[] | select($id == "" or (.id | tostring) == $id)
   | [.id, .provider, .credential.type,
