@@ -134,3 +134,27 @@ test("ug-backup logs restic's own error when the repo does not open, and stores 
   assert.equal((await calls(home)).filter((c) => c.includes(" backup ")).length, 0);
   assert.equal(existsSync(join(home, ".local/share/underground/backup/last")), false);
 });
+
+test("ug-backup stops at a config line it does not know, and calls no restic", async (t) => {
+  const home = await fakeHome();
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const config = join(home, ".local/share/underground/backup/config");
+  await writeFile(config, `${await readFile(config, "utf8")}colour=blue\n`);
+  const r = run(home);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /config: unknown key colour/);
+  assert.equal((await calls(home)).filter((c) => c.startsWith("RESTIC")).length, 0);
+});
+
+test("ug-backup stops when the target does not answer after the wake, puts it back to sleep, and calls no restic", async (t) => {
+  const home = await fakeHome();
+  t.after(() => rm(home, { recursive: true, force: true }));
+  await rm(join(home, "awake"));
+  await exe(join(home, "wake-target"), `#!/bin/sh\necho WAKE >>"$HOME/calls"\n`);
+  const r = run(home);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /owner@backup-host did not answer ssh after the wake/);
+  const all = await calls(home);
+  assert.ok(all.includes("SLEEP now"));
+  assert.equal(all.filter((c) => c.startsWith("RESTIC")).length, 0);
+});
