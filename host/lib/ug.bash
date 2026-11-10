@@ -349,9 +349,6 @@ ug_trusted_daemon() {
   for key in WorkingDirectory EnvironmentVariables.HOME; do
     ! value=$(plutil -extract "$key" raw -o - "$plist" 2>/dev/null) || paths+=("$value")
   done
-  for key in StandardOutPath StandardErrorPath; do
-    ! value=$(plutil -extract "$key" raw -o - "$plist" 2>/dev/null) || paths+=("${value%/*}")
-  done
   if value=$(plutil -extract EnvironmentVariables.PATH raw -o - "$plist" 2>/dev/null); then
     IFS=: read -r -a dirs <<<"$value"
     paths+=("${dirs[@]}")
@@ -359,6 +356,15 @@ ug_trusted_daemon() {
   [[ ${#paths[@]} -gt 0 ]] || { printf 'it names no program\n'; return 1; }
   for value in "${paths[@]}"; do
     why=$(ug_trusted_path "$value" root "$user") || { printf 'it runs as %s and uses %s, but %s\n' "$user" "$value" "$why"; return 1; }
+  done
+  for key in StandardOutPath StandardErrorPath; do
+    value=$(plutil -extract "$key" raw -o - "$plist" 2>/dev/null) || continue
+    [[ ! -L $value ]] || { printf 'it logs to %s, which is a link\n' "$value"; return 1; }
+    if [[ -e $value ]]; then
+      why=$(stat -f %Su "$value") || why=unknown
+      [[ $why == root || $why == "$user" ]] || { printf 'it logs to %s, which belongs to %s\n' "$value" "$why"; return 1; }
+    fi
+    why=$(ug_trusted_path "${value%/*}" root) || { printf 'it logs to %s, but %s; launchd opens the log before the job runs, so only root may own its folder\n' "$value" "$why"; return 1; }
   done
 }
 

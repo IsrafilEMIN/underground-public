@@ -19,9 +19,9 @@
   <key>KeepAlive</key>
   <true/>
   <key>StandardOutPath</key>
-  <string>@GH_BROKER_HOME@/logs/gh-broker.log</string>
+  <string>@ROOT@/logs/gh-broker.log</string>
   <key>StandardErrorPath</key>
-  <string>@GH_BROKER_HOME@/logs/gh-broker.log</string>
+  <string>@ROOT@/logs/gh-broker.log</string>
   <key>EnvironmentVariables</key>
   <dict>
     <key>HOME</key>

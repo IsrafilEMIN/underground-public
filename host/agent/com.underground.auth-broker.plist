@@ -20,9 +20,9 @@
   <key>KeepAlive</key>
   <true/>
   <key>StandardOutPath</key>
-  <string>@AUTH_HOME@/logs/auth-broker.log</string>
+  <string>@ROOT@/logs/auth-broker.log</string>
   <key>StandardErrorPath</key>
-  <string>@AUTH_HOME@/logs/auth-broker.log</string>
+  <string>@ROOT@/logs/auth-broker.log</string>
   <key>EnvironmentVariables</key>
   <dict>
     <key>HOME</key>

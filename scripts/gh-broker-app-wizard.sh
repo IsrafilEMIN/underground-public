@@ -204,7 +204,7 @@ confirm "Run setup now?" || { SKIPPED+=("Run: $SCRIPT_CHECKOUT/host/bin/ug-setup
 "$SCRIPT_CHECKOUT/host/bin/ug-setup"
 GH_BROKER_SOCKET=$(ug_fact root)/$(ug_fact gh_broker_socket)
 if [[ ! -S $GH_BROKER_SOCKET ]]; then
-  SKIPPED+=("The gh-broker socket $GH_BROKER_SOCKET is missing; check it with: sudo launchctl print system/com.underground.gh-broker, and read: sudo cat $(ug_fact gh_broker_home)/logs/gh-broker.log; then type omp in $CHECKOUT")
+  SKIPPED+=("The gh-broker socket $GH_BROKER_SOCKET is missing; check it with: sudo launchctl print system/com.underground.gh-broker, and read: sudo cat $(ug_fact root)/logs/gh-broker.log; then type omp in $CHECKOUT")
   finish
   exit 1
 fi

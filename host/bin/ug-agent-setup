@@ -52,6 +52,9 @@ ug_services_allowed || ug_die ug-agent-setup "host/services breaks the rule that
 cleanup=()
 trap '[[ ${#cleanup[@]} -eq 0 ]] || rm -rf "${cleanup[@]}"' EXIT
 
+read_as() { sudo -u "$1" /bin/cat -- "$2"; }
+write_as() { sudo -u "$1" /bin/sh -c 'umask 077 && /bin/cat >"$1" && /bin/chmod 600 "$1"' sh "$2"; }
+
 chmod 700 "$owner_home"
 [[ -n $(find "$owner_home" -maxdepth 0 -perm 700 2>/dev/null) ]] || ug_die ug-agent-setup "$owner_home is not mode 700 and would not stay so; nothing else is set up"
 ug_say ok "owner home $owner_home" "mode 700"
@@ -180,24 +183,24 @@ render() {
 }
 
 install -d -m 711 -o "$broker_user" -g "$agent_group" "$root/run"
+install -d -m 711 -o root -g wheel "$root/logs"
 
 old_broker=$data/gh-broker
-for name in logs repos pushes reviews tmp; do
-  install -d -m 700 -o "$broker_user" -g staff "$broker_home/$name"
+for name in repos pushes reviews tmp; do
+  sudo -u "$broker_user" install -d -m 700 "$broker_home/$name"
 done
 if [[ -d $old_broker && ! -L $old_broker ]]; then
   for name in repos pushes reviews; do
     [[ -d $old_broker/$name && ! -L $old_broker/$name ]] || continue
     [[ -z $(find "$broker_home/$name" -mindepth 1 -maxdepth 1 2>/dev/null) ]] ||
       ug_die ug-agent-setup "both $old_broker/$name and $broker_home/$name hold records; keep the current one, delete the other, then run setup again"
-    copy=$(mktemp -d "$broker_home/.copy.XXXXXX")
-    cleanup+=("$copy")
-    sudo -u "$owner" /usr/bin/tar -C "$old_broker/$name" -cf - . | /usr/bin/tar -C "$copy" -xf - -o ||
+    copy=$(sudo -u "$broker_user" mktemp -d "$broker_home/.copy.XXXXXX")
+    sudo -u "$owner" /usr/bin/tar -C "$old_broker/$name" -cf - . | sudo -u "$broker_user" /usr/bin/tar -C "$copy" -xf - -o || {
+      sudo -u "$broker_user" rm -rf "$copy"
       ug_die ug-agent-setup "cannot copy $old_broker/$name into $broker_home/$name; nothing was moved"
-    chown -hR "$broker_user:staff" "$copy"
-    chmod 700 "$copy"
-    rmdir "$broker_home/$name"
-    mv "$copy" "$broker_home/$name"
+    }
+    sudo -u "$broker_user" rmdir "$broker_home/$name"
+    sudo -u "$broker_user" mv "$copy" "$broker_home/$name"
   done
   rm -rf "$old_broker"
   ug_say changed gh-broker "copied its mirrors and records from $old_broker into $broker_home with your rights, then deleted $old_broker"
@@ -206,7 +209,7 @@ for name in github-app.json github-app.pem; do
   [[ -e $data/$name || -L $data/$name ]] || continue
   [[ -f $data/$name && ! -L $data/$name && $(stat -f '%l %Su' "$data/$name") == "1 $owner" ]] ||
     ug_die ug-agent-setup "$data/$name is not a plain file of $owner with one link; run scripts/gh-broker-app-wizard.sh again"
-  install -m 600 -o "$broker_user" -g staff "$data/$name" "$broker_home/$name"
+  write_as "$broker_user" "$broker_home/$name" <"$data/$name"
   rm -f "$data/$name"
   ug_say changed gh-broker "moved $name from $data into $broker_home, which you cannot read"
 done
@@ -290,7 +293,7 @@ stage_config() {
   [[ -d $cfg && ! -L $cfg ]] || ug_die ug-agent-setup "the config repo $cfg is not a folder"
   gateway=$(sed -n 's/^gateway=//p' "$data/addresses" 2>/dev/null) || true
   [[ $gateway =~ $ip_port ]] || ug_die ug-agent-setup "the addresses file $data/addresses has no gateway=<ip>:<port> line"
-  gateway_token=$({ tr -d '[:space:]' <"$auth_home/.omp/auth-gateway.token"; } 2>/dev/null) || gateway_token=""
+  gateway_token=$(read_as "$auth_user" "$auth_home/.omp/auth-gateway.token" 2>/dev/null | tr -d '[:space:]') || gateway_token=""
   [[ $gateway_token =~ ^[A-Za-z0-9._~+=-]{12,}$ ]] || ug_die ug-agent-setup "$auth_home/.omp/auth-gateway.token is missing or has characters the config cannot hold"
   stage=$(mktemp -d) || ug_die ug-agent-setup "cannot make a temp folder for the config"
   cleanup+=("$stage")
@@ -299,7 +302,7 @@ stage_config() {
   secrets=$stage/secrets
   : >"$secrets"
   for token_file in "$auth_home/.omp/auth-broker.token" "$auth_home/.omp/auth-gateway.token"; do
-    value=$({ tr -d '[:space:]' <"$token_file"; } 2>/dev/null) || value=""
+    value=$(read_as "$auth_user" "$token_file" 2>/dev/null | tr -d '[:space:]') || value=""
     [[ ${#value} -lt 12 ]] || printf '%s\n' "$value" >>"$secrets"
   done
   while IFS= read -r name; do
@@ -353,12 +356,9 @@ stage_config() {
   ug_say ok "agent config" "$root/config from $cfg, gateway $gateway"
 }
 
-install -d -m 700 -o "$auth_user" -g staff "$auth_home/.omp" "$auth_home/logs"
+sudo -u "$auth_user" install -d -m 700 "$auth_home/.omp"
 if [[ ! -s $auth_home/.omp/auth-gateway.token ]]; then
-  token_tmp=$(mktemp)
-  cleanup+=("$token_tmp")
-  openssl rand -hex 32 >"$token_tmp"
-  install -m 600 -o "$auth_user" -g staff "$token_tmp" "$auth_home/.omp/auth-gateway.token"
+  openssl rand -hex 32 | write_as "$auth_user" "$auth_home/.omp/auth-gateway.token"
   ug_say changed "gateway bearer" "new, in $auth_home/.omp/auth-gateway.token"
 fi
 stage_config
@@ -366,7 +366,7 @@ stage_config
 /usr/sbin/sshd -t -f "$code/sshd_config" || ug_die ug-agent-setup "sshd rejects $code/sshd_config; nothing was loaded"
 
 start_services() {
-  local label name scope user template health log tokens agent_input kind target rendered out fp resolved subject logline broker_out="" file want
+  local label name scope user template health log tokens agent_input kind target rendered out fp resolved subject logline broker_out="" file want key
   local -a inputs answers
   install -d -m 700 -o root -g wheel "$root/state"
   export UG_DATA="$data" UG_OMP_SHA="$omp_bin.sha256"
@@ -374,6 +374,12 @@ start_services() {
     render "$template" -e "s|@OMP@|$omp_bin|g" -e "s|@GH@|$gh_bin|g" -e "s|@GATEWAY@|$gateway|g" -e "s|@ENGINE@|$engine|g"
     rendered=$rendered_dir/${template##*/}
     out=$(ug_trusted_daemon "$rendered") || ug_die ug-agent-setup "a wall is open in the service $label: $out, so a user with fewer rights could change what it runs"
+    want=root
+    [[ $user == root ]] || want=$(ug_fact "$user")
+    for key in StandardOutPath StandardErrorPath; do
+      file=$(plutil -extract "$key" raw -o - "$rendered" 2>/dev/null) || continue
+      [[ -e $file ]] || install -m 600 -o "$want" /dev/null "$file"
+    done
     health=$(ug_service_expand "$health") || ug_die ug-agent-setup "cannot expand the health of $label"
     kind=${health%% *}
     target=${health#* }
@@ -400,8 +406,6 @@ start_services() {
     subject="service $label"
     [[ $name != "agent pf" ]] || subject="firewall: $agent_user cannot be the listener on the auth broker's port $(ug_fact auth_broker_port)"
     ug_say "$(ug_service_kind "$out")" "$subject" "$out"
-    want=root
-    [[ $user == root ]] || want=$(ug_fact "$user")
     out=$(ug_service_runs_as "$label" "$want") || ug_die ug-agent-setup "$out; the service table says $user"
   done < <(ug_services daemon)
   ug_say ok "daemons" "each runs as the user in host/services: the logins as $auth_user, the gh-broker as $broker_user"
@@ -431,7 +435,7 @@ ug_say ok backup "$code/bin/agent-home-tar, and sudo for $owner to run it (/etc/
 for item in "$root"/* "$root"/.[!.]*; do
   [[ -e $item || -L $item ]] || continue
   case ${item##*/} in
-    omp | gh | code | config | state | run | ssh_host_ed25519_key | ssh_host_ed25519_key.pub) ;;
+    omp | gh | code | config | state | run | logs | ssh_host_ed25519_key | ssh_host_ed25519_key.pub) ;;
     *)
       rm -rf "$item"
       ug_say changed "$item" "deleted; this version of underground does not install it"
