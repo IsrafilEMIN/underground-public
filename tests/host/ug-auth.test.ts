@@ -121,11 +121,11 @@ test("ug-auth list shows each credential with its key redacted, and revoke turns
 
   const list = await ugAuth("list");
   assert.equal(list.status, 0, list.stderr);
-  assert.deepEqual(list.stdout.trim().split("\n").slice(1), ["3\tanthropic\toauth\towner@example.com", "7\tanthropic\tapi_key\tsk-ant-api03...ABCD"]);
+  assert.deepEqual(list.stdout.trim().split("\n").slice(1), ["3\tanthropic\toauth\towner@example.com", "7\tanthropic\tapi_key\tsk-ant-api03-0123...ABCD"]);
 
   const revoke = await ugAuth("revoke", "7");
   assert.equal(revoke.status, 0, revoke.stderr);
-  assert.match(revoke.stdout, /^7\tanthropic\tapi_key\tsk-ant-api03\.\.\.ABCD$/m);
+  assert.match(revoke.stdout, /^7\tanthropic\tapi_key\tsk-ant-api03-0123\.\.\.ABCD$/m);
   assert.deepEqual(seen.filter((line) => line.startsWith("POST")), [`POST /v1/credential/7/disable Bearer ${bearer} {"cause":"logged out by user"}`]);
 
   const missing = await ugAuth("revoke", "9");
