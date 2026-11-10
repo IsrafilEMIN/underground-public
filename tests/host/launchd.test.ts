@@ -109,7 +109,7 @@ test("the login services run as the login user from root-owned code, with no pro
 });
 
 test(
-  "[mac] a service is trusted only when root or its own user owns each program, folder, and PATH entry it uses, and no other user can write them",
+  "[mac] a service is trusted only when root or its own user owns each program, folder, and PATH entry it uses, only root owns its log folder, and no other user can write them",
   { skip: process.platform !== "darwin" && "needs BSD stat and plutil" },
   async (t) => {
     const dir = await tempDir(join(tmpdir(), "ug-trust-"));
@@ -136,13 +136,13 @@ test(
     }
     await symlink(join(bin, "tool"), join(dir, "link"));
     let n = 0;
-    const check = async (o: { user?: string; program?: string; path?: string }) => {
+    const check = async (o: { user?: string; program?: string; path?: string; log?: string }) => {
       const file = join(dir, `${n++}.plist`);
       const user = o.user === undefined ? "" : `<key>UserName</key><string>${o.user}</string>`;
       await writeFile(
         file,
         `<plist version="1.0"><dict>${user}<key>ProgramArguments</key><array><string>${o.program ?? join(bin, "tool")}</string><string>--flag</string></array>` +
-          `<key>WorkingDirectory</key><string>${dir}</string><key>StandardOutPath</key><string>${dir}/out.log</string>` +
+          `<key>WorkingDirectory</key><string>${dir}</string><key>StandardOutPath</key><string>${o.log ?? "/usr/out.log"}</string>` +
           `<key>EnvironmentVariables</key><dict><key>PATH</key><string>${o.path ?? bin}</string></dict></dict></plist>\n`,
       );
       return spawnSync("bash", ["-c", `source ${LIB}; ug_trusted_daemon "$1"`, "_", file], { encoding: "utf8" });
@@ -150,6 +150,15 @@ test(
 
     const fine = await check({ user: me });
     assert.equal(fine.status, 0, fine.stdout + fine.stderr);
+
+    const ownLog = await check({ user: me, log: join(dir, "out.log") });
+    assert.equal(ownLog.status, 1, "the job's user could swap its log for a link that launchd opens");
+    assert.match(ownLog.stdout, new RegExp(`it logs to ${dir}/out.log, but ${dir} belongs to ${me}`));
+
+    await symlink("/etc/hosts", join(dir, "linked.log"));
+    const linkedLog = await check({ user: me, log: join(dir, "linked.log") });
+    assert.equal(linkedLog.status, 1, "launchd would write through a planted link");
+    assert.match(linkedLog.stdout, /linked\.log, which is a link/);
 
     const writable = await check({ user: me, path: `/usr/bin:${open}` });
     assert.equal(writable.status, 1);

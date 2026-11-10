@@ -79,6 +79,7 @@ Setup builds `code/` fresh from the checkout at each run, swaps it in, and at it
 | `run/` | The folder of the gh-broker socket and status. The gh-broker user owns it, group `agent_group`, mode 711. Root writes nothing in it: the agent sshd keeps no pid file (`PidFile`, `host/agent/sshd_config`). | `710`, `host/bin/ug-agent-setup` | the gh-broker and its client |
 | `run/gh-broker.sock` | The gh-broker socket, mode 660 (`gh_broker_socket`, `host/facts`). It gets the group of its folder, so only the agent user can connect. | the gh-broker (`listenUnix`, `socketPath`, `host/gh-broker/server.ts`) | the agent's gh-broker client |
 | `run/gh-broker.status` | The time of the last 30 s refresh and the repos that failed in it, mode 644 (`gh_broker_status`, `host/facts`) | the gh-broker, each tick (`writeRefreshStatus`, `host/gh-broker/server.ts`) | `broker_stale`, `host/bin/ug-watch` reports it after 120 s |
+| `logs/` | The logs of the gh-broker, the auth broker, the auth gateway, and the usage broker, which launchd opens before the job runs. The folder is `root:wheel` mode 711, so a service user cannot put a link in it. Setup makes each log, owned by the user of its service, mode 600 (`start_services`, `host/bin/ug-agent-setup`). Read a log with `sudo cat`. | launchd | you, with `sudo` |
 
 ## Login user: `auth_home` (mode 700, not readable by you)
 
@@ -87,15 +88,17 @@ Setup builds `code/` fresh from the checkout at each run, swaps it in, and at it
 | `.omp/` (omp's default profile) | The model logins and API keys | omp, through `ug-auth login` and `ug-auth key` (`UG_KEY_NAME`, `host/bin/ug-auth`), and the auth broker, through `ug-auth revoke` (`revoke`, `host/bin/ug-auth`) | at once, in the auth broker |
 | `.omp/auth-gateway.token` | The bearer for the auth gateway. Setup puts it into `models.yml`. The owner rotates it with `ug-auth auth-gateway token --regenerate`, which `host/bin/ug-auth` passes through to omp (`docs/adr/0005-model-auth-gateway.md`). | setup, if it is empty (`auth-gateway.token`, `host/bin/ug-agent-setup`), and the owner's rotation | Sessions get the bearer after the next setup (`gateway_token`, `host/bin/ug-agent-setup`). |
 | `.omp/auth-broker.token` | The bearer that the auth broker asks its clients for | omp, not this repo | Setup uses it only to look for leaks in the config (`auth-broker.token`, `host/bin/ug-agent-setup`) and as a restart input (`auth-broker.token`, `host/bin/ug-agent-setup`). |
-| `logs/` | The logs of the auth broker, the auth gateway, and the usage broker | the services in `host/services` | none |
+| `logs/` | The old service logs, from before the logs moved to `root/logs/`. Nothing writes it now; you may delete it. | nothing | none |
 
 ## gh-broker user: `gh_broker_home` (mode 700, not readable by you)
 
 | path | what it is for | who writes it | when a change takes effect |
 |---|---|---|---|
-| `github-app.pem`, `github-app.json` | The app key and client ID, mode 600 | root, from the wizard's copy in your data folder (`github-app.pem`, `host/bin/ug-agent-setup`) | at the next token mint (`appFiles`, `host/gh-broker/github-app.ts`) |
-| `repos/`, `pushes/`, `reviews/`, `tmp/` | The mirrors, the push records, and the old review records. Root copied them once from your data folder: it reads them with your rights, re-owns only the fresh copy, and then deletes the old folder (`old_broker`, `host/bin/ug-agent-setup`). Nothing reads `reviews/` since the merge gate is deleted (`docs/adr/0026-delete-the-merge-gate.md`). | the gh-broker (`defaultConfig`, `host/gh-broker/server.ts`) | at once. Nothing runs `git gc` on the mirrors. |
-| `logs/gh-broker.log` | The gh-broker log. Read it with `sudo cat`. | launchd | none |
+| `github-app.pem`, `github-app.json` | The app key and client ID, mode 600 | setup as the gh-broker user, from the wizard's copy in your data folder (`write_as`, `host/bin/ug-agent-setup`) | at the next token mint (`appFiles`, `host/gh-broker/github-app.ts`) |
+| `repos/`, `pushes/`, `reviews/`, `tmp/` | The mirrors, the push records, and the old review records. Setup copied them once from your data folder: it reads them with your rights, writes the copy with the gh-broker user's rights, and then deletes the old folder (`old_broker`, `host/bin/ug-agent-setup`). Nothing reads `reviews/` since the merge gate is deleted (`docs/adr/0026-delete-the-merge-gate.md`). | the gh-broker (`defaultConfig`, `host/gh-broker/server.ts`) | at once. Nothing runs `git gc` on the mirrors. |
+| `logs/` | The old gh-broker log, from before the log moved to `root/logs/`. Nothing writes it now; you may delete it. | nothing | none |
+
+Setup reads and writes in this home and in the login user's home only with that user's rights (`read_as`, `write_as`, and `sudo -u`, `host/bin/ug-agent-setup`), so a link that the user plants reaches only files that the user can already read or change. A restart input in these homes is the exception: root reads it, but only into a hash (`ug_fingerprint`, `host/lib/ug.bash`).
 
 ## Agent user: `agent_home`
 
@@ -110,7 +113,7 @@ Setup builds `code/` fresh from the checkout at each run, swaps it in, and at it
 
 | path | what it is for | who writes it |
 |---|---|---|
-| The daemons, as LaunchDaemons in `/Library/LaunchDaemons/` | The gh-broker, the auth broker, the auth gateway, the usage broker, the agent sshd, and the clone refresh. After setup loads one, it checks that launchd runs it as the user of its row (`ug_service_runs_as`, `host/lib/ug.bash`). Before setup loads one, it checks each program, folder, and `PATH` entry that the service names: root or the service's own user must own it and each folder above it, and no group, other user, or access rule may let another user write it (`ug_trusted_daemon`, `host/lib/ug.bash`). If not, setup stops. The names are in `host/services`. | `start_services`, `host/bin/ug-agent-setup` |
+| The daemons, as LaunchDaemons in `/Library/LaunchDaemons/` | The gh-broker, the auth broker, the auth gateway, the usage broker, the agent sshd, and the clone refresh. After setup loads one, it checks that launchd runs it as the user of its row (`ug_service_runs_as`, `host/lib/ug.bash`). Before setup loads one, it checks each program, folder, and `PATH` entry that the service names: root or the service's own user must own it and each folder above it, and no group, other user, or access rule may let another user write it. A launchd log must not be a link, root or the service's user must own it, and only root may own its folder and each folder above it (`ug_trusted_daemon`, `host/lib/ug.bash`). If not, setup stops. The names are in `host/services`. | `start_services`, `host/bin/ug-agent-setup` |
 | The owner's services as LaunchAgents in `~/Library/LaunchAgents/` | The nightly backup and the watch. Setup boots out and deletes any other underground LaunchAgent (`retire_agents`, `host/bin/ug-setup`). The names are in `host/services`. | `start_services`, `host/bin/ug-setup` |
 | `/etc/ssh/sshd_config.d/010-underground-deny-ugagent.conf` | It keeps the agent user out of the system sshd. | `DenyUsers`, `host/bin/ug-agent-setup` |
 | `/etc/sudoers.d/underground-backup` | It lets you run the backup helper in `root/code/bin/` with no password. | `NOPASSWD`, `host/bin/ug-agent-setup` |
