@@ -1,65 +1,36 @@
-name: ci
-
-on:
-  pull_request:
-  push:
-    branches: [main]
-
-permissions:
-  contents: read
-
-jobs:
-  checks:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-
-      - name: Install tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y shellcheck libxml2-utils
-
-      - name: Shell syntax and lint
-        run: |
-          set -euo pipefail
-          bash_files=(); sh_files=()
-          for f in host/bin/* host/lib/*.bash host/agent/* scripts/*.sh; do            case "$(head -n 1 "$f")" in
-              '#!/usr/bin/env bash'*|'#!/bin/bash'*|'# shellcheck shell=bash'*) bash_files+=("$f") ;;
-              '#!/bin/sh'*) sh_files+=("$f") ;;
-            esac
-          done
-          for f in "${bash_files[@]}"; do bash -n "$f"; done
-          for f in "${sh_files[@]}"; do sh -n "$f"; done
-          shellcheck "${bash_files[@]}"
-          if [ ${#sh_files[@]} -gt 0 ]; then shellcheck -s sh "${sh_files[@]}"; fi
-
-      - name: Launchd plist XML
-        run: xmllint --noout host/launchd/*.plist host/agent/*.plist
-
-  tests:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-
-      - name: Broker and host tests
-        run: |
-          set -euo pipefail
-          status=0
-          node --test --test-reporter=tap tests/broker/*.test.ts tests/host/*.test.ts | tee tests.tap || status=$?
-          if [ "$status" -ne 0 ]; then
-            echo "failed tests:" >&2
-            grep -E '^ *not ok ' tests.tap >&2 || true
-            exit "$status"
-          fi
-          if grep -E '^ok [0-9]+ - \[mac\] .* # SKIP' tests.tap; then
-            echo "a [mac] test skipped, so it checked nothing" >&2
-            exit 1
-          fi
+@@ -49,11 +49,36 @@ jobs:
+         with:
+           node-version: 24
+ 
+-      - name: Broker and host tests
++      - name: Pinned omp
++        run: |
++          set -euo pipefail
++          source host/lib/ug.bash
++          url="$(ug_pin VERSIONS omp_release)/v$(ug_pin VERSIONS omp)/omp-darwin-arm64"
++          curl -fsSL --proto '=https' --retry 3 -o "$RUNNER_TEMP/omp" "$url"
++          printf '%s  %s\n' "$(ug_pin VERSIONS omp_sha256)" "$RUNNER_TEMP/omp" | shasum -a 256 -c -
++          chmod 755 "$RUNNER_TEMP/omp"
++
++      - name: Broker tests on the pinned omp's bun
++        run: |
++          set -euo pipefail
++          status=0
++          BUN_BE_BUN=1 "$RUNNER_TEMP/omp" test --timeout 120000 --reporter=junit --reporter-outfile=broker.xml tests/broker/ 2>&1 | tee broker.log || status=$?
++          if [ "$status" -ne 0 ]; then
++            echo "failed tests:" >&2
++            grep -E '^\(fail\) ' broker.log >&2 || true
++            exit "$status"
++          fi
++          if grep -A1 'testcase name="\[mac\]' broker.xml | grep -q '<skipped'; then
++            echo "a [mac] test skipped, so it checked nothing" >&2
++            exit 1
++          fi
++
++      - name: Host tests
++        if: ${{ !cancelled() }}
+         run: |
+           set -euo pipefail
+           status=0
+-          node --test --test-reporter=tap tests/broker/*.test.ts tests/host/*.test.ts | tee tests.tap || status=$?
++          node --test --test-reporter=tap tests/host/*.test.ts | tee tests.tap || status=$?
