@@ -1,6 +1,7 @@
 (version 1)
 (allow default)
 (deny process-exec (literal "/bin/launchctl") (literal "/usr/bin/at") (literal "/usr/bin/crontab") (literal "/usr/bin/batch"))
+(deny network-bind (local ip "*:@AUTH_BROKER_PORT@"))
 (deny file-read* (require-not (require-any
   (literal "/") (literal "/Users") (literal "/private") (literal "/private/var")
   (subpath "@AGENT_HOME@")
