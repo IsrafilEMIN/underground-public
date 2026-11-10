@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { chmod, lstat, mkdir, mkdtemp, readFile, rm, stat, unlink, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, mkdtemp, readFile, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import type { Server, Socket } from "node:net";
 import { homedir } from "node:os";
@@ -55,6 +55,7 @@ export type ServerConfig = {
   github: GithubTokens;
   home: string;
   tempRoot: string;
+  statusFile: string;
   now?: () => number;
   checkTimeoutMs?: number;
 };
@@ -92,6 +93,7 @@ export function defaultConfig(): ServerConfig {
     github: createAppTokens({ files: appFiles(host) }),
     home: HOME,
     tempRoot: join(host, "gh-broker/tmp"),
+    statusFile: join(host, "gh-broker/status"),
   };
 }
 
@@ -365,6 +367,16 @@ async function refreshRepo(config: ServerConfig, repo: string, signal: AbortSign
   });
 }
 
+async function writeRefreshStatus(config: ServerConfig, at: number, failed: string[]): Promise<void> {
+  const temp = `${config.statusFile}.tmp`;
+  try {
+    await writeFile(temp, `at=${Math.floor(at / 1000)}\nfailed=${failed.join(" ")}\n`, { mode: 0o600 });
+    await rename(temp, config.statusFile);
+  } catch (error) {
+    process.stderr.write(`${new Date().toISOString()} cannot write the refresh status ${config.statusFile}: ${error instanceof Error ? error.message : String(error)}\n`);
+  }
+}
+
 export async function refreshRepos(config: ServerConfig, signal: AbortSignal): Promise<void> {
   const now = (config.now ?? Date.now)();
   const recorded = new Set((await listPushRecords(config.pushesDir)).map((pushed) => pushed.repo));
@@ -374,20 +386,28 @@ export async function refreshRepos(config: ServerConfig, signal: AbortSignal): P
     if (state.syncedAt !== undefined && now - state.syncedAt <= REFRESH_FOR_MS) return true;
     return recorded.has(repo) && state.checkedAt === undefined;
   });
+  const failed: string[] = [];
   await Promise.all(
     due.map(async ([repo, state]) => {
       state.refreshing = true;
       try {
         const result = await refreshRepo(config, repo, signal);
-        if (!("ends" in result)) process.stderr.write(`${new Date().toISOString()} refresh of ${repo} failed: ${result.stderr.trim()}\n`);
-        else for (const end of result.ends) if (end.kind !== "moved") process.stderr.write(`${new Date().toISOString()} ${repo}: ${describeEnd(end)}`);
+        if (!("ends" in result)) {
+          failed.push(repo);
+          process.stderr.write(`${new Date().toISOString()} refresh of ${repo} failed: ${result.stderr.trim()}\n`);
+        } else {
+          if (result.ends.some((end) => end.kind === "failed")) failed.push(repo);
+          for (const end of result.ends) if (end.kind !== "moved") process.stderr.write(`${new Date().toISOString()} ${repo}: ${describeEnd(end)}`);
+        }
       } catch (error) {
+        failed.push(repo);
         process.stderr.write(`${new Date().toISOString()} refresh of ${repo} failed: ${redactTokens(error instanceof Error ? error.message : String(error))}\n`);
       } finally {
         state.refreshing = false;
       }
     }),
   );
+  await writeRefreshStatus(config, now, failed.sort());
 }
 
 async function handleSync(config: ServerConfig, req: SyncRequest, signal: AbortSignal): Promise<Reply> {

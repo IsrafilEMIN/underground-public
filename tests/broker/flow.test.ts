@@ -200,6 +200,7 @@ beforeEach(async () => {
     github: fakeTokens(),
     home: join(root, "gh-home"),
     tempRoot: join(agents, "tmp"),
+    statusFile: join(agents, "status"),
   };
   await mkdir(agents, { recursive: true });
   await mkdir(owner, { recursive: true });

@@ -13,9 +13,9 @@ const FACTS = readHostFacts();
 const DATA = join(HOME, FACTS.ownerData);
 
 test("the gh-broker listens on the socket under the install root and keeps every file in the data folder", () => {
-  const { socketPath, reposRoot, reviewsDir, pushesDir, protectedDir, tempRoot } = defaultConfig();
+  const { socketPath, reposRoot, reviewsDir, pushesDir, protectedDir, tempRoot, statusFile } = defaultConfig();
   assert.ok(socketPath.startsWith(`${FACTS.root}/`), `${socketPath} is outside the install root`);
-  for (const path of [reposRoot, reviewsDir, pushesDir, protectedDir, tempRoot]) {
+  for (const path of [reposRoot, reviewsDir, pushesDir, protectedDir, tempRoot, statusFile]) {
     assert.ok(path.startsWith(`${DATA}/`), `${path} is outside the data folder`);
   }
 });
@@ -40,7 +40,7 @@ test("the host facts reader refuses a facts file that lacks a value or has a bad
 
 test("the gh-broker socket is 0660 after it listens, so only its owner and the group of its folder can connect", async () => {
   const root = await tempDir(join(tmpdir(), "ug-sock-"));
-  const config = { ...defaultConfig(), socketPath: join(root, "run/gh-broker.sock") };
+  const config = { ...defaultConfig(), socketPath: join(root, "run/gh-broker.sock"), statusFile: join(root, "status") };
   const broker = await startServer(config);
   try {
     assert.equal((await stat(config.socketPath)).mode & 0o777, 0o660);

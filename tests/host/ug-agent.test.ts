@@ -77,6 +77,25 @@ test("ug-agent says the agent sshd does not answer, and runs no ssh, when nothin
   await assert.rejects(readFile(join(o.home, "ssh-ran")));
 });
 
+test("ug-agent warns at start with each problem the watch found, and when the watch has not run for 15 minutes", async (t) => {
+  const o = await owner(t);
+  await stub(o.bin, "launchctl", "exit 1");
+  await stub(o.bin, "ssh", "exit 0");
+  const watch = join(o.home, ".local/share/underground/watch");
+  await mkdir(watch);
+  const missing = runAgent(o, ["ls"]);
+  assert.equal(missing.status, 0, missing.stderr);
+  assert.match(missing.stderr, /warning: the watch has not checked the services in the last 15 minutes/);
+  const now = Math.floor(Date.now() / 1000);
+  await writeFile(join(watch, "status"), `at=${now - 16 * 60}\n`);
+  assert.match(runAgent(o, ["ls"]).stderr, /the watch has not checked/);
+  await writeFile(join(watch, "status"), `at=${now}\nbackup: no good backup in the last 36 hours\nagent sshd: no answer on port 2222\n`);
+  const found = runAgent(o, ["ls"]);
+  assert.equal(found.stderr, "ug-agent: warning: backup: no good backup in the last 36 hours\nug-agent: warning: agent sshd: no answer on port 2222\n");
+  await writeFile(join(watch, "status"), `at=${now}\n`);
+  assert.equal(runAgent(o, ["ls"]).stderr, "");
+});
+
 const noSshd = !existsSync("/usr/sbin/sshd") && "needs /usr/sbin/sshd";
 
 async function remoteLoginOwner(t: { after: (fn: () => unknown) => void }, dropIn: string) {
@@ -267,7 +286,7 @@ async function holdLock(t: { after: (fn: () => unknown) => void }, dir: string, 
 }
 
 test(
-  "[mac] agent-refresh syncs each clone launched in the last 7 days with git hooks off, skips a clone a launch holds, and stops a sync that hangs",
+  "[mac] agent-refresh syncs each clone launched in the last 7 days with git hooks off, skips a clone a launch holds, stops a sync that hangs, and exits 1 only when a sync failed",
   { skip: process.platform !== "darwin" && "needs macOS lockf and getconf DARWIN_USER_TEMP_DIR" },
   async (t) => {
     const dir = await tempDir(join(tmpdir(), "ug-refresh-"));
@@ -287,8 +306,8 @@ test(
     );
     const app = await agentClone(home, "owner/app");
     const busy = await agentClone(home, "owner/busy");
-    await agentClone(home, "owner/slow");
-    await agentClone(home, "owner/broken");
+    const slow = await agentClone(home, "owner/slow");
+    const broken = await agentClone(home, "owner/broken");
     const old = await agentClone(home, "owner/old");
     const weekAgo = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000);
     await utimes(join(old, ".git/ug-launched"), weekAgo, weekAgo);
@@ -305,7 +324,7 @@ test(
 
     const started = Date.now();
     const r = spawnSync("bash", [script], { env: { PATH: "/usr/bin:/bin", CALLS: calls }, encoding: "utf8" });
-    assert.equal(r.status, 0, r.stderr);
+    assert.equal(r.status, 1, "launchd keeps the exit code, so the watch sees the failed syncs");
     assert.ok(Date.now() - started < 8000, "a hung sync is stopped, not waited for");
 
     assert.equal(gitIn(app, "rev-parse", "refs/remotes/origin/main"), gitIn(app, "rev-parse", "HEAD"));
@@ -317,6 +336,11 @@ test(
     assert.match(log, /sync owner\/slow took over 1 s, stopped/);
     assert.match(log, /sync owner\/broken failed with exit 1/);
     assert.doesNotMatch(log, /owner\/(app|busy)|Terminated/);
+
+    await rm(join(slow, ".git/ug-launched"));
+    await rm(join(broken, ".git/ug-launched"));
+    const clean = spawnSync("bash", [script], { env: { PATH: "/usr/bin:/bin", CALLS: calls }, encoding: "utf8" });
+    assert.equal(clean.status, 0, "a held clone is not a failure");
   },
 );
 

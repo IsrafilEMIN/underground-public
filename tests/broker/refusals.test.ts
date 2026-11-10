@@ -111,6 +111,7 @@ beforeEach(async () => {
     github: fakeTokens(),
     home: join(root, "home"),
     tempRoot: join(root, "tmp"),
+    statusFile: join(root, "status"),
   };
   await mkdir(config.home);
   await writeFile(join(config.home, "default-branch"), "main");

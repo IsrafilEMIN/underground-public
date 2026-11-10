@@ -21,7 +21,7 @@ const programArguments = (text: string): string[] => {
 
 test("every owner launchd template uses only the placeholders that setup fills, so none can name the checkout", async () => {
   const files = (await readdir(DIR)).filter((n) => n.endsWith(".plist"));
-  assert.deepEqual(files.sort(), ["com.underground.backup.plist", "com.underground.gh-broker.plist"]);
+  assert.deepEqual(files.sort(), ["com.underground.backup.plist", "com.underground.gh-broker.plist", "com.underground.watch.plist"]);
   for (const file of files) {
     const text = await readFile(join(DIR, file), "utf8");
     for (const placeholder of text.match(/@[A-Z_]+@/g) ?? []) assert.ok(FILLED.has(placeholder), `${file}: ${placeholder}`);
@@ -29,10 +29,11 @@ test("every owner launchd template uses only the placeholders that setup fills, 
   }
 });
 
-test("the gh-broker and the backup run setup's copy as the owner, never the checkout", async () => {
+test("the gh-broker, the backup, and the watch run setup's copy as the owner, never the checkout", async () => {
   const args = async (label: string) => programArguments(await readFile(join(DIR, `${label}.plist`), "utf8"));
   assert.deepEqual(await args("com.underground.gh-broker"), ["@NODE@", "@DATA@/services/host/gh-broker/server.ts"]);
   assert.deepEqual(await args("com.underground.backup"), ["/bin/bash", "@DATA@/services/host/bin/ug-backup"]);
+  assert.deepEqual(await args("com.underground.watch"), ["/bin/bash", "@DATA@/services/host/bin/ug-watch"]);
 });
 
 test("the login services run as the login user from root-owned code, with no profile or config dir that the owner's omp could share", async () => {

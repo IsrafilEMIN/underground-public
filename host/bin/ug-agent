@@ -23,10 +23,14 @@ die() { echo "ug-agent: $*" >&2; exit 1; }
 [[ -n $(find "$HOME" -maxdepth 0 -perm 700 2>/dev/null) ]] ||
   die "your home $HOME is not mode 700; the agent user could read it. Run: host/bin/ug-setup"
 
-last=$UG/backup/last
-last_ts=$(cat "$last" 2>/dev/null) || last_ts=''
-if [[ ! $last_ts =~ ^[0-9]+$ ]] || (( $(date +%s) - 10#$last_ts > 36 * 3600 )); then
-  echo "ug-agent: warning: the agent home has no backup from the last 36 hours; see $UG/backup/backup.log" >&2
+status=$UG/watch/status
+at=$(sed -n 's/^at=//p' "$status" 2>/dev/null) || at=''
+if [[ ! $at =~ ^[0-9]+$ ]] || (( $(date +%s) - 10#$at > 15 * 60 )); then
+  echo "ug-agent: warning: the watch has not checked the services in the last 15 minutes; see $UG/watch/watch.log" >&2
+else
+  while IFS= read -r line; do
+    [[ $line == at=* ]] || echo "ug-agent: warning: $line" >&2
+  done <"$status"
 fi
 
 for arg in "$@"; do
