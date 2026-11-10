@@ -55,4 +55,17 @@ Cost: the gateway bearer now also unlocks the engine. The engine is called `lm-s
 
 ## Amendment 2026-11-08: paths
 
-The model logins, `auth-broker.token`, and `auth-gateway.token` are in `/Users/ugauth/.omp`, omp's default profile (`docs/adr/0018-login-user.md:14`). Setup sets no `PI_CONFIG_DIR` and no `OMP_PROFILE` for them (`host/bin/ug-agent-setup:276-283`; `host/bin/ug-auth:31,38`; `host/agent/com.underground.auth-broker.plist:26-32`). This replaces the `~/.ug/host/auth` paths above.
+The model logins, `auth-broker.token`, and `auth-gateway.token` are in `/Users/ugauth/.omp`, omp's default profile (`docs/adr/0018-login-user.md:14`). Setup sets no `PI_CONFIG_DIR` and no `OMP_PROFILE` for them (`host/bin/ug-agent-setup:276-283`; `host/bin/ug-auth:60,67`; `host/agent/com.underground.auth-broker.plist:26-32`). This replaces the `~/.ug/host/auth` paths above.
+
+## Amendment 2026-11-09: turn off one credential
+
+Owner decision, 2026-11-09. `ug-auth auth-broker logout anthropic` turned off the OAuth login and the API key together, because `omp auth-broker logout` takes only a provider and turns off every row of it (`runLogout`, omp `packages/coding-agent/src/cli/auth-broker-cli.ts`, v18.18.1, read 2026-11-09). The store keeps one row with its own id for each credential, and the running broker turns off one row with `POST /v1/credential/:id/disable` (omp `packages/ai/src/auth-broker/server.ts:965-982`, v18.18.1, read 2026-11-09).
+
+Decision: `ug-auth` gets two commands that talk to the running auth broker as the login user (`host/bin/ug-auth:31-58`).
+
+- `ug-auth list` reads `GET /v1/snapshot` and prints one line for each active credential: id, provider, type, and the account of an OAuth login or the redacted API key. The owner asked for the start and the end of a key, to know which one a revoke hits. The line shows at most the first 12 and the last 4 characters, and never more than 3 of 8 characters of a short key. It prints no OAuth token.
+- `ug-auth revoke <id>` sends the disable request for that id with the cause `logged out by user`, the same cause that `omp auth-broker logout` records. It refuses an id that the snapshot does not hold.
+
+The login user's shell reads the broker bearer from `auth-broker.token` and gives it to `curl` on stdin, so the bearer is in no argument that another user can see with `ps` (`../THREAT-MODEL.md`, U1: process list). The commands need `/usr/bin/curl` and `/usr/bin/jq`; this mac has `jq-1.7.1-apple` (`/usr/bin/jq --version`, 2026-11-09).
+
+Cost: as with a logout, the row keeps the secret, so the owner also revokes the key at the provider. Tested against a stand-in broker only (`tests/host/ug-auth.test.ts`); not run against the real auth broker on the owner's mac.
