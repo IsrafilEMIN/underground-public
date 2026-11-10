@@ -1,6 +1,6 @@
 # Spec: underground
 
-This page says what runs now: each built part with what it does and the file that holds it, the onboarding checks, the checks that run, and what is deferred. The base is in `docs/PRODUCT-BRIEF.md`. The reasons are dated records in `docs/adr/`. The launchd jobs are listed only in the service table (`host/services`). A host path, port, user, or mode that more than one file needs lives only in the host facts (`host/facts`). This doc names those files and copies no value.
+This page says what runs now: each built part with what it does and the file that holds it, the steps of the first setup and of a restore, the onboarding checks, the checks that run, and what is deferred. The base is in `docs/PRODUCT-BRIEF.md`. The reasons are dated records in `docs/adr/`. The launchd jobs are listed only in the service table (`host/services`). A host path, port, user, or mode that more than one file needs lives only in the host facts (`host/facts`). This doc names those files and copies no value.
 
 ## Parts built
 
@@ -31,6 +31,36 @@ This page says what runs now: each built part with what it does and the file tha
 **Backup.** Once a day the backup job in the service table (`host/bin/ug-backup`) reads the agent home through the root helper `host/agent/agent-home-tar`, which a sudoers rule allows, excludes the staged config names and live sockets (`--exclude`, `host/agent/agent-home-tar`), and stores the tar stream in the restic repo the owner names in the backup settings, through the pinned restic. Every snapshot stays (`docs/adr/0016-agent-user.md`, "Step 4 (2026-11-08): the switch").
 
 **Watch.** `host/bin/ug-watch` runs every 5 minutes as the owner from the service table: it reads each job's record, asks the login services and the agent sshd, rechecks after 60 s, writes the status (`status`, `host/bin/ug-watch`), and pings the outside check whose address the owner writes by hand. The outside check alerts the owner on a failure and when no ping arrives within its period, so a dead mac or a dead watch cannot stay silent. The launcher prints the written status at each start, so the owner sees the problems before the first answer (`docs/adr/0023-failures-reach-the-owner.md`).
+
+## First setup
+
+The owner does these steps once on a new mac. At its end, setup lists each step that it cannot do itself under "still to do" (`later`, `host/bin/ug-setup`).
+
+1. Get the tools: an Apple silicon mac (`omp-darwin-arm64`, `host/bin/ug-setup`), `gh` with your GitHub login and `jq` (`ug_check_main_rule`, `host/lib/ug.bash`), and Tailscale with an IPv4 address (`write_addresses`, `host/bin/ug-setup`).
+2. Clone underground into your home, outside the data folder (`owner_data`, `host/facts`). Setup refuses to run from inside it (`ug-setup`, `host/bin/ug-setup`). On GitHub, make the ruleset on `main` of onboarding check 6. Without it, setup stops before it pulls (`ug_check_main_rule`, `host/lib/ug.bash`).
+3. Make the agent config repo: a git repo in your home whose last commit holds `models.yml`. Setup fills `@GATEWAY@` and `@GATEWAY_TOKEN@` in it, and reads the skill repos from its `skill-repos` file (`stage_config`, `host/bin/ug-agent-setup`). Make the data folder with mode 700, and write the path of the config repo into its `config-repo` file (`docs/HOST-STATE.md`, "Files that you write by hand"). Without that file, the root step of setup stops.
+4. Run `scripts/gh-broker-app-wizard.sh` from your checkout. It registers the gh-broker app, makes its key, installs it on the repos that you pick, writes the key and the app config into the data folder, and then runs setup (`docs/adr/0007-gh-broker-github-app.md`). Setup asks for the address of the inference engine when the data folder has no `addresses` file (`write_addresses`, `host/bin/ug-setup`). sudo asks for your password once, for the root step.
+5. Log in to each model provider with `ug-auth login <provider>`, or store an API key with `ug-auth key <NAME>_API_KEY` (`usage`, `host/bin/ug-auth`). Setup puts `ug-auth` on `PATH` (`install_service_code`, `host/bin/ug-setup`).
+6. Do each item of "still to do": put `~/.local/bin` on `PATH` before any other omp (`check_path`, `host/bin/ug-setup`), write the backup settings and keep a copy of the backup password in your password manager (`setup_backup`, `host/bin/ug-setup`), and write the ping address (`prepare_services`, `host/bin/ug-setup`). The formats are in `docs/HOST-STATE.md`, "Files that you write by hand". The backup and the watch read these files at each run, so setup need not run again.
+7. Type `omp`. The launcher prints the problems that the watch found before the session starts (`status`, `host/bin/ug-agent`).
+
+Before agents work alone in another repo, the owner makes the onboarding checks below.
+
+## Restore
+
+A restore undoes harm to the agent home (`docs/PRODUCT-BRIEF.md`, H4). Each snapshot is one tar stream with the tag `ug-agent` (`--stdin-filename`, `host/bin/ug-backup`), so `restic restore` gives only the tar file; `restic dump` into `tar -x` unpacks it. A snapshot restores cleanly only to the home path it came from (`docs/PRODUCT-BRIEF.md`, "Backup").
+
+In the commands, `restic` is the pinned restic in the data folder (`restic_bin`, `host/bin/ug-backup`), `<repo>` is the `repo=` line of the backup settings, and `<agent_home>` and `<agent_user>` are the values of `host/facts`.
+
+1. On a new mac, do the first setup, then write the backup settings and put the copy of the backup password into the data folder (`docs/HOST-STATE.md`, "Data folder: `owner_data` (yours, mode 700)").
+2. Run the `wake=` command of the backup settings, and wait until the backup machine answers ssh (`backup_target_wake`, `host/lib/backup-target.bash`).
+3. Set `RESTIC_PASSWORD_FILE` to the backup password file. Pick a snapshot from `restic -r <repo> snapshots --tag ug-agent`.
+4. To get back some files, or to test the backup, unpack into a scratch folder of yours: `restic -r <repo> dump <id> ug-agent-home.tar | tar -x -C <scratch>`. This writes nothing in the live home. Delete the folder afterwards, because it holds a full copy of the agent home. The owner ran this step on 2026-11-08 (`docs/adr/0016-agent-user.md`, "Step 4 (2026-11-08): the switch").
+5. To restore the whole home, end each omp session, and stop the clone refresh, because it writes in the agent home every 30 s: `sudo launchctl bootout system/<label>`, with the label of the agent refresh row of `host/services`. Then run `restic -r <repo> dump <id> ug-agent-home.tar | sudo tar -x -C <agent_home>`, then `sudo chown -R <agent_user>:staff <agent_home>` (`PrimaryGroupID`, `host/bin/ug-agent-setup`). This writes over the live home: each file of the snapshot comes back, and each file that the snapshot does not hold stays. The ADR records no run of this step on the agent home.
+6. After a whole-home restore, run `host/bin/ug-setup`. It loads the clone refresh again, because launchd no longer has it (`ug_ensure_service`, `host/lib/ug.bash`). The next session start copies the staged config over the config names, which the snapshot does not hold (`--exclude`, `host/agent/agent-home-tar`).
+7. Run the `sleep=` command of the backup settings.
+
+Open: root unpacks agent-made bytes in step 5, and the owner in step 4 (`docs/THREAT-MODEL.md`, U40).
 
 ## Onboarding checks
 
