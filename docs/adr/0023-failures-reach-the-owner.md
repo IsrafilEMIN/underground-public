@@ -34,7 +34,7 @@ A backup that stops silently is the one failure here that costs undo (`../THREAT
 
 - The owner runs setup once, makes a check at the outside service, and writes `watch/ping`. Setup lists the missing file in its "left to do" lines (`prepare_services`, `host/bin/ug-setup`).
 - Open, for the owner: the period and grace time of the outside check. A mac that sleeps for the night sends no ping, so a grace time shorter than the sleep gives an alert each night.
-- The agent user can bind a free localhost port (`0004-no-local-binding.md`). When a login service is down, a process of the agent could answer its health route on its port, and the watch would see it as up. Accepted: it is the port squatting that `0004-no-local-binding.md` accepts, and the agent gains no login by it.
+- The agent cannot listen on the auth broker's port (`0022-loopback-one-firewall-line.md`), but it can on the usage broker's and the gateway's. When one of those is down, a process of the agent could answer its health route, and the watch would see it as up. Accepted: such a listener gets nothing that the agent lacks (`0022-loopback-one-firewall-line.md`, Not covered).
 - The agent controls its clones, so it can make the clone refresh fail or pass. The harm is a slower launch, not a lost undo.
 - A gh-broker whose loop runs but whose socket hangs looks healthy. A sync then fails at launch, so the owner sees it there.
 - `watch/watch.log` gets one line each 5 minutes while a problem lasts, and nothing trims it.

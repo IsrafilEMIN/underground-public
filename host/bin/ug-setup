@@ -226,7 +226,7 @@ write_addresses() {
 prepare_services() {
   install -d -m 700 "$data/gh-broker" "$data/gh-broker/repos" "$data/gh-broker/tmp" "$data/gh-broker/reviews" "$data/gh-broker/pushes" "$data/state" "$data/watch"
   if [[ ! -s $data/watch/ping ]]; then
-    later+=("write the ping address of an outside check (docs/adr/0022-failures-reach-the-owner.md) into $data/watch/ping; until then, nothing outside this mac tells you when the mac or the watch stops")
+    later+=("write the ping address of an outside check (docs/adr/0023-failures-reach-the-owner.md) into $data/watch/ping; until then, nothing outside this mac tells you when the mac or the watch stops")
   fi
   write_addresses
 }
