@@ -27,12 +27,12 @@ test("the gh-broker app's key and config are in the data folder, and the usage b
   assert.equal(usage.gatewayTokenFile, join(HOME, ".omp/auth-gateway.token"));
 });
 
-test("the gh-broker socket is 0666 after it listens, so the agent user can connect", async () => {
+test("the gh-broker socket is 0660 after it listens, so only its owner and the group of its folder can connect", async () => {
   const root = await tempDir(join(tmpdir(), "ug-sock-"));
   const config = { ...defaultConfig(), socketPath: join(root, "run/gh-broker.sock") };
   const broker = await startServer(config);
   try {
-    assert.equal((await stat(config.socketPath)).mode & 0o777, 0o666);
+    assert.equal((await stat(config.socketPath)).mode & 0o777, 0o660);
   } finally {
     await stopServer(broker);
   }

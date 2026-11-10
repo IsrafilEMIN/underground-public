@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { chmod, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -38,15 +38,74 @@ test("the login services run as ugauth from root-owned code, with no profile or 
   const args = async (label: string) => programArguments(await readFile(join(AGENT_DIR, `${label}.plist`), "utf8"));
   assert.deepEqual((await args("com.underground.auth-broker")).slice(0, 3), ["@OMP@", "auth-broker", "serve"]);
   assert.deepEqual((await args("com.underground.auth-gateway")).slice(0, 3), ["@OMP@", "auth-gateway", "serve"]);
-  assert.deepEqual(await args("com.underground.usage-broker"), ["/opt/homebrew/bin/node", "/Library/Underground/usage-broker/usage-broker.ts"]);
+  assert.deepEqual(await args("com.underground.usage-broker"), ["@OMP@", "/Library/Underground/usage-broker/usage-broker.ts"]);
   for (const label of DAEMONS) {
     const text = await readFile(join(AGENT_DIR, `${label}.plist`), "utf8");
     assert.match(text, /<key>UserName<\/key>\s*<string>ugauth<\/string>/, label);
     assert.match(text, /<key>HOME<\/key>\s*<string>\/Users\/ugauth<\/string>/, label);
-    assert.doesNotMatch(text, /OMP_PROFILE|PI_CONFIG_DIR|PI_CODING_AGENT_DIR|\/Users\/(?!ugauth\/|ugauth<)|@HOME@|@DATA@/, label);
+    assert.doesNotMatch(text, /OMP_PROFILE|PI_CONFIG_DIR|PI_CODING_AGENT_DIR|\/Users\/(?!ugauth\/|ugauth<)|@HOME@|@DATA@|\/opt\/homebrew/, label);
     for (const placeholder of text.match(/@[A-Z_]+@/g) ?? []) assert.ok(DAEMON_FILLED.has(placeholder), `${label}: ${placeholder}`);
   }
 });
+
+test(
+  "[mac] a service is trusted only when root or its own user owns each program, folder, and PATH entry it uses, and no other user can write them",
+  { skip: process.platform !== "darwin" && "needs BSD stat and plutil" },
+  async (t) => {
+    const dir = await tempDir(join(tmpdir(), "ug-trust-"));
+    t.after(() => rm(dir, { recursive: true, force: true }));
+    const me = spawnSync("id", ["-un"], { encoding: "utf8" }).stdout.trim();
+    const bin = join(dir, "bin");
+    const open = join(dir, "open");
+    for (const [folder, mode] of [
+      [bin, 0o755],
+      [open, 0o775],
+    ] as const) {
+      await mkdir(folder);
+      await writeFile(join(folder, "tool"), "");
+      await chmod(join(folder, "tool"), 0o755);
+      await chmod(folder, mode);
+    }
+    await symlink(join(bin, "tool"), join(dir, "link"));
+    let n = 0;
+    const check = async (o: { user?: string; program?: string; path?: string }) => {
+      const file = join(dir, `${n++}.plist`);
+      const user = o.user === undefined ? "" : `<key>UserName</key><string>${o.user}</string>`;
+      await writeFile(
+        file,
+        `<plist version="1.0"><dict>${user}<key>ProgramArguments</key><array><string>${o.program ?? join(bin, "tool")}</string><string>--flag</string></array>` +
+          `<key>WorkingDirectory</key><string>${dir}</string><key>StandardOutPath</key><string>${dir}/out.log</string>` +
+          `<key>EnvironmentVariables</key><dict><key>PATH</key><string>${o.path ?? bin}</string></dict></dict></plist>\n`,
+      );
+      return spawnSync("bash", ["-c", `source ${LIB}; ug_trusted_daemon "$1"`, "_", file], { encoding: "utf8" });
+    };
+
+    const fine = await check({ user: me });
+    assert.equal(fine.status, 0, fine.stdout + fine.stderr);
+
+    const writable = await check({ user: me, path: `/usr/bin:${open}` });
+    assert.equal(writable.status, 1);
+    assert.match(writable.stdout, new RegExp(`runs as ${me} and uses ${open}, but ${open} has mode 775`));
+
+    const inWritable = await check({ user: me, program: join(open, "tool") });
+    assert.equal(inWritable.status, 1, "a program in a folder that others can write can be swapped");
+    assert.match(inWritable.stdout, /open has mode 775/);
+
+    const link = await check({ user: me, program: join(dir, "link") });
+    assert.equal(link.status, 1);
+    assert.match(link.stdout, /link is a link/);
+
+    const relative = await check({ user: me, path: "bin:/usr/bin" });
+    assert.equal(relative.status, 1);
+    assert.match(relative.stdout, /bin is not an absolute path/);
+
+    if (me !== "root") {
+      const other = await check({});
+      assert.equal(other.status, 1, "a service with no UserName runs as root, which trusts only root's files");
+      assert.match(other.stdout, new RegExp(`runs as root and uses .* belongs to ${me}`));
+    }
+  },
+);
 
 test("the backup job runs once a day at 20:00, not at load, and logs in the data folder", async () => {
   const text = await readFile(join(DIR, "com.underground.backup.plist"), "utf8");

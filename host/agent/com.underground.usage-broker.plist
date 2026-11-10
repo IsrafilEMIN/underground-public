@@ -8,7 +8,7 @@
   <string>ugauth</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/opt/homebrew/bin/node</string>
+    <string>@OMP@</string>
     <string>/Library/Underground/usage-broker/usage-broker.ts</string>
   </array>
   <key>WorkingDirectory</key>
@@ -26,7 +26,9 @@
     <key>HOME</key>
     <string>/Users/ugauth</string>
     <key>PATH</key>
-    <string>/opt/homebrew/bin:/usr/bin:/bin</string>
+    <string>/usr/bin:/bin</string>
+    <key>BUN_BE_BUN</key>
+    <string>1</string>
   </dict>
 </dict>
 </plist>

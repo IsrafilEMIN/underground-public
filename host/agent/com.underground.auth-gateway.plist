@@ -28,7 +28,7 @@
     <key>HOME</key>
     <string>/Users/ugauth</string>
     <key>PATH</key>
-    <string>/opt/homebrew/bin:/usr/bin:/bin</string>
+    <string>/usr/bin:/bin</string>
     <key>OMP_AUTH_BROKER_URL</key>
     <string>http://127.0.0.1:8765</string>
     <key>LM_STUDIO_BASE_URL</key>
