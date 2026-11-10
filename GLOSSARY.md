@@ -51,7 +51,7 @@ omp's default root, `~/.omp`. For the agent user it is `.omp` in the agent home.
 _Avoid_: role home, profile, owner part
 
 **Config repo**:
-The owner's private repo of agent configs, in the owner's home, named by the first line of `config-repo` in the data folder (`config-repo`, `host/bin/ug-agent-setup`). It holds `AGENTS.md`, skills, hooks, `config.yml`, `models.yml` with the gateway markers, and other settings, laid out like omp's `~/.omp/agent`. It holds what the agent does inside the walls; underground holds the walls. It holds no secret: `ug-agent-setup` refuses a link, a special file, or a token in it (`vet_item`, `host/bin/ug-agent-setup`). Setup stages its last commit into the root folder (`stage_config`, `host/bin/ug-agent-setup`). The owner's local folder is the source of truth. GitHub keeps a private backup.
+The owner's private repo of agent configs, in the owner's home, named by the first line of `config-repo` in the data folder (`config-repo`, `host/bin/ug-agent-setup`). It holds skills, hooks, `AGENTS.md`, `config.yml`, `models.yml` with the gateway markers, and other settings, laid out like omp's `~/.omp/agent`. It holds what the agent does inside the walls; underground holds the walls. It holds no secret: `ug-agent-setup` refuses a link, a special file, or a token in it (`vet_item`, `host/bin/ug-agent-setup`). Setup stages its last commit into the root folder (`stage_config`, `host/bin/ug-agent-setup`). The owner's local folder is the source of truth. GitHub keeps a private backup.
 _Avoid_: dotfiles, role config
 
 **Skill repo**:
@@ -65,15 +65,15 @@ A version and a SHA-256 in `VERSIONS`. Setup downloads the pinned omp, checks it
 _Avoid_: lock, current version
 
 **Vanilla omp**:
-An omp that the owner starts by its full path, outside any session. It finds no login and no bearer, because the login user owns both. It still finds the keyless built-in providers (`apple`, and a local `lm-studio`, `ollama`, or `llama.cpp` server), unless `~/.omp/agent/config.yml` turns them off (`docs/adr/0018-login-user.md`, "Not covered").
+An omp that the owner starts by its full path, outside any session. It finds no login and no bearer, because the login user owns both. It still finds the keyless built-in providers (`apple`, and a local `lm-studio`, `ollama`, or `llama.cpp` server), unless `~/.omp/agent/config.yml` turns them off (`docs/adr/0018-login-user.md`, "Not covered, accepted by name").
 _Avoid_: raw omp, plain omp, unwrapped session
 
 **ug-auth**:
-The owner's command for the auth services. `ug-auth login <provider>` runs the OAuth login of a provider. `ug-auth key ANTHROPIC_API_KEY` stores an API key: the login user's shell reads it hidden from the terminal and hands it to `omp auth-broker migrate --from-local --include-env` in its environment, so the key is in no argument, file, or shell history (`UG_KEY_NAME`, `host/bin/ug-auth`). `ug-auth list` shows each active credential of the auth broker, with its id, provider, type, and account. An API key shows only its first and last characters. `ug-auth revoke <id>` turns off that one credential (`docs/adr/0005-model-auth-gateway.md`, amendments 2026-11-09). Any other command runs the agent home omp binary as the login user through `sudo` (`host/bin/ug-auth`).
+The owner's command for the auth services. `ug-auth login <provider>` runs the OAuth login of a provider. `ug-auth key ANTHROPIC_API_KEY` stores an API key: the login user's shell reads it hidden from the terminal and hands it to `omp auth-broker migrate --from-local --include-env` in its environment, so the key is in no argument, file, or shell history (`UG_KEY_NAME`, `host/bin/ug-auth`). `ug-auth list` shows each active credential of the auth broker, with its id, provider, type, and account. An API key shows only its first and last characters. `ug-auth revoke <id>` turns off that one credential (`docs/adr/0005-model-auth-gateway.md`, "Amendment 2026-11-09: turn off one credential"). Any other command runs the agent home omp binary as the login user through `sudo` (`host/bin/ug-auth`).
 _Avoid_: vanilla omp, admin omp
 
 **Agent home backup**:
-The daily restic snapshot of the agent home. It goes to one repo on the owner's other machine. The tar stream is read through the root helper `agent-home-tar` (`host/agent/agent-home-tar`), and the job is in `host/services`. Settings are in `~/.local/share/underground/backup/config` (`host/bin/ug-backup`). The repo keeps every snapshot, so harm to the home can be undone (`docs/SPEC.md`, B10).
+The daily restic snapshot of the agent home. It goes to one repo on the owner's other machine. The tar stream is read through the root helper `agent-home-tar` (`host/agent/agent-home-tar`), and the job is in `host/services`. Settings are in `~/.local/share/underground/backup/config` (`host/bin/ug-backup`). The repo keeps every snapshot, so harm to the home can be undone (`docs/SPEC.md`, "Backup").
 _Avoid_: archive, sync, Time Machine
 
 **Setup**:
@@ -81,7 +81,7 @@ The host script that does what `git pull` cannot. It downloads the pinned omp an
 _Avoid_: install, installer, bootstrap
 
 **Crossing**:
-A way into or out of the agent's sessions: code out, model calls, `/usage`, web out, config in, repos in, unix sockets, localhost, and merge effects. Each crossing has one control (`docs/PRODUCT-BRIEF.md`, principle 4).
+A way into or out of the agent's sessions: code out, model calls, `/usage`, web out, config in, repos in, unix sockets, localhost, and merge effects. Each crossing has one control [inference: a principle of an earlier brief, not in the current one].
 _Avoid_: hole, exception, bypass
 
 ### GitHub and the merge
@@ -119,7 +119,7 @@ The commit that the gh-broker last pushed to one branch of one repo. A later pus
 _Avoid_: push log, provenance record
 
 **gh-broker app**:
-The GitHub App that the gh-broker acts as. The owner's personal account owns it. It is installed only on the selected repos, with Contents and Pull requests read and write, Metadata, Checks, and Commit statuses read, and no Workflows or Administration permission. Its private key is `github-app.pem` in the data folder, with `github-app.json` beside it (`appFiles`, `host/gh-broker/github-app.ts`; `docs/SPEC.md`, B7). GitHub shows the gh-broker's actions as `<app slug>[bot]` (`docs/adr/0007-gh-broker-github-app.md`).
+The GitHub App that the gh-broker acts as. The owner's personal account owns it. It is installed only on the selected repos, with Contents and Pull requests read and write, Metadata, Checks, and Commit statuses read, and no Workflows or Administration permission. Its private key is `github-app.pem` in the data folder, with `github-app.json` beside it (`appFiles`, `host/gh-broker/github-app.ts`). GitHub shows the gh-broker's actions as `<app slug>[bot]` (`docs/adr/0007-gh-broker-github-app.md`).
 _Avoid_: bot account, bot token, gh-broker token, machine user, service account
 
 **Installation token**:
@@ -153,7 +153,7 @@ A provider in a session's `models.yml`, with `transport: pi-native`, `baseUrl` s
 _Avoid_: proxy provider
 
 **Inference engine**:
-The model server on another machine on the tailnet, at the `engine=` line of the addresses file. It needs an API key, which the auth broker holds under omp's built-in `lm-studio` provider. Sessions reach it only through the auth gateway (`docs/adr/0005-model-auth-gateway.md`, amendment 2026-11-01).
+The model server on another machine on the tailnet, at the `engine=` line of the addresses file. It needs an API key, which the auth broker holds under omp's built-in `lm-studio` provider. Sessions reach it only through the auth gateway (`docs/adr/0005-model-auth-gateway.md`, "Amendment 2026-11-01: the inference engine behind the gateway").
 _Avoid_: local model, llama
 
 **Addresses file**:
@@ -179,7 +179,7 @@ The one direction that every decision follows, in `AGENTS.md` and `docs/PRODUCT-
 _Avoid_: vision, goal, mission
 
 **Ready ticket**:
-A user story or ticket that the specs and ADRs have broken down into the smallest unit of work, with no design decision left in it. Only a ready ticket goes to the agent to do on its own (`docs/PRODUCT-BRIEF.md`, "Two ways of working").
+A user story or ticket that the specs and ADRs have broken down into the smallest unit of work, with no design decision left in it. Only a ready ticket goes to the agent to do on its own (`docs/PRODUCT-BRIEF.md`, "User and scope").
 _Avoid_: task, job, issue
 
 **Gate**:

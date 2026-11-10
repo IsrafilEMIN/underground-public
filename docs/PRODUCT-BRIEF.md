@@ -52,7 +52,7 @@ Before each decision, the agent and the owner ask: does this bring us closer to 
 
 ## The mechanisms
 
-**Agent user** (`docs/adr/0016-agent-user.md`). The agent is a standard, hidden macOS user of its own (the `agent_user` fact, `host/facts`). It starts through a login of its own, never from the owner's terminal, so it shares no clipboard, screen, or desktop session with the owner. A sandbox profile (`host/agent/pin.sb`) holds its writes to its own home. The owner's home is closed to it by file rights. Handles H1. Accepted by name: the agent reads the command lines of the owner's processes, so the rule is "no secret on a command line" (`docs/adr/0021-github-holds-the-wall-on-main.md`, amendment 2026-11-10, item 2); the pin is a wall for file paths only (same amendment, item 3); the agent reads world-readable files outside the homes (`docs/adr/0024-state-over-incident-lists.md`, decision 3).
+**Agent user** (`docs/adr/0016-agent-user.md`). The agent is a standard, hidden macOS user of its own (the `agent_user` fact, `host/facts`). It starts through a login of its own, never from the owner's terminal, so it shares no clipboard, screen, or desktop session with the owner. A sandbox profile (`host/agent/pin.sb`) holds its writes to its own home. The owner's home is closed to it by file rights. Handles H1. Accepted by name: the agent reads the command lines of the owner's processes, so the rule is "no secret on a command line" (`docs/adr/0021-github-holds-the-wall-on-main.md`, "Amendment 2026-11-10: the rule against the other controls", item 2); the pin is a wall for file paths only (same amendment, item 3); the agent reads world-readable files outside the homes (`docs/adr/0024-state-over-incident-lists.md`, "Decision", item 3).
 
 **Login user** (`docs/adr/0018-login-user.md`). A second hidden user (`auth_user`, `host/facts`) owns the model logins and the tokens in a home the owner's user cannot read. The login services run as it. The owner cannot run the pinned omp and cannot read the gateway bearer. Handles H1, H6. Accepted by name: the owner through sudo reaches everything; the owner cannot stop it on purpose.
 
@@ -62,7 +62,7 @@ Before each decision, the agent and the owner ask: does this bring us closer to 
 
 **GitHub ruleset on main** (`docs/adr/0021-github-holds-the-wall-on-main.md`). On underground, GitHub refuses every merge to `main` without the owner's approval; a push after an approval needs a new one. Setup checks the rule before it pulls. Handles H2. Accepted by name: the merge gate on the other repos is a quality helper, not a wall; the wall there is onboarding check 5 (amendment 2026-11-10, item 1).
 
-**Backup** (`docs/adr/0016-agent-user.md`, Step 4). Once a day a restic snapshot of the agent's home goes to a repo on the owner's other machine, which the agent cannot reach. Every snapshot stays. Handles H4. Accepted: harm to work written since the last run. The agent's home path (`agent_home`, `host/facts`) stays the same in every design, for now (owner decision, 2026-11-10). omp saves full paths in its sessions and history (`rewriteSessionText` and `rewriteHistory`, `host/agent/migrate-paths.ts`), so a snapshot restores cleanly only to the path it came from. The one move so far, from the box's home, needs `host/agent/migrate-paths.ts`.
+**Backup** (`docs/adr/0016-agent-user.md`, "Step 4 (2026-11-08): the switch"). Once a day a restic snapshot of the agent's home goes to a repo on the owner's other machine, which the agent cannot reach. Every snapshot stays. Handles H4. Accepted: harm to work written since the last run. The agent's home path (`agent_home`, `host/facts`) stays the same in every design, for now (owner decision, 2026-11-10). omp saves full paths in its sessions and history (`rewriteSessionText` and `rewriteHistory`, `host/agent/migrate-paths.ts`), so a snapshot restores cleanly only to the path it came from. The one move so far, from the box's home, needs `host/agent/migrate-paths.ts`.
 
 **Failures reach the owner** (`docs/adr/0023-failures-reach-the-owner.md`). Each job leaves a record that only its own user or root can write. The watch reads the records, asks the services, writes a status the launcher prints, and pings a check outside the mac that alerts when the pings stop. Handles H3.
 
@@ -70,9 +70,9 @@ Before each decision, the agent and the owner ask: does this bring us closer to 
 
 **Data out** (`docs/adr/0001-accepted-risks.md`). There is no network wall: the agent reaches every site, the LAN, and the tailnet (owner decision, `docs/adr/0016-agent-user.md`). Accepted by name while the repos are public. H5.
 
-**Spend through the bearer** (`docs/adr/0021-github-holds-the-wall-on-main.md`, amendment 2026-11-10, item 4). The gateway bearer is not a control: the agent reads it and can send it anywhere. Accepted: calls and spend through it, up to the cap the owner sets at each provider; nothing in this repo checks that a cap is set. H6.
+**Spend through the bearer** (`docs/adr/0021-github-holds-the-wall-on-main.md`, "Amendment 2026-11-10: the rule against the other controls", item 4). The gateway bearer is not a control: the agent reads it and can send it anywhere. Accepted: calls and spend through it, up to the cap the owner sets at each provider; nothing in this repo checks that a cap is set. H6.
 
-**Disk** (`docs/adr/0016-agent-user.md`, Open). No cap on the agent's home, by owner decision, 2026-11-08: not needed. H7.
+**Disk** (`docs/adr/0016-agent-user.md`, "Open"). No cap on the agent's home, by owner decision, 2026-11-08: not needed. H7.
 
 ## In redesign
 

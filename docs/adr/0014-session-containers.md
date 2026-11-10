@@ -20,9 +20,9 @@ So the two jobs go to two layers.
 
 ## Decision (proposed)
 
-- **The wall: one long-running VM.** Apple `container`, `--network none`, one kernel (`0013-agent-box.md`, Evidence). It runs while sessions run and restarts from the pinned image when the image changes. Every session runs on its kernel, so omp's SQLite files and session locks work as omp expects.
+- **The wall: one long-running VM.** Apple `container`, `--network none`, one kernel (`0013-agent-box.md`, "Evidence"). It runs while sessions run and restarts from the pinned image when the image changes. Every session runs on its kernel, so omp's SQLite files and session locks work as omp expects.
 - **A throwaway Linux container per session, inside the VM.** It shares the VM's kernel and has its own mounts and processes. It can write its own worktree and its own session folder. It reads the config layer and the other sessions' transcripts and attachments read-only, and it cannot see the other sessions' worktrees or processes. Which of omp's other files it shares with other sessions is open (Open, the state layer). When the session ends, its container goes.
-- **Its own network namespace and relay.** Each session container has its own loopback and its own relay to the egress socket, so sessions cannot reach each other's local ports. With one shared namespace, a session that held `127.0.0.1:3847` would serve omp's `/stats` page to the others (`0004-no-local-binding.md`, amendment "loopback allowed").
+- **Its own network namespace and relay.** Each session container has its own loopback and its own relay to the egress socket, so sessions cannot reach each other's local ports. With one shared namespace, a session that held `127.0.0.1:3847` would serve omp's `/stats` page to the others (`0004-no-local-binding.md`, "Amendment 2026-10-31: loopback allowed").
 - **The session runtime is bubblewrap** (owner decision, 2026-11-07), run as `bwrap --unshare-user --uid 1000 --gid 1000 --cap-drop ALL` with its own network and process namespaces. The box runs with `--masked-path NONE --read-only-path NONE`, which bubblewrap needs for a session's own `/proc`; both flags are experimental in `container` 1.7.1, so the start checks for them like `--network none` (Evidence).
 - **Image layer, read-only.** The pinned Linux base and the Linux omp, rebuilt only when a pin changes.
 - **Config layer, read-only.** The owner's agent-config repo, in the places where omp already looks for each item. Nothing is copied into the box or reset at a start.
@@ -52,14 +52,14 @@ So the two jobs go to two layers.
 
 ## Open
 
-- Decided 2026-11-07 (owner, `0015-box-layout.md`): sessions do not get their own containers. They are one trust level and share every door, so the split stops no irreversible harm. Its costs, a shared loopback and code planted in the home that loads until a rebuild, are listed in `0015-box-layout.md`, Cost.
+- Decided 2026-11-07 (owner, `0015-box-layout.md`): sessions do not get their own containers. They are one trust level and share every door, so the split stops no irreversible harm. Its costs, a shared loopback and code planted in the home that loads until a rebuild, are listed in `0015-box-layout.md`, "Cost".
 - Closed 2026-11-07: the shared state layer and the first-session start rule. With one home, omp keeps its data where it puts it (`0015-box-layout.md`). The Evidence on omp's data folder still bears on what a rebuild carries over.
 - Closed 2026-11-07: the failure cases of the session container and its write folder. The crash cases of the box are in `0015-box-layout.md`. Still open from that list: a session that fills the box's disk (U22).
 - The state volume: a container volume, which is an ext4 disk image inside the VM (`docs/volumes.md`, 1.7.1), keeps SQLite's locks plain Linux locks; a folder shared from the mac is untested for them. The backup then needs a way to read the volume.
 - The config layer mechanism: rules and skills mounted read-only where omp reads them, and settings through omp's read-only settings layer (`PI_CONFIG_FILES`), which ranks above the global `config.yml` (omp `docs/settings.md`, "Layers", read 2026-11-07). `0011-one-agent-arena.md` rejected `PI_CONFIG_FILES` as a workaround for a shared home; using it here as omp's own read-only layer reverses that line of 0011 and needs the owner's decision.
 - The image: base image and which Linux omp build. v18.13.2 ships `omp-linux-arm64` and `omp-linux-musl-arm64` (release assets, read 2026-11-07); which libc the plain build needs is not confirmed. Also what the image carries for omp features such as the browser tool.
 - Whether the auth broker and the usage broker move to the tailscale address (`0013-agent-box.md`, "Host services on tailscale first"). The usage broker checks no caller token (`createUsageBroker`, `host/gh-broker/usage-broker.ts`), so on the tailnet any device could read usage.
-- The gh-broker door (deferred by the owner) and how a session starts. Where the host code runs from (N2) is decided in `0015-box-layout.md`.
+- The gh-broker door (deferred by the owner) and how a session starts. Where the host code runs from is decided in `0015-box-layout.md`, "The mac runs an installed copy of underground".
 
 ## Rejected
 

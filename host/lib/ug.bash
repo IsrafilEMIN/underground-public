@@ -226,7 +226,7 @@ ug_check_main_rule() {
     [[ -n $gaps ]] || { ug_say same "main rule" "GitHub merges to main of $repo only with the approval of @$login (ruleset $id)"; return 0; }
     report+=" Ruleset $id: $gaps."
   done
-  printf '%s no active ruleset of %s makes main need your approval.%s Fix it in the repo settings under Rules (docs/SPEC.md, onboarding check 6).\n' "$open" "$repo" "${report:- It has no active branch ruleset.}" >&2
+  printf '%s no active ruleset of %s makes main need your approval.%s Fix it in the repo settings under Rules (docs/SPEC.md, "Onboarding checks", item 6).\n' "$open" "$repo" "${report:- It has no active branch ruleset.}" >&2
   return 1
 }
 
