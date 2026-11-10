@@ -46,17 +46,17 @@ ug_fact() {
 ug_services_file=${BASH_SOURCE[0]%/*}/../services
 
 ug_services() {
-  local want=${1:-} label name scope user template health log inputs agent_input
-  while IFS='|' read -r label name scope user template health log inputs agent_input || [[ -n $label ]]; do
+  local want=${1:-} label name scope user template health log inputs agent_input follows
+  while IFS='|' read -r label name scope user template health log inputs agent_input follows || [[ -n $label ]]; do
     [[ -n $label && $label != \#* ]] || continue
     [[ -z $want || $scope == "$want" ]] || continue
-    printf '%s|%s|%s|%s|%s|%s|%s|%s|%s\n' "$label" "$name" "$scope" "$user" "$template" "$health" "$log" "$inputs" "$agent_input"
+    printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\n' "$label" "$name" "$scope" "$user" "$template" "$health" "$log" "$inputs" "$agent_input" "$follows"
   done <"$ug_services_file"
 }
 
 ug_service_field() {
-  local want=$1 field=$2 label name scope user template health log inputs agent_input
-  while IFS='|' read -r label name scope user template health log inputs agent_input || [[ -n $label ]]; do
+  local want=$1 field=$2 label name scope user template health log inputs agent_input follows
+  while IFS='|' read -r label name scope user template health log inputs agent_input follows || [[ -n $label ]]; do
     [[ -n $label && $label != \#* ]] || continue
     [[ $label == "$want" || $name == "$want" ]] || continue
     case $field in
@@ -69,6 +69,7 @@ ug_service_field() {
       log) printf '%s\n' "$log" ;;
       inputs) printf '%s\n' "$inputs" ;;
       agent_input) printf '%s\n' "$agent_input" ;;
+      follows) printf '%s\n' "$follows" ;;
       *) printf 'ug_service_field: no field %s\n' "$field" >&2; return 1 ;;
     esac
     return 0
@@ -88,11 +89,42 @@ ug_service_allowed() {
 }
 
 ug_services_allowed() {
-  local label name scope user template health log inputs agent_input bad=0
-  while IFS='|' read -r label name scope user template health log inputs agent_input; do
+  local label name scope user template health log inputs agent_input follows bad=0
+  while IFS='|' read -r label name scope user template health log inputs agent_input follows; do
     ug_service_allowed "$label" "$user" "$agent_input" || bad=1
   done < <(ug_services)
   return "$bad"
+}
+
+ug_service_login() {
+  if [[ $1 == root ]]; then printf 'root\n'; else ug_fact "$1"; fi
+}
+
+ug_service_probe() {
+  local scope=$1 label=$2 health kind target domain agent
+  health=$(ug_service_expand "$3") || { printf 'cannot expand the health of %s\n' "$label"; return 1; }
+  kind=${health%% *}
+  target=${health#* }
+  domain=system
+  [[ $scope == daemon ]] || domain=gui/$UID
+  ug_probe=()
+  ug_probe_subject="service $label"
+  ug_probe_hint="sudo launchctl print $domain/$label"
+  [[ $scope == daemon ]] || ug_probe_hint="launchctl print $domain/$label"
+  case $scope:$kind in
+    *:http) ug_probe=(ug_http_answers "$target") ;;
+    *:port) ug_probe=(ug_port_answers "${target%:*}" "${target##*:}") ;;
+    *:launchd) ug_probe=(launchctl print "$domain/$label") ;;
+    agent:none) ug_probe=(true) ;;
+    daemon:socket) ug_probe=(ug_socket_answers "$target") ;;
+    daemon:pf)
+      agent=$(ug_fact agent_user) || return 1
+      ug_probe=(ug_pf_refuses_listener "$(id -u "$agent")" "$target")
+      ug_probe_subject="firewall: $agent cannot be the listener on port $target"
+      ug_probe_hint="sudo pfctl -a com.apple/underground -sr"
+      ;;
+    *) printf 'the service table gives %s the health kind %s, which a job of scope %s cannot use\n' "$label" "$kind" "$scope"; return 1 ;;
+  esac
 }
 
 ug_service_runs_as() {

@@ -94,6 +94,34 @@ test("setup refuses a job of the owner or root that reads agent input without a 
   assert.match(allowed("owner", "socket").stdout, /runs as owner and reads socket that the agent makes/);
 });
 
+test("a job follows only a daemon on a line above it, so root setup has restarted that daemon before it reaches the job", () => {
+  ROWS.forEach((row, i) => {
+    if (row.follows === "") return;
+    assert.equal(row.scope, "daemon", `${row.label} follows ${row.follows}, but only a daemon can follow`);
+    const before = ROWS.slice(0, i).filter((r) => r.scope === "daemon").map((r) => r.label);
+    assert.ok(before.includes(row.follows), `${row.label} follows ${row.follows}, which is not a daemon above it`);
+  });
+});
+
+test("setup checks each health kind only in the scope that can run it", () => {
+  const probe = (scope: string, health: string) =>
+    spawnSync("bash", ["-c", `source ${LIB}; ug_service_probe "$1" com.underground.x "$2" && printf '%s|' "\${ug_probe[@]}"`, "_", scope, health], { encoding: "utf8" });
+  for (const [scope, health, status] of [
+    ["agent", "launchd", 0],
+    ["agent", "none", 0],
+    ["agent", "socket /tmp/s", 1],
+    ["agent", "pf 1", 1],
+    ["daemon", "none", 1],
+    ["daemon", "socket /tmp/s", 0],
+    ["daemon", "nonsense", 1],
+  ] as const) {
+    assert.equal(probe(scope, health).status, status, `${scope} ${health}`);
+  }
+  assert.equal(probe("agent", "launchd").stdout, `launchctl|print|gui/${process.getuid?.()}/com.underground.x|`);
+  assert.equal(probe("daemon", "launchd").stdout, "launchctl|print|system/com.underground.x|");
+  assert.equal(probe("daemon", "port 127.0.0.1:@AGENT_SSHD_PORT@").stdout.split("|")[0], "ug_port_answers");
+});
+
 test("the login services run as the login user from root-owned code, with no profile or config dir that the owner's omp could share", async () => {
   const args = async (label: string) => programArguments(await readFile(join(AGENT_DIR, `${label}.plist`), "utf8"));
   assert.deepEqual((await args("com.underground.auth-broker")).slice(0, 3), ["@OMP@", "auth-broker", "serve"]);

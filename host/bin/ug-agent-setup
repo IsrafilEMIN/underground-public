@@ -367,46 +367,35 @@ stage_config
 /usr/sbin/sshd -t -f "$code/sshd_config" || ug_die ug-agent-setup "sshd rejects $code/sshd_config; nothing was loaded"
 
 start_services() {
-  local label name scope user template health log tokens agent_input kind target rendered out fp resolved subject logline broker_out="" file want key
-  local -a inputs answers
+  local label name scope user template health log tokens agent_input follows rendered out fp resolved logline seen=" " restarted=" " file want key
+  local -a inputs
   install -d -m 700 -o root -g wheel "$root/state"
   export UG_DATA="$data" UG_OMP_SHA="$omp_bin.sha256"
-  while IFS='|' read -r label name scope user template health log tokens agent_input; do
+  while IFS='|' read -r label name scope user template health log tokens agent_input follows; do
     render "$template" -e "s|@OMP@|$omp_bin|g" -e "s|@GH@|$gh_bin|g" -e "s|@GATEWAY@|$gateway|g" -e "s|@ENGINE@|$engine|g"
     rendered=$rendered_dir/${template##*/}
     out=$(ug_trusted_daemon "$rendered") || ug_die ug-agent-setup "a wall is open in the service $label: $out, so a user with fewer rights could change what it runs"
-    want=root
-    [[ $user == root ]] || want=$(ug_fact "$user")
+    want=$(ug_service_login "$user") || ug_die ug-agent-setup "the service table gives $label the user $user, which is not root or a key of host/facts"
     for key in StandardOutPath StandardErrorPath; do
       file=$(plutil -extract "$key" raw -o - "$rendered" 2>/dev/null) || continue
       [[ -e $file ]] || install -m 600 -o "$want" /dev/null "$file"
     done
-    health=$(ug_service_expand "$health") || ug_die ug-agent-setup "cannot expand the health of $label"
-    kind=${health%% *}
-    target=${health#* }
-    case $kind in
-      http) answers=(ug_http_answers "$target") ;;
-      port) answers=(ug_port_answers "${target%:*}" "${target##*:}") ;;
-      socket) answers=(ug_socket_answers "$target") ;;
-      launchd) answers=(launchctl print "system/$label") ;;
-      pf) answers=(ug_pf_refuses_listener "$(id -u "$agent_user")" "$(ug_fact auth_broker_port)") ;;
-      *) ug_die ug-agent-setup "the service table gives $label the health kind $kind, which a daemon cannot use" ;;
-    esac
+    ug_service_probe daemon "$label" "$health" || ug_die ug-agent-setup "setup cannot check $label; nothing changed for it"
     resolved=$(ug_service_inputs "$tokens") || ug_die ug-agent-setup "cannot expand the inputs of $label"
     inputs=()
     while IFS= read -r file; do [[ -n $file ]] && inputs+=("$file"); done <<<"$resolved"
-    [[ $name != "auth gateway" || $broker_out != restarted* ]] || rm -f "$root/state/$label.fingerprint"
+    if [[ -n $follows ]]; then
+      [[ $seen == *" $follows "* ]] || ug_die ug-agent-setup "the service table makes $label follow $follows, which is not a daemon on a line above it"
+      [[ $restarted != *" $follows "* ]] || rm -f "$root/state/$label.fingerprint"
+    fi
     fp=$(ug_fingerprint "$rendered" ${inputs[@]+"${inputs[@]}"}) || ug_die ug-agent-setup "cannot read the inputs of $label: ${inputs[*]}"
     logline=""
     [[ -z $log ]] || logline="; read $(ug_service_expand "$log")"
-    out=$(ug_ensure_service system "$label" "$rendered" "/Library/LaunchDaemons/$label.plist" "$root/state/$label.fingerprint" "$fp" "${answers[@]}") || {
-      [[ $name != "agent pf" ]] || ug_die ug-agent-setup "agent firewall rule: $out; check it with: sudo pfctl -a com.apple/underground -sr"
-      ug_die ug-agent-setup "$label: $out; check it with: sudo launchctl print system/$label$logline"
-    }
-    [[ $name != "auth broker" ]] || broker_out=$out
-    subject="service $label"
-    [[ $name != "agent pf" ]] || subject="firewall: $agent_user cannot be the listener on the auth broker's port $(ug_fact auth_broker_port)"
-    ug_say "$(ug_service_kind "$out")" "$subject" "$out"
+    out=$(ug_ensure_service system "$label" "$rendered" "/Library/LaunchDaemons/$label.plist" "$root/state/$label.fingerprint" "$fp" "${ug_probe[@]}") ||
+      ug_die ug-agent-setup "$label: $out; check it with: $ug_probe_hint$logline"
+    seen+="$label "
+    [[ $out != restarted* ]] || restarted+="$label "
+    ug_say "$(ug_service_kind "$out")" "$ug_probe_subject" "$out"
     out=$(ug_service_runs_as "$label" "$want") || ug_die ug-agent-setup "$out; the service table says $user"
   done < <(ug_services daemon)
   ug_say ok "daemons" "each runs as the user in host/services: the logins as $auth_user, the gh-broker as $broker_user"
