@@ -11,10 +11,13 @@ const JOB = join(import.meta.dirname, "../../host/bin/ug-watch");
 const PING = "https://hc-ping.example/uuid";
 
 const FAKE_CURL = `#!/bin/sh
-printf '%s\\n' "$*" >>"$HOME/curl"
-case "$*" in *--data-binary*) cat >>"$HOME/curl-body" ;; esac
-case "$*" in *hc-ping*) exit 0 ;; *healthz*) ;; *) exit 22 ;; esac
-case "$*" in *:18765*) [ ! -e "$HOME/usage-down" ] ;; *:4000*) [ ! -e "$HOME/gateway-down" ] ;; *) exit 0 ;; esac
+printf '%s\\n' "$*" >>"$HOME/curl-argv"
+line="$*" prev=
+for a in "$@"; do [ "$prev" = -K ] && line="$line $(sed -n 's/^url = "\\(.*\\)"$/\\1/p' "$a")"; prev=$a; done
+printf '%s\\n' "$line" >>"$HOME/curl"
+case "$line" in *--data-binary*) cat >>"$HOME/curl-body" ;; esac
+case "$line" in *hc-ping*) exit 0 ;; *healthz*) ;; *) exit 22 ;; esac
+case "$line" in *:18765*) [ ! -e "$HOME/usage-down" ] ;; *:4000*) [ ! -e "$HOME/gateway-down" ] ;; *) exit 0 ;; esac
 `;
 
 const FAKE_NC = `#!/bin/sh
@@ -79,6 +82,7 @@ test("ug-watch with every job healthy writes a status with no problem and pings 
   assert.equal(sent.length, 1, sent.join("\n"));
   assert.ok(sent[0].endsWith(PING), sent[0]);
   assert.equal(r.stderr, "");
+  assert.doesNotMatch(await readFile(join(o.home, "curl-argv"), "utf8"), /hc-ping/, "the ping address never reaches curl's command line");
 });
 
 test("ug-watch reports each problem that is still there on the second look, and sends only the job names to the outside check", async (t) => {
@@ -105,6 +109,7 @@ test("ug-watch reports each problem that is still there on the second look, and 
   assert.equal(body, "gh-broker\nbackup\nauth gateway\nusage broker\n");
   assert.doesNotMatch(body, /\/Users\/|\/var\/|\d+\.\d+\.\d+\.\d+|secret-repo/, "no path, address, or repo leaves the mac");
   assert.doesNotMatch(r.stderr, /hc-ping/, "the log never holds the secret ping address");
+  assert.doesNotMatch(await readFile(join(o.home, "curl-argv"), "utf8"), /hc-ping/, "the ping address never reaches curl's command line");
 });
 
 test("ug-watch names the repos whose last gh-broker refresh failed", async (t) => {

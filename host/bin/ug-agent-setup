@@ -67,7 +67,7 @@ next_uid() {
 }
 
 make_user() {
-  local name=$1 real=$2 shell=$3 home=$4 uid pw
+  local name=$1 real=$2 shell=$3 home=$4 uid pw out
   if dscl . -read "/Users/$name" UniqueID >/dev/null 2>&1; then
     ug_say same "user $name" "exists"
   else
@@ -78,8 +78,9 @@ make_user() {
     dscl . -create "/Users/$name" PrimaryGroupID 20
     dscl . -create "/Users/$name" RealName "$real"
     dscl . -create "/Users/$name" NFSHomeDirectory "$home"
-    dscl . -passwd "/Users/$name" "$pw"
+    out=$(printf 'passwd /Users/%s %s\n' "$name" "$pw" | dscl . 2>&1)
     unset pw
+    [[ $out != *Error* && $out != *Invalid* ]] || ug_die ug-agent-setup "dscl could not set a password for $name: ${out//$'\n'/; }"
     ug_say changed "user $name" "created, uid $uid, random password never shown"
   fi
   dscl . -create "/Users/$name" UserShell "$shell"
