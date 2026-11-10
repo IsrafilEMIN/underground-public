@@ -96,14 +96,22 @@ ug_services_allowed() {
 }
 
 ug_service_runs_as() {
-  local label=$1 want=$2 out have pid
+  local label=$1 want=$2 out have pid plist daemons=${UG_LAUNCH_DAEMONS:-/Library/LaunchDaemons}
   out=$(launchctl print "system/$label" 2>/dev/null) || { printf 'launchd has no job system/%s\n' "$label"; return 1; }
   have=$(sed -n 's/^[[:space:]]*username = //p' <<<"$out" | head -n 1)
   if [[ -z $have ]]; then
     pid=$(sed -n 's/^[[:space:]]*pid = \([0-9][0-9]*\)$/\1/p' <<<"$out" | head -n 1)
-    [[ -n $pid ]] || return 0
-    have=$(ps -o user= -p "$pid" 2>/dev/null | tr -d ' ')
-    [[ -n $have ]] || return 0
+    if [[ -n $pid ]]; then
+      have=$(ps -o user= -p "$pid" 2>/dev/null | tr -d ' ')
+      [[ -n $have ]] || { printf 'cannot read the user of %s (pid %s)\n' "$label" "$pid"; return 1; }
+    else
+      plist=$daemons/$label.plist
+      if [[ ! -r $plist ]] || ! plutil -lint -s "$plist" >/dev/null 2>&1; then
+        printf 'cannot read the user of %s: no user name, no pid, and no readable %s\n' "$label" "$plist"
+        return 1
+      fi
+      have=$(plutil -extract UserName raw -o - "$plist" 2>/dev/null) || have=root
+    fi
   fi
   [[ $have == "$want" ]] || { printf 'launchd runs %s as %s, not %s\n' "$label" "$have" "$want"; return 1; }
 }

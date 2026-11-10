@@ -8,7 +8,7 @@ import { afterEach, beforeEach, test } from "node:test";
 import { MAX_REQUEST_BYTES } from "../../host/gh-broker/protocol.ts";
 import type { PushRecord, Reply } from "../../host/gh-broker/protocol.ts";
 import { readPushRecord } from "../../host/gh-broker/push-record.ts";
-import { refreshRepos, serveConnection } from "../../host/gh-broker/server.ts";
+import { refreshRepos, serveConnection, startServer, stopServer } from "../../host/gh-broker/server.ts";
 import type { ServerConfig } from "../../host/gh-broker/server.ts";
 import { FAKE_TOKEN, githubRemote, tokenRemote } from "./fake-app.ts";
 import { BRANCH, REAL_GIT, REPO, brokerConfig, bundleOf, commit, git, initRepo, remoteRef, request, seedMain } from "./fixture.ts";
@@ -311,16 +311,30 @@ test("each refresh tick writes its time and the repos that failed, also when no 
   const signal = new AbortController().signal;
   const status = () => readFile(config.statusFile, "utf8");
   await refreshRepos(config, signal);
-  assert.match(await status(), /^at=\d+\nfailed=\n$/);
+  assert.match(await status(), /^at=\d+\nfailed=\nsocket=ENOENT\n$/);
   assert.equal((await request(config, { verb: "sync" })).exit, 0);
   await refreshRepos(config, signal);
-  assert.match(await status(), /^at=\d+\nfailed=\n$/);
+  assert.match(await status(), /^at=\d+\nfailed=\nsocket=ENOENT\n$/);
   await writeFile(join(root, "not-a-dir"), "");
   config.reposRoot = join(root, "not-a-dir", "bare");
   await refreshRepos(config, signal);
-  assert.match(await status(), new RegExp(`^at=\\d+\\nfailed=${REPO}\\n$`));
+  assert.match(await status(), new RegExp(`^at=\\d+\\nfailed=${REPO}\\nsocket=ENOENT\\n$`));
   config.statusFile = join(root, "not-a-dir", "status");
   await refreshRepos(config, signal);
+});
+
+test("the refresh status checks the broker's own socket: ok while it listens, a reason while nothing does", async () => {
+  const signal = new AbortController().signal;
+  const socketOf = async (): Promise<string> => /socket=(.*)/.exec(await readFile(config.statusFile, "utf8"))?.[1] ?? "";
+  await refreshRepos(config, signal);
+  assert.equal(await socketOf(), "ENOENT");
+  const broker = await startServer(config);
+  try {
+    await refreshRepos(config, signal);
+    assert.equal(await socketOf(), "ok");
+  } finally {
+    await stopServer(broker);
+  }
 });
 
 test("push with an unreadable default branch pushes nothing and writes no push record", async () => {
@@ -450,7 +464,7 @@ test("a refresh whose branch delete fails keeps the branch and its record, and n
   await failGit("--force-with-lease");
 
   await refreshRepos(config, new AbortController().signal);
-  assert.match(await readFile(config.statusFile, "utf8"), new RegExp(`\\nfailed=${REPO}\\n$`));
+  assert.match(await readFile(config.statusFile, "utf8"), new RegExp(`\\nfailed=${REPO}\\nsocket=ENOENT\\n$`));
   assert.equal(remoteRef(remote, BRANCH), head);
   assert.deepEqual(await pushRecord(), { kind: "pushed", sha: head });
 });
@@ -461,7 +475,7 @@ test("a refresh whose bare repo cannot be created keeps the branch and its recor
   await failGit("init --bare");
 
   await refreshRepos(config, new AbortController().signal);
-  assert.match(await readFile(config.statusFile, "utf8"), new RegExp(`\\nfailed=${REPO}\\n$`));
+  assert.match(await readFile(config.statusFile, "utf8"), new RegExp(`\\nfailed=${REPO}\\nsocket=ENOENT\\n$`));
   assert.equal(remoteRef(remote, BRANCH), head);
   assert.deepEqual(await pushRecord(), { kind: "pushed", sha: head });
 });
@@ -474,7 +488,7 @@ test("a refresh whose push record cannot be dropped deletes the branch, keeps th
   } finally {
     await chmod(join(config.pushesDir, REPO), 0o700);
   }
-  assert.match(await readFile(config.statusFile, "utf8"), new RegExp(`\\nfailed=${REPO}\\n$`));
+  assert.match(await readFile(config.statusFile, "utf8"), new RegExp(`\\nfailed=${REPO}\\nsocket=ENOENT\\n$`));
   assert.equal(remoteRef(remote, BRANCH), "");
   assert.deepEqual(await pushRecord(), { kind: "pushed", sha: head });
 });

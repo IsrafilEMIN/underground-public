@@ -31,7 +31,7 @@ job_problem() {
 }
 
 problems() {
-  local now at failed label name scope user template health log inputs agent_input url target shown want
+  local now at failed label name scope user template health log inputs agent_input url target shown want runs sock
   now=$(date +%s)
   at=$(record_value "$broker_status" at)
   if [[ ! $at =~ ^[0-9]+$ ]] || (( now - 10#$at > broker_stale )); then
@@ -39,6 +39,8 @@ problems() {
   else
     failed=$(record_value "$broker_status" failed)
     [[ -z $failed ]] || printf 'gh-broker: the last refresh failed for %s; see sudo cat %s\n' "$failed" "$broker_log"
+    sock=$(record_value "$broker_status" socket)
+    [[ $sock == ok ]] || printf 'gh-broker: its socket did not answer its own check (%s); see sudo cat %s\n' "${sock:-no socket line}" "$broker_log"
   fi
   at=$(cat "$data/backup/last" 2>/dev/null)
   if [[ ! $at =~ ^[0-9]+$ ]] || (( now - 10#$at > backup_stale )); then
@@ -48,7 +50,7 @@ problems() {
     if [[ $scope == daemon ]]; then
       want=root
       [[ $user == root ]] || want=$(ug_fact "$user")
-      ug_service_runs_as "$label" "$want" >/dev/null || printf '%s: launchd does not run it as %s\n' "$name" "$want"
+      runs=$(ug_service_runs_as "$label" "$want") || printf '%s: %s\n' "$name" "$runs"
     fi
     case ${health%% *} in
       http)
@@ -67,7 +69,7 @@ problems() {
         target=$(ug_service_expand "${health#port }")
         ug_port_answers "${target%:*}" "${target##*:}" 2>/dev/null || printf '%s: no answer on port %s\n' "$name" "${target##*:}"
         ;;
-      launchd)
+      launchd|pf)
         target="system/$label"
         [[ $scope == agent ]] && target="gui/$UID/$label"
         job_problem "$target" "$name"

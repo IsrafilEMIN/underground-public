@@ -78,7 +78,7 @@ Setup builds `code/` fresh from the checkout at each run, swaps it in, and at it
 | `gh/<pin>/gh` | The pinned gh that the gh-broker runs, `root:wheel` mode 555. Its path is a program argument of the gh-broker job, so the trust check covers it. | `gh_bin`, `host/bin/ug-agent-setup` | the gh-broker (`ghPath`, `host/gh-broker/server.ts`) |
 | `run/` | The folder of the gh-broker socket and status. The gh-broker user owns it, group `agent_group`, mode 711. Root writes nothing in it: the agent sshd keeps no pid file (`PidFile`, `host/agent/sshd_config`). | `710`, `host/bin/ug-agent-setup` | the gh-broker and its client |
 | `run/gh-broker.sock` | The gh-broker socket, mode 660 (`gh_broker_socket`, `host/facts`). It gets the group of its folder, so only the agent user can connect. | the gh-broker (`listenUnix`, `socketPath`, `host/gh-broker/server.ts`) | the agent's gh-broker client |
-| `run/gh-broker.status` | The time of the last 30 s refresh and the repos that failed in it, mode 644 (`gh_broker_status`, `host/facts`) | the gh-broker, each tick (`writeRefreshStatus`, `host/gh-broker/server.ts`) | `broker_stale`, `host/bin/ug-watch` reports it after 120 s |
+| `run/gh-broker.status` | The time of the last 30 s refresh, the repos that failed in it, and the socket answer of the tick, mode 644 (`gh_broker_status`, `host/facts`) | the gh-broker, each tick (`writeRefreshStatus`, `host/gh-broker/server.ts`) | `broker_stale`, `host/bin/ug-watch` reports it after 120 s |
 | `logs/` | The logs of the gh-broker, the auth broker, the auth gateway, and the usage broker, which launchd opens before the job runs. The folder is `root:wheel` mode 711, so a service user cannot put a link in it. Setup makes each log, owned by the user of its service, mode 600 (`start_services`, `host/bin/ug-agent-setup`). Read a log with `sudo cat`. | launchd | you, with `sudo` |
 
 ## Login user: `auth_home` (mode 700, not readable by you)
@@ -141,9 +141,9 @@ Setup reads and writes in this home and in the login user's home only with that 
 | scope | `agent`: `ug-setup` loads it as your LaunchAgent. `daemon`: `ug-agent-setup` loads it as a root LaunchDaemon. |
 | user | `owner`, `root`, or a key of `host/facts`. |
 | template | The plist template, from the repo root. |
-| health | How the job shows that it works: `http <url>`, `socket <path>`, `port <host:port>`, `launchd` (loaded, and its last exit code), `pf`, or `none`. |
+| health | How the job shows that it works: `http <url>`, `socket <path>` (the job answers its own check, and the watch reads that answer), `port <host:port>`, `launchd` (loaded, and its last exit code), `pf` (checked like `launchd`, because the watch is not root), or `none`. |
 | log | The job's log, or empty. |
 | inputs | The files whose change restarts the job. `@KEY@` is a value of `host/facts`; `@DATA@` is your data folder; `@GATEWAY@` is the `gateway=` line of `addresses`; `@OMP_SHA@` is the hash file of the pinned omp; a leading `?` keeps a file only when it exists. |
 | agent input | What the job reads that the agent makes: `none`, `socket`, `port`, or `files`. A job of `owner` or `root` that reads agent input adds the id of the threat row that covers it, such as `files U40`; otherwise setup stops before it changes anything (`ug_services_allowed`, `host/lib/ug.bash`; `docs/adr/0025-agent-input-runs-with-least-rights.md`). |
 
-Four jobs keep one named case in a script, because no field can hold it: the watch reads the gh-broker's record and the backup's age; setup restarts the auth gateway when the auth broker restarted; and only root can check the firewall job (`ug_pf_refuses_listener`, `host/lib/ug.bash`).
+Four jobs keep one named case in a script, because no field can hold it: the watch reads the gh-broker's record, its socket answer included; the watch reads the backup's age; setup restarts the auth gateway when the auth broker restarted; and the firewall job: the watch is not root, so it reads the job's loaded state and last exit code, while checking the firewall itself needs root (`ug_pf_refuses_listener`, `host/lib/ug.bash`).
