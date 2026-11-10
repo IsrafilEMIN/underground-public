@@ -25,7 +25,7 @@ let work: string;
 let tree: string;
 
 function fakeGh(): string {
-  return `#!${process.execPath}
+  return `#!/usr/bin/env -S BUN_BE_BUN=1 ${process.execPath}
 const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const STATE = ${JSON.stringify(join(root, "gh-state.json"))};

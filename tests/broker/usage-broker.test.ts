@@ -267,9 +267,9 @@ function reachable(host: string, port: number): Promise<boolean> {
 }
 
 const FREE_PORT_PRELOAD = `
-import net from "node:net";
-const listen = net.Server.prototype.listen;
-net.Server.prototype.listen = function (port, ...rest) {
+import http from "node:http";
+const listen = http.Server.prototype.listen;
+http.Server.prototype.listen = function (port, ...rest) {
   this.once("listening", () => process.stdout.write("BOUND " + JSON.stringify(this.address()) + "\\n"));
   return listen.call(this, port === ${readHostFacts().usageBrokerPort} ? 0 : port, ...rest);
 };
@@ -279,8 +279,8 @@ test("the usage broker service listens on loopback only", async (t) => {
   const home = await tempDir(join(tmpdir(), "ugub-home-"));
   const preload = join(home, "free-port.mjs");
   await writeFile(preload, FREE_PORT_PRELOAD);
-  const child = spawn(process.execPath, ["--import", preload, join(import.meta.dirname, "../../host/gh-broker/usage-broker.ts")], {
-    env: { HOME: home, PATH: process.env.PATH },
+  const child = spawn(process.execPath, ["--preload", preload, join(import.meta.dirname, "../../host/gh-broker/usage-broker.ts")], {
+    env: { HOME: home, PATH: process.env.PATH, BUN_BE_BUN: "1" },
     stdio: ["ignore", "pipe", "pipe"],
   });
   t.after(() => child.kill());
