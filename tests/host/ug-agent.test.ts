@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
-import { chmod, copyFile, mkdir, readFile, rm, symlink, utimes, writeFile } from "node:fs/promises";
+import { chmod, copyFile, mkdir, mkdtemp, readFile, realpath, rm, symlink, utimes, writeFile } from "node:fs/promises";
+import { createServer } from "node:net";
+import { once } from "node:events";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -458,20 +460,14 @@ test("the agent sshd LaunchDaemon runs its own sshd config and is kept alive", a
   assert.match(plist, /<key>KeepAlive<\/key>\s*<true\/>/);
 });
 
-test("the pin profile denies the launchd-style exec routes", async () => {
-  const pin = await readFile(join(ROOT, "host/agent/pin.sb"), "utf8");
-  assert.ok(
-    pin.split("\n").includes('(deny process-exec (literal "/bin/launchctl") (literal "/usr/bin/at") (literal "/usr/bin/crontab") (literal "/usr/bin/batch"))'),
-    "the pin does not deny launchctl, at, crontab and batch",
-  );
-});
-
 const insideSandbox =
   process.platform === "darwin" && spawnSync("/usr/bin/sandbox-exec", ["-p", "(version 1)(allow default)", "/usr/bin/true"]).status !== 0;
 
+const pinSkip = (process.platform !== "darwin" && "needs macOS sandbox-exec") || (insideSandbox && "already inside a sandbox, which macOS will not nest");
+
 test(
   "[mac] the pin profile loads under sandbox-exec and runs a plain command",
-  { skip: (process.platform !== "darwin" && "needs macOS sandbox-exec") || (insideSandbox && "already inside a sandbox, which macOS will not nest") },
+  { skip: pinSkip },
   async (t) => {
     const dir = await tempDir(join(tmpdir(), "ug-pin-"));
     t.after(() => rm(dir, { recursive: true, force: true }));
@@ -480,3 +476,67 @@ test(
     assert.equal(r.stdout, "ok\n");
   },
 );
+
+function underPin(pin: string, command: string[]) {
+  return spawnSync("/usr/bin/sandbox-exec", ["-f", pin, ...command], { encoding: "utf8", input: "", timeout: 10_000 });
+}
+
+async function freePort(): Promise<number> {
+  const server = createServer().listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address();
+  assert.ok(address !== null && typeof address === "object");
+  await once(server.close(), "close");
+  return address.port;
+}
+
+test("[mac] the pin refuses a write outside the agent home and the temp folders, and allows one inside the home", { skip: pinSkip }, async (t) => {
+  const dir = await tempDir(join(tmpdir(), "ug-pin-"));
+  const outside = await realpath(await mkdtemp("/tmp/ug-pin-out-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  t.after(() => rm(outside, { recursive: true, force: true }));
+  const home = join(dir, "home");
+  await mkdir(home);
+  const pin = await render(dir, "host/agent/pin.sb", { agent_home: home });
+  const write = (path: string) => underPin(pin, ["/bin/sh", "-c", 'echo x > "$1"', "_", path]);
+
+  const inside = write(join(home, "file"));
+  assert.equal(inside.status, 0, inside.stderr);
+  assert.equal(await readFile(join(home, "file"), "utf8"), "x\n");
+
+  const refused = write(join(outside, "file"));
+  assert.notEqual(refused.status, 0);
+  assert.match(refused.stderr, /Operation not permitted/);
+  assert.equal(existsSync(join(outside, "file")), false, "the pin let a write outside the agent home through");
+});
+
+test("[mac] the pin refuses a listener on the auth broker's port and allows one on another port", { skip: pinSkip }, async (t) => {
+  const dir = await tempDir(join(tmpdir(), "ug-pin-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const port = await freePort();
+  let other = await freePort();
+  while (other === port) other = await freePort();
+  const pin = await render(dir, "host/agent/pin.sb", { auth_broker_port: String(port) });
+  const listen =
+    'const s = require("node:net").createServer(); s.on("error", (e) => { console.log(e.code); process.exit(1); }); s.listen(Number(process.argv.at(-1)), "127.0.0.1", () => { console.log("bound"); s.close(); });';
+  const bind = (p: number) => underPin(pin, [process.execPath, "-e", listen, String(p)]);
+
+  const refused = bind(port);
+  assert.equal(refused.status, 1, refused.stderr);
+  assert.equal(refused.stdout, "EPERM\n");
+
+  const allowed = bind(other);
+  assert.equal(allowed.status, 0, allowed.stderr);
+  assert.equal(allowed.stdout, "bound\n");
+});
+
+test("[mac] the pin refuses to run launchctl, at, batch, and crontab", { skip: pinSkip }, async (t) => {
+  const dir = await tempDir(join(tmpdir(), "ug-pin-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const pin = await render(dir, "host/agent/pin.sb", { agent_home: dir });
+  for (const command of [["/bin/launchctl", "version"], ["/usr/bin/at", "-l"], ["/usr/bin/batch", "-l"], ["/usr/bin/crontab", "-l"]]) {
+    const r = underPin(pin, ["/bin/sh", "-c", '"$@"', "_", ...command]);
+    assert.equal(r.status, 126, `${command[0]}: ${r.stdout}${r.stderr}`);
+    assert.match(r.stderr, /Operation not permitted/);
+  }
+});
