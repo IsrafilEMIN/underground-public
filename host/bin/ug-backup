@@ -38,8 +38,8 @@ export RESTIC_PASSWORD_FILE="$backup/password"
 repo=""
 # shellcheck source=host/lib/backup-target.bash disable=SC1091
 source "$src/host/lib/backup-target.bash"
-backup_target_read "$config"
-backup_target_wake
+backup_target_read "$config" || exit 1
+backup_target_wake || exit 1
 
 status=0
 what="does not open"
