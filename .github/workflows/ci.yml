@@ -49,11 +49,36 @@ jobs:
         with:
           node-version: 24
 
-      - name: Broker and host tests
+      - name: Pinned omp
+        run: |
+          set -euo pipefail
+          source host/lib/ug.bash
+          url="$(ug_pin VERSIONS omp_release)/v$(ug_pin VERSIONS omp)/omp-darwin-arm64"
+          curl -fsSL --proto '=https' --retry 3 -o "$RUNNER_TEMP/omp" "$url"
+          printf '%s  %s\n' "$(ug_pin VERSIONS omp_sha256)" "$RUNNER_TEMP/omp" | shasum -a 256 -c -
+          chmod 755 "$RUNNER_TEMP/omp"
+
+      - name: Broker tests on the pinned omp's bun
         run: |
           set -euo pipefail
           status=0
-          node --test --test-reporter=tap tests/broker/*.test.ts tests/host/*.test.ts | tee tests.tap || status=$?
+          BUN_BE_BUN=1 "$RUNNER_TEMP/omp" test --timeout 120000 --reporter=junit --reporter-outfile=broker.xml tests/broker/ 2>&1 | tee broker.log || status=$?
+          if [ "$status" -ne 0 ]; then
+            echo "failed tests:" >&2
+            grep -E '^\(fail\) ' broker.log >&2 || true
+            exit "$status"
+          fi
+          if grep -A1 'testcase name="\[mac\]' broker.xml | grep -q '<skipped'; then
+            echo "a [mac] test skipped, so it checked nothing" >&2
+            exit 1
+          fi
+
+      - name: Host tests
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          status=0
+          node --test --test-reporter=tap tests/host/*.test.ts | tee tests.tap || status=$?
           if [ "$status" -ne 0 ]; then
             echo "failed tests:" >&2
             grep -E '^ *not ok ' tests.tap >&2 || true
