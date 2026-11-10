@@ -24,7 +24,7 @@ This page says what runs now: each built part with what it does and the file tha
 
 **Clone refresh.** `host/agent/agent-refresh` runs every 30 s as the agent user under the pin: it syncs each clone a session used in the last 7 days, with git hooks off, so agent-planted hooks never run between sessions (`docs/adr/0019-fast-launch-sync.md`, "Decision", item 8).
 
-**gh-broker and the merge gate.** Open, in redesign (owner decision, 2026-11-10). What runs today: one host service answers the agent's GitHub calls over the socket of the facts (`gh_broker_socket`, `host/facts`). It runs as the gh-broker user on the pinned omp, `/usr/bin/git`, and the pinned gh, and its home holds the app key, the mirrors, and the records (`docs/adr/0025-agent-input-runs-with-least-rights.md`). It holds the app key and the only GitHub token an agent uses, keeps each used repo's main current, serves the launch sync, ends the branches it pushed once their commit is in main, and caps what a CI log can return (`host/gh-broker/`).
+**gh-broker.** Open, in redesign (owner decision, 2026-11-10). The merge gate is deleted (`docs/adr/0026-delete-the-merge-gate.md`): the gh-broker has no merge verb and no review verb (`VERBS`, `host/gh-broker/protocol.ts`), and the owner merges every PR on GitHub. What runs today: one host service answers the agent's GitHub calls over the socket of the facts (`gh_broker_socket`, `host/facts`). It runs as the gh-broker user on the pinned omp, `/usr/bin/git`, and the pinned gh, and its home holds the app key, the mirrors, and the push records (`docs/adr/0025-agent-input-runs-with-least-rights.md`). It holds the app key and the only GitHub token an agent uses, keeps each used repo's main current, serves the launch sync, ends the branches it pushed once their commit is in main, and caps what a CI log can return (`host/gh-broker/`).
 
 **Branch and worktree cleanup.** The sweep (`sweep`, `host/gh-broker/sweep.ts`) removes a worktree only when its work is in main, it is not young, no process works in it, and it holds no unsaved files; it moves ignored files to a held folder for 14 days (`holdIgnored`, `host/gh-broker/sweep.ts`) and lists what it kept, with the reason, in `ug-kept.json` in the clone's git folder (`docs/adr/0020-state-based-branch-cleanup.md`).
 
@@ -34,18 +34,18 @@ This page says what runs now: each built part with what it does and the file tha
 
 ## Onboarding checks
 
-The owner checks each repo on GitHub before agents merge alone in it.
+The owner checks each repo on GitHub before agents work alone in it.
 
 1. No Actions secrets and no credential variables for `pull_request` jobs. No `id-token: write`.
 2. The default `GITHUB_TOKEN` is read-only.
 3. GitHub-hosted runners only.
 4. The gh-broker app is a GitHub App of the owner's account, installed on selected repos, with no Workflows and no Administration permission (`docs/adr/0007-gh-broker-github-app.md`).
 5. Each workflow that deploys, publishes, or uses secrets on `main` waits for the owner's approval in a GitHub environment. So a merge has no effect that a revert cannot undo.
-6. A repo whose code runs on the host, such as underground, gets no auto merge. The owner merges each PR and reads the merged change before the host runs it. GitHub enforces this: a ruleset on `main` needs the owner's approval as code owner for every merge, and setup stops before it pulls when that ruleset is missing or weaker (`ug_check_main_rule`, `host/lib/ug.bash`; `docs/adr/0021-github-holds-the-wall-on-main.md`). Setup runs no test file as the owner, so test code that the agent writes runs only on GitHub's runners (owner decision, 2026-11-10). The ruleset also needs approval of the most recent push from someone other than its pusher, and GitHub counts only a push that changes the PR's diff. So after the owner pushes to an agent PR, the agent pushes a change before the owner can approve it ([GitHub Docs, "Available rules for rulesets"](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/available-rules-for-rulesets), read 2026-11-10; the "reviewable push" reading is [inference] from PR 167).
+6. A repo whose code runs on the host, such as underground: the owner merges each PR on GitHub and reads the merged change before the host runs it. GitHub enforces this: a ruleset on `main` needs the owner's approval as code owner for every merge, and setup stops before it pulls when that ruleset is missing or weaker (`ug_check_main_rule`, `host/lib/ug.bash`; `docs/adr/0021-github-holds-the-wall-on-main.md`). Setup runs no test file as the owner, so test code that the agent writes runs only on GitHub's runners (owner decision, 2026-11-10). The ruleset also needs approval of the most recent push from someone other than its pusher, and GitHub counts only a push that changes the PR's diff. So after the owner pushes to an agent PR, the agent pushes a change before the owner can approve it ([GitHub Docs, "Available rules for rulesets"](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/available-rules-for-rulesets), read 2026-11-10; the "reviewable push" reading is [inference] from PR 167).
 
 A repo is onboarded when the owner has made these checks and installed the gh-broker app on it: the app's installation is the list (owner decision, 2026-11-03).
 
-Live run before trust: in a throwaway repo that passes the checks, one task from branch to merge, one revert, and one PR with a planted defect that `security-review` must block.
+Live run before trust: in a throwaway repo that passes the checks, one task from branch to merge, one revert, and one PR with a planted defect that `security-review` must find.
 
 ## Checks that run
 
@@ -57,7 +57,7 @@ Live run before trust: in a throwaway repo that passes the checks, one task from
 
 ## Deferred
 
-- The gh-broker, the merge gate, auto merge, and a merge queue: open, in redesign.
+- The gh-broker, auto merge, and a merge queue: open, in redesign.
 - A test of a program that talks to launchd directly, without the `launchctl` path the pin refuses (`docs/adr/0016-agent-user.md`, "Open"; `docs/adr/0021-github-holds-the-wall-on-main.md`, "Amendment 2026-11-10: the rule against the other controls", item 3).
 - Per-repo network allowlists, with the data-out question (`docs/THREAT-MODEL.md`, U14).
 - A check that the owner has set a spend cap at each provider (`docs/adr/0021-github-holds-the-wall-on-main.md`, "Amendment 2026-11-10: the rule against the other controls", item 4).

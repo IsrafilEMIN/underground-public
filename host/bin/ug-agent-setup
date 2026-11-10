@@ -249,16 +249,7 @@ done
 /usr/bin/sandbox-exec -f "$rendered_dir/pin.sb" /usr/bin/true || ug_die ug-agent-setup "host/agent/pin.sb does not load under sandbox-exec; the installed code is unchanged"
 pfctl -n -f "$rendered_dir/agent-pf.conf" >/dev/null 2>&1 || ug_die ug-agent-setup "pfctl rejects host/agent/agent-pf.conf; the installed code is unchanged"
 rm -rf "$code.new" "$code.old"
-install -d -m 755 -o root -g wheel "$code.new" "$code.new/bin" "$code.new/gh-broker" "$code.new/authorized_keys" "$code.new/protected-paths"
-protected=$data/protected-paths
-if [[ -e $protected || -L $protected ]]; then
-  [[ -d $protected && ! -L $protected ]] || ug_die ug-agent-setup "$protected is not a folder"
-  odd=$(find "$protected" -mindepth 1 \( -type l -o ! -type f ! -type d -o -type f -links +1 \) -print 2>/dev/null | head -1) || true
-  [[ -z $odd ]] || ug_die ug-agent-setup "$protected has a link, a hard link, or a special file, which root does not copy: $odd"
-  sudo -u "$owner" /usr/bin/tar -C "$protected" -cf - . | /usr/bin/tar -C "$code.new/protected-paths" -xf - -o ||
-    ug_die ug-agent-setup "cannot copy $protected into $code.new/protected-paths"
-  chmod -R u=rwX,go=rX "$code.new/protected-paths"
-fi
+install -d -m 755 -o root -g wheel "$code.new" "$code.new/bin" "$code.new/gh-broker" "$code.new/authorized_keys"
 ln -s "$omp_bin" "$code.new/bin/omp"
 printf '#!/bin/sh\nBUN_BE_BUN=1 UG_GH_BROKER_SOCKET=%s exec %s %s "$@"\n' "$socket" "$omp_bin" "$code/gh-broker/client.ts" >"$code.new/bin/gh-broker"
 install -m 555 -o root -g wheel "$rendered_dir/agent-home-tar" "$code.new/bin/agent-home-tar"
@@ -274,7 +265,7 @@ chmod 444 "$code.new/authorized_keys/$agent_user"
 [[ ! -e $code ]] || mv "$code" "$code.old"
 mv "$code.new" "$code"
 rm -rf "$code.old"
-ug_say ok "$code" "built fresh from $src and swapped in: facts, pin.sb, pf.conf, pf-load, agent-session, agent-start, agent-refresh, sshd_config, config-names, addresses, authorized_keys, protected-paths, bin/, gh-broker/"
+ug_say ok "$code" "built fresh from $src and swapped in: facts, pin.sb, pf.conf, pf-load, agent-session, agent-start, agent-refresh, sshd_config, config-names, addresses, authorized_keys, bin/, gh-broker/"
 
 host_key=$(cut -d ' ' -f 1,2 "$root/ssh_host_ed25519_key.pub")
 printf '[127.0.0.1]:%s %s\n' "$agent_port" "$host_key" >"$known_hosts.tmp"

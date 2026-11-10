@@ -1,27 +1,22 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { connect, createServer } from "node:net";
 import type { Server, Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
-import { MAX_REQUEST_BYTES, REVIEWER_ROLES } from "../../host/gh-broker/protocol.ts";
+import { MAX_REQUEST_BYTES } from "../../host/gh-broker/protocol.ts";
 import type { PushRecord, Reply } from "../../host/gh-broker/protocol.ts";
-import { readPushRecord, writePushRecord } from "../../host/gh-broker/push-record.ts";
-import { appendReviewRecord, readReviewRecords } from "../../host/gh-broker/review-records.ts";
-import { defaultConfig, refreshRepos, serveConnection } from "../../host/gh-broker/server.ts";
+import { readPushRecord } from "../../host/gh-broker/push-record.ts";
+import { defaultConfig, handleRequest, refreshRepos, serveConnection } from "../../host/gh-broker/server.ts";
 import type { ServerConfig } from "../../host/gh-broker/server.ts";
 import { FAKE_TOKEN, fakeTokens, githubRemote, tokenRemote } from "./fake-app.ts";
-import { handleAs } from "./session.ts";
-import type { Session } from "./session.ts";
 import { tempDir } from "../temp.ts";
 
 const REPO = "o/r";
 const BRANCH = "agent/x";
 const CI_HEAD = "a".repeat(40);
-const AUTHOR: Session = { role: "author" };
-const REVIEWER: Session = { role: "code-review" };
 const REAL_GIT = defaultConfig("/unused/gh").gitPath;
 const GIT_ENV = { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" };
 const UNREADABLE_DEFAULT_BRANCHES = [
@@ -47,11 +42,9 @@ case "$1 $2" in
 "repo view") cat "$HOME/repo.json" ;;
 "pr view") cat "$HOME/pr.json" ;;
 "pr create") printf '%s\\n' "$*" > "$HOME/created"; cat > "$HOME/created-body"; echo "https://github.com/${REPO}/pull/7" ;;
-"pr merge") printf '%s\\n' "$*" >> "$HOME/merged"; echo merged ;;
 "run view") printf '%s\\n' "$*" >> "$HOME/viewed"; cat "$HOME/log-$3.txt" ;;
 "api --paginate")
   case "$4" in
-  "repos/${REPO}/pulls/7/files") cat "$HOME/files.json" ;;
   "repos/${REPO}/deployments?"*) cat "$HOME/deployments.json" ;;
   "repos/${REPO}/actions/runs?"*) cat "$HOME/runs.json" ;;
   *) echo "fake gh: unexpected $*" >&2; exit 1 ;;
@@ -97,8 +90,8 @@ function bundleOf(branch: string): string {
   return execFileSync(REAL_GIT, ["bundle", "create", "-", `refs/heads/${branch}`], { cwd: work, env: GIT_ENV }).toString("base64");
 }
 
-function request(input: Record<string, unknown>, session: Session = AUTHOR): Promise<Reply> {
-  return handleAs(config, session, { repo: REPO, ...input }, new AbortController().signal);
+function request(input: Record<string, unknown>): Promise<Reply> {
+  return handleRequest(config, { repo: REPO, ...input }, new AbortController().signal);
 }
 
 function push(branch: string, sha: string, bundleBranch: string = branch): Promise<Reply> {
@@ -150,33 +143,16 @@ function assertCannotReadDefaultBranch(reply: Reply): void {
   assert.ok(reply.stderr.includes("cannot read default branch"), JSON.stringify(reply));
 }
 
-async function pushedHead(): Promise<string> {
-  const head = await commit(BRANCH, "a.txt");
-  git(work, "push", "--quiet", remote, `${BRANCH}:${BRANCH}`);
-  await writePushRecord(config.pushesDir, { repo: REPO, branch: BRANCH }, head);
-  const at = new Date().toISOString();
-  for (const role of REVIEWER_ROLES) {
-    await appendReviewRecord(config.reviewsDir, { repo: REPO, pr: 7, role, head, verdict: "pass", reason: "", at });
-  }
-  return head;
-}
-
-async function prView(head: string, pr: Record<string, unknown> = {}, files: unknown[] = [{ filename: "a.txt" }]): Promise<void> {
+async function prView(head: string, pr: Record<string, unknown> = {}): Promise<void> {
   const view = {
     headRefName: BRANCH,
     baseRefName: "main",
     isCrossRepository: false,
     headRefOid: head,
     statusCheckRollup: [{ __typename: "CheckRun", name: "ci", status: "COMPLETED", conclusion: "SUCCESS" }],
-    changedFiles: files.length,
     ...pr,
   };
   await writeHome("pr.json", JSON.stringify(view));
-  await writeHome("files.json", JSON.stringify([files]));
-}
-
-function merge(): Promise<Reply> {
-  return request({ verb: "merge", number: 7 });
 }
 
 function run(id: number): Record<string, unknown> {
@@ -199,14 +175,6 @@ async function apiCalls(): Promise<string[]> {
   return (await readHome("gh-calls")).split("\n").filter((line) => line.startsWith("api ") || line.startsWith("run "));
 }
 
-function review(sha: string): Promise<Reply> {
-  return request({ verb: "review", number: 7, sha, verdict: "pass", reason: "" }, REVIEWER);
-}
-
-async function reviewRecords(): Promise<unknown> {
-  return readReviewRecords(config.reviewsDir, { repo: REPO, pr: 7 });
-}
-
 beforeEach(async () => {
   root = await tempDir(join(tmpdir(), "ug-srvfail-"));
   remote = join(root, "remote.git");
@@ -214,9 +182,7 @@ beforeEach(async () => {
     ...defaultConfig("/unused/gh"),
     socketPath: join(root, "run", "gh-broker.sock"),
     reposRoot: join(root, "bare"),
-    reviewsDir: join(root, "reviews"),
     pushesDir: join(root, "pushes"),
-    protectedDir: join(root, "protected"),
     ghPath: join(root, "gh"),
     gitPath: join(root, "git"),
     github: fakeTokens(),
@@ -236,8 +202,6 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await chmod(join(config.pushesDir, REPO), 0o700).catch(() => {});
-  await chmod(join(config.reviewsDir, REPO), 0o700).catch(() => {});
   await rm(root, { recursive: true, force: true });
 });
 
@@ -420,17 +384,6 @@ test("pr-create with an unreadable default branch opens no PR", async () => {
   }
 });
 
-test("merge with an unreadable default branch merges nothing", async () => {
-  const head = await pushedHead();
-  await prView(head);
-  for (const answer of UNREADABLE_DEFAULT_BRANCHES) {
-    await writeHome("repo.json", answer);
-    assertCannotReadDefaultBranch(await merge());
-    assert.equal(await readHome("merged"), "", answer);
-    assert.equal(remoteRef(BRANCH), head, answer);
-  }
-});
-
 test("sync and push fail with git's error when the gh-broker cannot create its bare repo, and push lands nothing", async () => {
   await failGit("init --bare");
   const synced = await request({ verb: "sync" });
@@ -452,7 +405,7 @@ test("sync whose bundle cannot be made fails with git's error and returns no bun
 
 test("sync --pr refuses a PR whose head commit it cannot read, and fetches nothing", async () => {
   await writeHome("pr.json", JSON.stringify({ headRefOid: "nope" }));
-  assertRefused(await request({ verb: "sync", pr: 7 }, REVIEWER), "cannot read pull request head commit");
+  assertRefused(await request({ verb: "sync", pr: 7 }), "cannot read pull request head commit");
   assert.equal(await readHome("git-calls"), "");
 });
 
@@ -462,7 +415,7 @@ test("sync --pr whose fetch from GitHub fails gives git's error and leaves no te
   await writeHome("pr.json", JSON.stringify({ headRefOid: head }));
   await failGit("refs/pull/7/head");
 
-  const reply = await request({ verb: "sync", pr: 7 }, REVIEWER);
+  const reply = await request({ verb: "sync", pr: 7 });
   assertForwarded(reply, 3, "fake git: cannot refs/pull/7/head");
   assert.ok(!("bundle_b64" in reply), JSON.stringify(reply));
   assert.equal(brokerTempRefs(), "");
@@ -474,7 +427,7 @@ test("sync --pr whose bundle cannot be made gives git's error and leaves no temp
   await writeHome("pr.json", JSON.stringify({ headRefOid: head }));
   await failGit("bundle create");
 
-  const reply = await request({ verb: "sync", pr: 7 }, REVIEWER);
+  const reply = await request({ verb: "sync", pr: 7 });
   assertForwarded(reply, 3, "fake git: cannot bundle create");
   assert.ok(!("bundle_b64" in reply), JSON.stringify(reply));
   assert.equal(brokerTempRefs(), "");
@@ -541,42 +494,32 @@ test("pr-create that gh fails gives gh's exit code and error", async () => {
   assert.equal(await readHome("created"), "");
 });
 
-const PR_VERBS: { name: string; input: Record<string, unknown>; session: Session }[] = [
-  { name: "sync --pr", input: { verb: "sync", pr: 7 }, session: REVIEWER },
-  { name: "pr-status", input: { verb: "pr-status", number: 7 }, session: AUTHOR },
-  { name: "ci-log", input: { verb: "ci-log", number: 7 }, session: AUTHOR },
-  { name: "review", input: { verb: "review", number: 7, sha: CI_HEAD, verdict: "pass", reason: "" }, session: REVIEWER },
-  { name: "merge", input: { verb: "merge", number: 7 }, session: AUTHOR },
+const PR_VERBS: { name: string; input: Record<string, unknown> }[] = [
+  { name: "sync --pr", input: { verb: "sync", pr: 7 } },
+  { name: "pr-status", input: { verb: "pr-status", number: 7 } },
+  { name: "ci-log", input: { verb: "ci-log", number: 7 } },
 ];
 
 for (const verb of PR_VERBS) {
   test(`${verb.name}: a failing gh pr view gives gh's exit code and error, and nothing else happens`, async () => {
-    const head = await pushedHead();
-    await prView(head);
-    const recordsBefore = await reviewRecords();
+    await prView(CI_HEAD);
     await failGh("pr view");
 
-    const reply = await request(verb.input, verb.session);
+    const reply = await request(verb.input);
     assertForwarded(reply, 4, "HTTP 502");
     assert.equal(reply.stdout, "");
     assert.deepEqual(await apiCalls(), []);
-    assert.equal(await readHome("merged"), "");
     assert.equal(await readHome("git-calls"), "");
-    assert.deepEqual(await reviewRecords(), recordsBefore);
   });
 
   test(`${verb.name}: a PR view that is not a JSON object is refused, and nothing else happens`, async () => {
-    const head = await pushedHead();
-    await prView(head);
-    const recordsBefore = await reviewRecords();
+    await prView(CI_HEAD);
     for (const answer of ["not json", "[1]", "null"]) {
       await writeHome("pr.json", answer);
-      assert.deepEqual(await request(verb.input, verb.session), { exit: 2, refused: "cannot read pull request" }, answer);
+      assert.deepEqual(await request(verb.input), { exit: 2, refused: "cannot read pull request" }, answer);
     }
     assert.deepEqual(await apiCalls(), []);
-    assert.equal(await readHome("merged"), "");
     assert.equal(await readHome("git-calls"), "");
-    assert.deepEqual(await reviewRecords(), recordsBefore);
   });
 }
 
@@ -649,151 +592,4 @@ test("ci-log redacts a GitHub token that appears in a CI log", async () => {
   assert.ok("stdout" in reply && reply.stdout.includes("ci\tlint\tremote: https://x-access-token:"), JSON.stringify(reply));
   assert.ok(!reply.stdout.includes(FAKE_TOKEN), "the token reached the author");
   assert.ok(reply.stdout.includes("second failure"), JSON.stringify(reply));
-});
-
-test("review refuses a head that is not the PR head, from another repo, off agent/*, or unreadable, and writes no record", async () => {
-  const head = await pushedHead();
-  const before = await reviewRecords();
-  const other = "b".repeat(40);
-  const cases: [Record<string, unknown>, string, string][] = [
-    [{}, other, `not the reviewed ${other}`],
-    [{ isCrossRepository: true }, head, "pull request head is not in the same repo"],
-    [{ headRefName: "feature/x" }, head, "pull request head is not an agent branch"],
-    [{ headRefOid: "nope" }, head, "cannot read pull request head commit"],
-  ];
-  for (const [pr, sha, reason] of cases) {
-    await prView(head, pr);
-    assertRefused(await review(sha), reason);
-  }
-  assert.deepEqual(await reviewRecords(), before);
-
-  await prView(head);
-  const ok = await review(head);
-  assert.equal(ok.exit, 0, JSON.stringify(ok));
-  const after = await reviewRecords();
-  assert.ok(isRecordsOf(after) && isRecordsOf(before) && after.records.length === before.records.length + 1, JSON.stringify(after));
-});
-
-function isRecordsOf(value: unknown): value is { kind: "records"; records: unknown[] } {
-  return typeof value === "object" && value !== null && "kind" in value && value.kind === "records" && "records" in value && Array.isArray(value.records);
-}
-
-test("review whose record cannot be written is refused and leaves no record", async () => {
-  const head = await commit(BRANCH, "a.txt");
-  await prView(head);
-  await mkdir(join(config.reviewsDir, REPO), { recursive: true });
-  await chmod(join(config.reviewsDir, REPO), 0o500);
-
-  assertRefused(await review(head), "cannot write the review record");
-  await chmod(join(config.reviewsDir, REPO), 0o700);
-  assert.deepEqual(await reviewRecords(), { kind: "records", records: [] });
-});
-
-test("merge refuses a PR whose base is not the default branch, and merges it once the base is", async () => {
-  const head = await pushedHead();
-  await prView(head, { baseRefName: "release" });
-  assertRefused(await merge(), "base is not the default branch");
-  assert.equal(await readHome("merged"), "");
-
-  await prView(head);
-  const ok = await merge();
-  assert.equal(ok.exit, 0, JSON.stringify(ok));
-  assert.equal(await readHome("merged"), `pr merge 7 --repo ${REPO} --merge --match-head-commit ${head}\n`);
-});
-
-test("merge refuses a PR whose head commit it cannot read", async () => {
-  const head = await pushedHead();
-  await prView(head, { headRefOid: "nope" });
-  assertRefused(await merge(), "cannot read pull request head commit");
-  assert.equal(await readHome("merged"), "");
-  assert.equal(remoteRef(BRANCH), head);
-});
-
-test("merge refuses when the protected paths list cannot be read, and merges once it can", async () => {
-  const head = await pushedHead();
-  await prView(head);
-  await mkdir(join(config.protectedDir, REPO), { recursive: true });
-  assertRefused(await merge(), "cannot read the protected paths list");
-  assert.equal(await readHome("merged"), "");
-  assert.equal(remoteRef(BRANCH), head);
-
-  await rm(join(config.protectedDir, REPO), { recursive: true });
-  const ok = await merge();
-  assert.equal(ok.exit, 0, JSON.stringify(ok));
-  assert.equal(await readHome("merged"), `pr merge 7 --repo ${REPO} --merge --match-head-commit ${head}\n`);
-});
-
-test("merge refuses when the changed files call fails", async () => {
-  const head = await pushedHead();
-  await prView(head);
-  await failGh("/pulls/7/files");
-  assertRefused(await merge(), "changed files cannot be read");
-  assert.equal(await readHome("merged"), "");
-});
-
-test("merge refuses when GitHub lists fewer changed files than the PR has", async () => {
-  const head = await pushedHead();
-  await prView(head, { changedFiles: 2 });
-  assertRefused(await merge(), "changed files cannot be read");
-  assert.equal(await readHome("merged"), "");
-});
-
-test("merge refuses when a changed file entry has no file name", async () => {
-  const head = await pushedHead();
-  for (const item of [{ name: "a.txt" }, { filename: 5 }, "a.txt", null]) {
-    await prView(head, {}, [item]);
-    assertRefused(await merge(), "changed files cannot be read");
-  }
-  assert.equal(await readHome("merged"), "");
-});
-
-test("merge holds a PR that renames a protected path away, and merges the same rename of an ordinary path", async () => {
-  const head = await pushedHead();
-  await prView(head, {}, [{ filename: "docs/ci.yml", previous_filename: ".github/workflows/ci.yml" }]);
-  assertRefused(await merge(), "protected path .github/workflows/ci.yml changed");
-  assert.equal(await readHome("merged"), "");
-
-  await prView(head, {}, [{ filename: "docs/ci.yml", previous_filename: "docs/old.yml" }]);
-  const ok = await merge();
-  assert.equal(ok.exit, 0, JSON.stringify(ok));
-});
-
-test("a merge whose branch delete fails exits 0, keeps the branch and its record, and says the next check tries again", async () => {
-  const head = await pushedHead();
-  await prView(head);
-  git(remote, "update-ref", "refs/heads/main", head);
-  await failGit("--force-with-lease");
-
-  const reply = await merge();
-  assert.equal(reply.exit, 0, JSON.stringify(reply));
-  assert.ok("stdout" in reply && reply.stdout.includes(`gh-broker: cannot end branch ${BRANCH} yet, the next check tries again: fake git: cannot --force-with-lease`), JSON.stringify(reply));
-  assert.equal(await readHome("merged"), `pr merge 7 --repo ${REPO} --merge --match-head-commit ${head}\n`);
-  assert.equal(remoteRef(BRANCH), head);
-  assert.deepEqual(await pushRecord(), { kind: "pushed", sha: head });
-});
-
-test("a merge whose bare repo cannot be created exits 0 with git's error and keeps the branch", async () => {
-  const head = await pushedHead();
-  await prView(head);
-  git(remote, "update-ref", "refs/heads/main", head);
-  await failGit("init --bare");
-
-  const reply = await merge();
-  assert.equal(reply.exit, 0, JSON.stringify(reply));
-  assert.ok("stderr" in reply && reply.stderr.includes("gh-broker: merged; the branch cleanup runs again within 30 s: fake git: cannot init --bare"), JSON.stringify(reply));
-  assert.equal(remoteRef(BRANCH), head);
-});
-
-test("a merge whose push record cannot be dropped deletes the branch and says the next check tries again", async () => {
-  const head = await pushedHead();
-  await prView(head);
-  git(remote, "update-ref", "refs/heads/main", head);
-  await chmod(join(config.pushesDir, REPO), 0o500);
-
-  const reply = await merge();
-  await chmod(join(config.pushesDir, REPO), 0o700);
-  assert.equal(reply.exit, 0, JSON.stringify(reply));
-  assert.ok("stdout" in reply && reply.stdout.includes(`gh-broker: cannot end branch ${BRANCH} yet, the next check tries again: cannot drop the push record`), JSON.stringify(reply));
-  assert.equal(remoteRef(BRANCH), "");
-  assert.deepEqual(await pushRecord(), { kind: "pushed", sha: head });
 });

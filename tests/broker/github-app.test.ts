@@ -10,15 +10,12 @@ import { afterEach, beforeEach, test } from "node:test";
 import { appFiles, appJwt, createAppTokens, redactTokens } from "../../host/gh-broker/github-app.ts";
 import type { AppFiles, Fetch, GithubTokens } from "../../host/gh-broker/github-app.ts";
 import type { Reply } from "../../host/gh-broker/protocol.ts";
-import { defaultConfig } from "../../host/gh-broker/server.ts";
+import { defaultConfig, handleRequest } from "../../host/gh-broker/server.ts";
 import type { ServerConfig } from "../../host/gh-broker/server.ts";
 import { FAKE_TOKEN, fakeTokens, githubRemote, tokenRemote } from "./fake-app.ts";
-import { handleAs } from "./session.ts";
-import type { Session } from "./session.ts";
 import { tempDir } from "../temp.ts";
 
 const REPO = "o/r";
-const AUTHOR: Session = { role: "author" };
 const GIT_ENV = { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" };
 const NOW = Date.parse("2026-10-31T12:00:00Z");
 const basic = (token: string): string => Buffer.from(`x-access-token:${token}`).toString("base64");
@@ -347,11 +344,11 @@ function rotatingTokens(revoked = `${FAKE_TOKEN}0`): GithubTokens {
 }
 
 function sync(): Promise<Reply> {
-  return handleAs(config, AUTHOR, { verb: "sync", repo: REPO }, new AbortController().signal);
+  return handleRequest(config, { verb: "sync", repo: REPO }, new AbortController().signal);
 }
 
 function prCreate(): Promise<Reply> {
-  return handleAs(config, AUTHOR, { verb: "pr-create", repo: REPO, head: "agent/x", title: "t", body: "" }, new AbortController().signal);
+  return handleRequest(config, { verb: "pr-create", repo: REPO, head: "agent/x", title: "t", body: "" }, new AbortController().signal);
 }
 
 async function setUp(github: GithubTokens): Promise<void> {
@@ -359,9 +356,7 @@ async function setUp(github: GithubTokens): Promise<void> {
     ...defaultConfig("/unused/gh"),
     socketPath: join(root, "run", "gh-broker.sock"),
     reposRoot: join(root, "bare"),
-    reviewsDir: join(root, "reviews"),
     pushesDir: join(root, "pushes"),
-    protectedDir: join(root, "protected"),
     ghPath: join(root, "gh"),
     github,
     home: join(root, "home"),

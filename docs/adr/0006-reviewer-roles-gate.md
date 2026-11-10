@@ -2,11 +2,13 @@
 
 Date: 2026-10-30. Owner decision.
 
+Superseded in full by `0026-delete-the-merge-gate.md` (2026-11-10).
+
 Amended on 2026-11-02 by `0011-one-agent-arena.md`: the three reviewer roles stay, but as a quality step, not a safety wall. Their rules come as skills in the owner's config repo. The holds, attempts, and records stay as built until their review (`../SPEC.md`, "Deferred").
 
 Superseded in part on 2026-10-31 by `docs/adr/0007-gh-broker-github-app.md`: the gh-broker acts as a GitHub App, and the owner decided that `gh-broker merge` merges only the auto path. So the owner's approval no longer merges or ends a hold, and the owner change request is no longer checked. A hold refuses `gh-broker merge` for good, and the owner merges that PR on GitHub. The parts marked "superseded" below are the ones that changed.
 
-The gate takes the latest verdict on the head from any reviewer (`mergeRefusal`, `host/gh-broker/protocol.ts`), and a review record had no role name in the first design (`ReviewRecord`, `host/gh-broker/protocol.ts`, which has `role` now). With more than one reviewer role, a `pass` from one role can merge a head that another role never saw (U10). The first design kept all verdicts in one file, `reviews.json`: each review rewrote it in full and each merge parsed it in full (`appendReviewRecord`, `host/gh-broker/review-records.ts`; `handleMerge`, `host/gh-broker/server.ts`). At hundreds of agents a day, each merge parses every record of every PR, and a damaged file stops every review and merge (`readReviewRecords`, `host/gh-broker/review-records.ts`). One file per PR bounds the parse to one PR and the damage to one PR; the records still grow in total, because they stay after the merge.
+The gate took the latest verdict on the head from any reviewer (`mergeRefusal`, removed by `docs/adr/0026-delete-the-merge-gate.md`), and a review record had no role name in the first design (`ReviewRecord`, removed by `docs/adr/0026-delete-the-merge-gate.md`; the record had gained `role` by the time of this ADR). With more than one reviewer role, a `pass` from one role can merge a head that another role never saw (U10). The first design kept all verdicts in one file, `reviews.json`: each review rewrote it in full and each merge parsed it in full (`appendReviewRecord` and `handleMerge`, removed by `docs/adr/0026-delete-the-merge-gate.md`). At hundreds of agents a day, each merge parses every record of every PR, and a damaged file stops every review and merge (`readReviewRecords`, removed by `docs/adr/0026-delete-the-merge-gate.md`). One file per PR bounds the parse to one PR and the damage to one PR; the records still grow in total, because they stay after the merge.
 
 Decision:
 
@@ -20,7 +22,7 @@ Rejected: a reviewer pushes its fix. One agent then writes the code and judges i
 
 Rejected: a same-head `pass` clears a `block`. A lenient or injected `pass` then overrides a finding. A newly reviewed head can pass.
 
-Rejected: a `block` holds the PR until the owner approves, as today (`mergeRefusal`, `host/gh-broker/protocol.ts`). The owner then looks at every fixed PR, and the fix gets the same three reviews as any head.
+Rejected: a `block` holds the PR until the owner approves, as it stood then (`mergeRefusal`, removed by `docs/adr/0026-delete-the-merge-gate.md`). The owner then looks at every fixed PR, and the fix gets the same three reviews as any head.
 
 Rejected: findings as PR comments. Any account with access to the repo can comment, author and reviewer post as the same bot, and a reason can disclose a security hole in public. A deleted comment stays in notifications and email.
 

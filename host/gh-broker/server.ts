@@ -8,13 +8,8 @@ import {
   MAX_CI_LOG_BYTES,
   MAX_REQUEST_BYTES,
   failedPullRequestRuns,
-  isAgentBranch,
-  isRecord,
   isSha,
-  mergeRefusal,
-  parseProtectedPaths,
   parseRemoteHead,
-  reviewHeadRefusal,
   isDefaultBranchName,
   prHeadRefusal,
   tailLog,
@@ -22,12 +17,9 @@ import {
 } from "./protocol.ts";
 import type {
   CiLogRequest,
-  MergeRequest,
   PrCreateRequest,
   PrStatusRequest,
   PushRequest,
-  ReviewRecord,
-  ReviewRequest,
   SyncRequest,
   SyncReply,
   SyncPrReply,
@@ -38,17 +30,13 @@ import type {
 import { appFiles, basicAuth, createAppTokens, redactTokens } from "./github-app.ts";
 import { readHostFacts } from "./facts.ts";
 import type { GithubTokens, TokenScope } from "./github-app.ts";
-import { dropPushRecord, listPushRecords, readPushRecord, writePushRecord } from "./push-record.ts";
+import { dropPushRecord, listPushRecords, writePushRecord } from "./push-record.ts";
 import type { PushedBranch } from "./push-record.ts";
-import { appendReviewRecord, readReviewRecords } from "./review-records.ts";
-import { readFileAsText } from "./read-file.ts";
 
 export type ServerConfig = {
   socketPath: string;
   reposRoot: string;
-  reviewsDir: string;
   pushesDir: string;
-  protectedDir: string;
   ghPath: string;
   gitPath: string;
   github: GithubTokens;
@@ -76,9 +64,7 @@ export function defaultConfig(ghPath: string): ServerConfig {
   return {
     socketPath: facts.ghBrokerSocket,
     reposRoot: join(HOME, "repos"),
-    reviewsDir: join(HOME, "reviews"),
     pushesDir: join(HOME, "pushes"),
-    protectedDir: join(facts.root, "code/protected-paths"),
     ghPath,
     gitPath: "/usr/bin/git",
     github: createAppTokens({ files: appFiles(HOME) }),
@@ -495,7 +481,7 @@ async function handlePush(config: ServerConfig, req: PushRequest, signal: AbortS
           await writePushRecord(config.pushesDir, { repo: req.repo, branch: req.branch }, req.sha);
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
-          return { ...forward(push), exit: 1, stderr: `${push.stderr}gh-broker: pushed, but cannot write the push record, so auto merge refuses this head: ${redactTokens(message)}\n` };
+          return { ...forward(push), exit: 1, stderr: `${push.stderr}gh-broker: pushed, but cannot write the push record, so the branch cleanup will not delete this branch after its merge: ${redactTokens(message)}\n` };
         }
         return forward(push);
       } finally {
@@ -522,9 +508,7 @@ async function handlePrCreate(config: ServerConfig, req: PrCreateRequest, signal
 async function handlePrStatus(config: ServerConfig, req: PrStatusRequest, signal: AbortSignal): Promise<Reply> {
   const view = await viewPr(config, req.repo, req.number, PR_STATUS_FIELDS, signal);
   if ("reply" in view) return view.reply;
-  const records = await readReviewRecords(config.reviewsDir, { repo: req.repo, pr: req.number });
-  if (records.kind === "unreadable") return refused(`cannot read the review records of PR ${req.number}`);
-  return { exit: 0, stdout: `${JSON.stringify({ ...view.pr, reviewRecords: records.records }, null, 2)}\n`, stderr: "" };
+  return { exit: 0, stdout: `${JSON.stringify(view.pr, null, 2)}\n`, stderr: "" };
 }
 
 async function handleCiLog(config: ServerConfig, req: CiLogRequest, signal: AbortSignal): Promise<Reply> {
@@ -586,93 +570,6 @@ async function ghPages(config: ServerConfig, repo: string, path: string, signal:
   return { reply: refused(`cannot read ${path}`) };
 }
 
-async function readOptional(path: string): Promise<string | undefined> {
-  const file = await readFileAsText(path);
-  if (file.kind === "text") return file.text;
-  return file.kind === "missing" ? "" : undefined;
-}
-
-function changedFiles(items: unknown[], expected: unknown): string[] | undefined {
-  if (items.length !== expected) return undefined;
-  const files: string[] = [];
-  for (const item of items) {
-    if (!isRecord(item) || typeof item.filename !== "string") return undefined;
-    files.push(item.filename);
-    if (typeof item.previous_filename === "string") files.push(item.previous_filename);
-  }
-  return files;
-}
-
-async function handleReview(config: ServerConfig, req: ReviewRequest, signal: AbortSignal): Promise<Reply> {
-  const view = await viewPr(config, req.repo, req.number, "headRefName,isCrossRepository,headRefOid", signal);
-  if ("reply" in view) return view.reply;
-  const headRefusal = reviewHeadRefusal(view.pr, req.sha);
-  if (headRefusal !== undefined) return refused(headRefusal);
-  const record: ReviewRecord = {
-    repo: req.repo,
-    pr: req.number,
-    role: req.role,
-    head: req.sha,
-    verdict: req.verdict,
-    reason: req.reason,
-    at: new Date().toISOString(),
-  };
-  try {
-    await appendReviewRecord(config.reviewsDir, record);
-  } catch {
-    return refused("cannot write the review record");
-  }
-  return { exit: 0, stdout: `${JSON.stringify(record)}\n`, stderr: "" };
-}
-
-async function handleMerge(config: ServerConfig, req: MergeRequest, signal: AbortSignal): Promise<Reply> {
-  const base = await defaultBranch(config, req.repo, signal);
-  if (typeof base !== "string") return base;
-  const view = await viewPr(
-    config,
-    req.repo,
-    req.number,
-    "headRefName,baseRefName,isCrossRepository,headRefOid,statusCheckRollup,changedFiles",
-    signal,
-  );
-  if ("reply" in view) return view.reply;
-  const { pr } = view;
-  const headRefusal = prHeadRefusal(pr);
-  if (headRefusal !== undefined) return refused(headRefusal);
-  if (pr.baseRefName !== base) return refused("pull request base is not the default branch");
-  if (!isSha(pr.headRefOid)) return refused("cannot read pull request head commit");
-  if (!isAgentBranch(pr.headRefName)) return refused("pull request head is not an agent branch");
-  const listed = await ghPages(config, req.repo, `repos/${req.repo}/pulls/${req.number}/files`, signal);
-  const protectedText = await readOptional(join(config.protectedDir, req.repo));
-  if (protectedText === undefined) return refused("cannot read the protected paths list");
-  const refusal = mergeRefusal({
-    repo: req.repo,
-    pr: req.number,
-    branch: pr.headRefName,
-    head: pr.headRefOid,
-    pushed: await readPushRecord(config.pushesDir, { repo: req.repo, branch: pr.headRefName }),
-    checks: pr.statusCheckRollup,
-    records: await readReviewRecords(config.reviewsDir, { repo: req.repo, pr: req.number }),
-    files: "items" in listed ? changedFiles(listed.items, pr.changedFiles) : undefined,
-    protectedGlobs: parseProtectedPaths(protectedText),
-  });
-  if (refusal !== undefined) return refused(refusal);
-  const merge = await gh(
-    config,
-    req.repo,
-    "write",
-    ["pr", "merge", String(req.number), "--repo", req.repo, "--merge", "--match-head-commit", pr.headRefOid],
-    signal,
-  );
-  if (merge.exit !== 0) return forward(merge);
-  repoState(config, req.repo).checkedAt = undefined;
-  const reply = forward(merge);
-  const ended = await refreshRepo(config, req.repo, signal);
-  if ("ends" in ended) reply.stdout += ended.ends.map(describeEnd).join("");
-  else reply.stderr += `gh-broker: merged; the branch cleanup runs again within 30 s: ${ended.stderr.trim()}\n`;
-  return reply;
-}
-
 function dispatch(config: ServerConfig, req: Request, signal: AbortSignal): Promise<Reply> {
   switch (req.verb) {
     case "sync":
@@ -685,10 +582,6 @@ function dispatch(config: ServerConfig, req: Request, signal: AbortSignal): Prom
       return handlePrStatus(config, req, signal);
     case "ci-log":
       return handleCiLog(config, req, signal);
-    case "review":
-      return handleReview(config, req, signal);
-    case "merge":
-      return handleMerge(config, req, signal);
   }
 }
 

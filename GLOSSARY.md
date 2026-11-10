@@ -27,11 +27,11 @@ The hidden macOS user `ugauth` (`auth_user`, `host/facts`). It owns the model lo
 _Avoid_: auth root, ug-auth profile
 
 **gh-broker user**:
-The hidden macOS user `ugbroker` (`gh_broker_user`, `host/facts`). It runs the gh-broker as a LaunchDaemon and owns the app key, the mirrors, and the push and review records, in its home `gh_broker_home`. It holds no model login. The owner's user and the agent user cannot read its home (`docs/adr/0025-agent-input-runs-with-least-rights.md`).
+The hidden macOS user `ugbroker` (`gh_broker_user`, `host/facts`). It runs the gh-broker as a LaunchDaemon and owns the app key, the mirrors, and the push records, in its home `gh_broker_home`. It holds no model login. The owner's user and the agent user cannot read its home (`docs/adr/0025-agent-input-runs-with-least-rights.md`).
 _Avoid_: broker account, bot user
 
 **Data folder**:
-The owner's data folder `owner_data` (`host/facts`), mode 700. It holds a new gh-broker app key until setup moves it, the protected-paths lists, the backup settings and password, the agent's ssh key, the addresses file, `config-repo`, the pinned restic, and setup's copy of the service code. It does not hold the model logins; the login user owns those (`docs/adr/0017-one-omp-binary-and-no-ug-folder.md`).
+The owner's data folder `owner_data` (`host/facts`), mode 700. It holds a new gh-broker app key until setup moves it, the backup settings and password, the agent's ssh key, the addresses file, `config-repo`, the pinned restic, and setup's copy of the service code. It does not hold the model logins; the login user owns those (`docs/adr/0017-one-omp-binary-and-no-ug-folder.md`).
 _Avoid_: vault, keys dir
 
 **Owner's home**:
@@ -95,31 +95,11 @@ Runs today: a host service that does GitHub operations for the sessions. It hold
 _Avoid_: broker (alone), agent-gh, proxy
 
 **Reviewer role**:
-One of `code-review`, `security-review`, and `risk-review`. A reviewer is a skill from the config repo, not a separate session. Any omp session can run it, with the same home and trust level as every other session. It reads a PR with `gh-broker sync <owner/repo> --pr <n>`, and writes its verdict with `gh-broker review`, which names the role. It is a quality step, not a safety wall (`docs/adr/0011-one-agent-arena.md`). In redesign.
+One of `code-review`, `security-review`, and `risk-review`. A reviewer is a skill from the config repo, not a separate session. Any omp session can run it, with the same home and trust level as every other session. It reads a PR with `gh-broker sync <owner/repo> --pr <n>` and gives its findings to the author. It is a quality step, not a safety wall (`docs/adr/0011-one-agent-arena.md`).
 _Avoid_: reviewer session, review agent, bug bot, security bot
 
-**Review verdict**:
-A record that a reviewer writes with `gh-broker review <owner/repo> <n> <sha> <role> <verdict> [reason]`, for one PR and one full head sha. The verdict is `pass`, `manual`, or `block`. A `manual` or `block` needs a reason. `code-review` and `security-review` give `pass` or `block`. `risk-review` gives `pass` (auto) or `manual`. The gh-broker appends each verdict to the file of its PR in the gh-broker's `reviews` folder, and keeps the file after the merge. In redesign.
-_Avoid_: reviewer result, finding, approval
-
-**Attempt**:
-One head of a PR with a `block` from any reviewer role. Two roles that block one head count as one attempt. A head with no `block` is not an attempt. In redesign.
-_Avoid_: round, try
-
-**Hold**:
-A state of a PR that makes `gh-broker merge` refuse, with a reason that says the owner merges this PR on GitHub. A `manual` on any head makes a hold. So does each blocked head from the fourth attempt on, which holds every later head. A changed protected path on the head also makes a hold. Nothing in the gh-broker ends a hold. Runs today: the owner merges the PR on GitHub by hand. In redesign.
-_Avoid_: lock, freeze
-
-**Protected path**:
-A path that the auto merge never accepts: `.github/**`, every `CODEOWNERS` file, and each glob in the owner's protected-paths list for the repo, which setup copies from the data folder into the root code folder (`isProtectedPath`, `host/gh-broker/protocol.ts`). A rename counts its old path and its new path.
-_Avoid_: manual path, sensitive path
-
-**Auto merge**:
-Runs today: `gh-broker merge` does one kind of merge. It merges when the CI checks are green, the head is the push record of its branch, no hold applies, no `block` is on the head, and the latest verdict on the head from each of `code-review`, `security-review`, and `risk-review` is `pass`. The owner's approval plays no part. Every other PR is merged by the owner on GitHub. A repo whose code runs on the host, such as underground, gets no auto merge (onboarding check 6, `docs/SPEC.md`). In redesign.
-_Avoid_: auto tier, bot merge, owner-approved merge
-
 **Push record**:
-The commit that the gh-broker last pushed to one branch of one repo. A later push replaces it. The gh-broker keeps it in its `pushes` folder, in the gh-broker user's home, with the `/` in the branch name written as `%2F` (`dropPushRecord`, `host/gh-broker/push-record.ts`).
+The commit that the gh-broker last pushed to one branch of one repo. A later push replaces it. It serves only the branch cleanup: after the owner merges a PR on GitHub, the refresh deletes the remote agent branch within 30 s unless it moved, and drops the record (`refreshRepos`, `host/gh-broker/server.ts`; `dropPushRecord`, `host/gh-broker/push-record.ts`). The gh-broker keeps it in its `pushes` folder, in the gh-broker user's home, with the `/` in the branch name written as `%2F`.
 _Avoid_: push log, provenance record
 
 **gh-broker app**:
@@ -131,7 +111,7 @@ A token of the gh-broker app for one repo, which the gh-broker gets with the app
 _Avoid_: app token, gh-broker token, PAT
 
 **Onboarding checks**:
-The six checks in `docs/SPEC.md` that the owner makes on GitHub for each repo before agents merge alone in it. A repo is onboarded when the owner has made them and installed the gh-broker app on it. The app's installation is the list.
+The six checks in `docs/SPEC.md` that the owner makes on GitHub for each repo before agents work alone in it. A repo is onboarded when the owner has made them and installed the gh-broker app on it. The app's installation is the list.
 _Avoid_: onboarding list, repo setup
 
 ### Models
