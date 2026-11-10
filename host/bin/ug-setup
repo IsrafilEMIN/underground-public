@@ -17,7 +17,7 @@ case $src/ in
     exit 64
     ;;
 esac
-green=$(ug_paint 1 green) red=$(ug_paint 1 red) yellow=$(ug_paint 1 yellow) plain=$(ug_paint 1 off)
+green=$(ug_paint 1 green) yellow=$(ug_paint 1 yellow) plain=$(ug_paint 1 off)
 
 bin_dir="$HOME/.local/bin"
 root=$(ug_fact root)
@@ -58,30 +58,6 @@ done
 
 cleanup=()
 trap '[[ ${#cleanup[@]} -eq 0 ]] || rm -rf "${cleanup[@]}"' EXIT
-
-run_mac_only_tests() {
-  local report="$data/state/mac-tests.tap" status=0 pass fail skip problems
-  install -d -m 700 "$data" "$data/state"
-  rm -f "$report"
-  ug_say ok "mac tests" "the tests that only this mac can run"
-  (cd "$src" && "$node_bin" --test --test-reporter=tap --test-reporter-destination="$report" \
-    --test-name-pattern='\[mac\]' tests/broker/*.test.ts tests/host/*.test.ts) || status=$?
-  [[ -f $report ]] || ug_die ug-setup "mac tests: node wrote no report (exit $status), so nothing is set up"
-  awk -v pass="$green" -v fail="$red" -v skip="$yellow" -v off="$plain" -f "$src/host/lib/mac-tests.awk" "$report"
-  fail=$(grep -cE '^not ok [0-9]+ - ' "$report") || true
-  skip=$(grep -cE '^ok [0-9]+ - \[mac\] .* # SKIP' "$report") || true
-  pass=$(grep -cE '^ok [0-9]+ - \[mac\] ' "$report") || true
-  pass=$(( ${pass:-0} - ${skip:-0} ))
-  if (( status != 0 || ${fail:-0} > 0 || ${skip:-0} > 0 )); then
-    problems=""
-    (( ${fail:-0} == 0 )) || problems="$fail failed"
-    (( ${skip:-0} == 0 )) || problems="${problems:+$problems, }$skip skipped"
-    [[ -n $problems ]] || problems="node exited $status"
-    ug_die ug-setup "mac tests: $problems, so nothing is set up; full report: $report"
-  fi
-  printf '%smac tests: %s passed%s\n' "$green" "$pass" "$plain"
-}
-run_mac_only_tests
 
 omp_stage=""
 stage_omp() {

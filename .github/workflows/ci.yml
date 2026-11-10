@@ -16,10 +16,6 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-
       - name: Install tools
         run: |
           sudo apt-get update
@@ -38,20 +34,26 @@ jobs:
           for f in "${sh_files[@]}"; do sh -n "$f"; done
           shellcheck "${bash_files[@]}"
           if [ ${#sh_files[@]} -gt 0 ]; then shellcheck -s sh "${sh_files[@]}"; fi
-          
+
       - name: Launchd plist XML
         run: xmllint --noout host/launchd/*.plist host/agent/*.plist
-        
-      - name: Broker tests
-        run: |
-          set -euo pipefail
-          if [ -d tests/broker ]; then
-            node --test tests/broker/*.test.ts
-          fi
 
-      - name: Host tests
+  tests:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Broker and host tests
         run: |
           set -euo pipefail
-          if [ -d tests/host ]; then
-            node --test tests/host/*.test.ts
+          node --test --test-reporter=tap tests/broker/*.test.ts tests/host/*.test.ts | tee tests.tap
+          if grep -E '^ok [0-9]+ - \[mac\] .* # SKIP' tests.tap; then
+            echo "a [mac] test skipped, so it checked nothing" >&2
+            exit 1
           fi
