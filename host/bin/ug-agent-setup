@@ -397,3 +397,17 @@ printf '%s ALL=(root) NOPASSWD: %s\n' "$owner" "$root/bin/agent-home-tar" >"$sud
 visudo -cf "$sudoers_tmp" >/dev/null || die "the sudoers rule for the backup does not check; nothing was installed"
 install -m 440 -o root -g wheel "$sudoers_tmp" /etc/sudoers.d/underground-backup
 ug_say ok backup "$root/bin/agent-home-tar, and sudo for $owner to run it (/etc/sudoers.d/underground-backup)"
+
+label=com.underground.agent-pf
+auth_broker_port=$(ug_fact auth_broker_port)
+for name in agent-pf.conf agent-pf-load "$label.plist"; do
+  render "host/agent/$name"
+done
+pfctl -n -f "$rendered_dir/agent-pf.conf" >/dev/null 2>&1 || die "pfctl rejects host/agent/agent-pf.conf; the installed firewall rule is unchanged"
+install -m 444 -o root -g wheel "$rendered_dir/agent-pf.conf" "$root/pf.conf"
+install -m 555 -o root -g wheel "$rendered_dir/agent-pf-load" "$root/pf-load"
+out=$(ug_trusted_daemon "$rendered_dir/$label.plist") || die "a wall is open in the service $label: $out, so a user with fewer rights could change what it runs"
+fp=$(ug_fingerprint "$rendered_dir/$label.plist" "$root/pf.conf" "$root/pf-load") || die "cannot read the inputs of $label"
+out=$(ug_ensure_service system "$label" "$rendered_dir/$label.plist" "/Library/LaunchDaemons/$label.plist" "$root/state/$label.fingerprint" "$fp" ug_pf_refuses_listener "$(id -u "$agent_user")" "$auth_broker_port") ||
+  die "agent firewall rule: $out; check it with: sudo pfctl -a com.apple/underground -sr"
+ug_say "$(ug_service_kind "$out")" "firewall: $agent_user cannot be the listener on the auth broker's port $auth_broker_port" "$out"

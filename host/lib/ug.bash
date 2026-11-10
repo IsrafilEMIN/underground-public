@@ -266,3 +266,9 @@ ug_ensure_service() {
   printf '%s\n' "$fp" >"$stamp"
   printf 'restarted, answers\n'
 }
+
+ug_pf_refuses_listener() {
+  local uid=$1 port=$2
+  pfctl -s info 2>/dev/null | grep -q '^Status: Enabled' || return 1
+  pfctl -a com.apple/underground -sr 2>/dev/null | grep -qx "block return in quick proto tcp from any to any port = $port user = $uid"
+}

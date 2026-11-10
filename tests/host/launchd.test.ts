@@ -127,6 +127,26 @@ test("the backup job runs once a day at 20:00, not at load, and logs in the data
   assert.match(text, /<key>StandardErrorPath<\/key>\s*<string>@DATA@\/backup\/backup\.log<\/string>/);
 });
 
+test("the firewall check passes only when pf is on and the anchor holds the block line for that user and port", async (t) => {
+  const dir = await tempDir(join(tmpdir(), "ug-pf-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const bin = join(dir, "bin");
+  await mkdir(bin);
+  await writeFile(join(bin, "pfctl"), `#!/bin/sh\ncase "$*" in\n  "-s info") cat ${dir}/info ;;\n  "-a com.apple/underground -sr") cat ${dir}/rules ;;\n  *) exit 64 ;;\nesac\n`);
+  await chmod(join(bin, "pfctl"), 0o755);
+  const line = (uid: number, port: number) => `block return in quick proto tcp from any to any port = ${port} user = ${uid}\n`;
+  const check = async (status: string, rules: string) => {
+    await writeFile(join(dir, "info"), `No ALTQ support in kernel\nStatus: ${status} for 2 days 18:54:40           Debug: Urgent\n`);
+    await writeFile(join(dir, "rules"), rules);
+    return spawnSync("bash", ["-c", `source ${LIB}; ug_pf_refuses_listener 502 8765`], { env: { PATH: `${bin}:/usr/bin:/bin` }, encoding: "utf8" }).status;
+  };
+  assert.equal(await check("Enabled", line(502, 8765)), 0);
+  assert.equal(await check("Disabled", line(502, 8765)), 1, "a loaded rule does nothing while pf is off");
+  assert.equal(await check("Enabled", line(501, 8765)), 1, "the line names another user");
+  assert.equal(await check("Enabled", line(502, 18765)), 1, "the line names another port");
+  assert.equal(await check("Enabled", ""), 1, "the anchor is empty");
+});
+
 async function fakeLaunchd(t: { after: (fn: () => unknown) => void }, pollsAfterBootout: number) {
   const dir = await tempDir(join(tmpdir(), "ug-launchd-"));
   t.after(() => rm(dir, { recursive: true, force: true }));
