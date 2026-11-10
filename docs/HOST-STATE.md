@@ -91,7 +91,7 @@ No code makes these files. Setup or the service reads them as they are.
 
 | path | what it is for | who writes it |
 |---|---|---|
-| `/Library/LaunchDaemons/com.underground.{auth-broker,auth-gateway,usage-broker,agent-sshd,agent-refresh}.plist` | The login services, the agent sshd, and the clone refresh. Before setup loads one, it checks each program, folder, and `PATH` entry that the service names: root or the service's own user must own it and each folder above it, and no group or other user may write it (`ug_trusted_daemon`, `host/lib/ug.bash:206`). If not, setup stops. | `host/bin/ug-agent-setup:307-357` |
+| `/Library/LaunchDaemons/com.underground.{auth-broker,auth-gateway,usage-broker,agent-sshd,agent-refresh}.plist` | The login services, the agent sshd, and the clone refresh. Before setup loads one, it checks each program, folder, and `PATH` entry that the service names: root or the service's own user must own it and each folder above it, and no group, other user, or access rule may let another user write it (`ug_trusted_daemon`, `host/lib/ug.bash:208`). If not, setup stops. | `host/bin/ug-agent-setup:307-357` |
 | `~/Library/LaunchAgents/com.underground.{gh-broker,backup}.plist` | Your gh-broker and the nightly backup | `host/bin/ug-setup:230-254` |
 | `/etc/ssh/sshd_config.d/010-underground-deny-ugagent.conf` | It keeps `ugagent` out of the system sshd. | `host/bin/ug-agent-setup:176-183` |
 | `/etc/sudoers.d/underground-backup` | It lets you run `agent-home-tar` with no password. | `host/bin/ug-agent-setup:369-375` |

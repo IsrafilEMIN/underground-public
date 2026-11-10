@@ -57,14 +57,22 @@ test(
     const me = spawnSync("id", ["-un"], { encoding: "utf8" }).stdout.trim();
     const bin = join(dir, "bin");
     const open = join(dir, "open");
+    const ruled = join(dir, "ruled");
     for (const [folder, mode] of [
       [bin, 0o755],
       [open, 0o775],
+      [ruled, 0o755],
     ] as const) {
       await mkdir(folder);
       await writeFile(join(folder, "tool"), "");
       await chmod(join(folder, "tool"), 0o755);
       await chmod(folder, mode);
+    }
+    for (const [text, folder] of [
+      ["everyone deny chown", bin],
+      ["everyone allow add_file", ruled],
+    ]) {
+      assert.equal(spawnSync("chmod", ["+a", text, folder]).status, 0, text);
     }
     await symlink(join(bin, "tool"), join(dir, "link"));
     let n = 0;
@@ -98,6 +106,10 @@ test(
     const relative = await check({ user: me, path: "bin:/usr/bin" });
     assert.equal(relative.status, 1);
     assert.match(relative.stdout, /bin is not an absolute path/);
+
+    const byRule = await check({ user: me, path: ruled });
+    assert.equal(byRule.status, 1, "mode 755 with an access rule that lets every user add a file");
+    assert.match(byRule.stdout, /ruled has an access rule that lets a user change it: .*allow add_file/);
 
     if (me !== "root") {
       const other = await check({});
