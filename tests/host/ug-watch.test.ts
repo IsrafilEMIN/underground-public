@@ -13,6 +13,7 @@ const PING = "https://hc-ping.example/uuid";
 const FAKE_CURL = `#!/bin/sh
 printf '%s\\n' "$*" >>"$HOME/curl"
 case "$*" in *--data-binary*) cat >>"$HOME/curl-body" ;; esac
+case "$*" in *hc-ping*) exit 0 ;; *healthz*) ;; *) exit 22 ;; esac
 case "$*" in *:18765*) [ ! -e "$HOME/usage-down" ] ;; *:4000*) [ ! -e "$HOME/gateway-down" ] ;; *) exit 0 ;; esac
 `;
 
