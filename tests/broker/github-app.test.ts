@@ -9,11 +9,10 @@ import { afterEach, beforeEach, test } from "node:test";
 import { appFiles, appJwt, createAppTokens, redactTokens } from "../../host/gh-broker/github-app.ts";
 import type { AppFiles, Fetch, GithubTokens } from "../../host/gh-broker/github-app.ts";
 import type { Reply } from "../../host/gh-broker/protocol.ts";
-import { handleRequest } from "../../host/gh-broker/server.ts";
 import type { ServerConfig } from "../../host/gh-broker/server.ts";
 import { FAKE_TOKEN, fakeTokens, githubRemote, tokenRemote } from "./fake-app.ts";
 import { tempDir } from "../temp.ts";
-import { REPO, brokerConfig, git, initMirror, initRepo, seedMain } from "./fixture.ts";
+import { REPO, brokerConfig, git, initMirror, initRepo, request, seedMain } from "./fixture.ts";
 
 const NOW = Date.parse("2026-10-31T12:00:00Z");
 const basic = (token: string): string => Buffer.from(`x-access-token:${token}`).toString("base64");
@@ -342,11 +341,11 @@ function rotatingTokens(revoked = `${FAKE_TOKEN}0`): GithubTokens {
 }
 
 function sync(): Promise<Reply> {
-  return handleRequest(config, { verb: "sync", repo: REPO }, new AbortController().signal);
+  return request(config, { verb: "sync" });
 }
 
 function prCreate(): Promise<Reply> {
-  return handleRequest(config, { verb: "pr-create", repo: REPO, head: "agent/x", title: "t", body: "" }, new AbortController().signal);
+  return request(config, { verb: "pr-create", head: "agent/x", title: "t", body: "" });
 }
 
 async function setUp(github: GithubTokens): Promise<void> {

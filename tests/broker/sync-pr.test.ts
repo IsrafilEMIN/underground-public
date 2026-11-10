@@ -14,7 +14,7 @@ import type { ServerConfig } from "../../host/gh-broker/server.ts";
 import type { GithubTokens, TokenScope } from "../../host/gh-broker/github-app.ts";
 import { FAKE_TOKEN } from "./fake-app.ts";
 import { tempDir } from "../temp.ts";
-import { GIT_ENV, REPO, brokerConfig, commit, git, initMirror, initRepo, seedMain } from "./fixture.ts";
+import { GIT_ENV, REPO, brokerConfig, commit, git, initMirror, initRepo, request, seedMain } from "./fixture.ts";
 
 const CLIENT = join(import.meta.dirname, "../../host/gh-broker/client.ts");
 const execFileAsync = promisify(execFile);
@@ -132,7 +132,7 @@ test("the gh-broker refuses a PR sync when GitHub sends a commit that is not hea
   const head = await commit(work, "a.txt");
   const stale = await commit(work, "b.txt");
   await openPr(head, stale);
-  const reply = await handleRequest(config, { verb: "sync", repo: REPO, pr: 7 }, new AbortController().signal);
+  const reply = await request(config, { verb: "sync", pr: 7 });
   assert.deepEqual(reply, {
     exit: 2,
     refused: `PR 7 head moved during the sync: headRefOid is ${head}, GitHub sent ${stale}; run sync again`,
@@ -147,7 +147,7 @@ test("a PR sync gives git only the token that can read code, never the token tha
   config.github = { token: (_repo, _signal, scope = "app") => Promise.resolve(scope === "contents-read" ? read : FAKE_TOKEN), dropIfRejected: () => Promise.resolve(false) };
   config.gitPath = join(root, "git");
   await writeFile(config.gitPath, `#!/bin/sh\nprintf '%s\\n' "$GIT_CONFIG_VALUE_0" >> "$HOME/git-headers"\nexec '${real}' "$@"\n`, { mode: 0o755 });
-  const reply = await handleRequest(config, { verb: "sync", repo: REPO, pr: 7 }, new AbortController().signal);
+  const reply = await request(config, { verb: "sync", pr: 7 });
   assert.equal(reply.exit, 0, JSON.stringify(reply));
   const headers = (await readFile(join(config.home, "git-headers"), "utf8")).split("\n").filter((line) => line !== "");
   assert.deepEqual([...new Set(headers)], [`Authorization: Basic ${Buffer.from(`x-access-token:${read}`).toString("base64")}`]);
@@ -218,7 +218,7 @@ test("a launch sync (--cached) within 40 s of the last check gets main from the 
   assert.equal(cached.stdout, `origin/main is now ${first}\n`, "a check 40 s old still counts as current");
 
   now += 1;
-  const reply = await handleRequest(config, { verb: "sync", repo: REPO, have: [first], cached: true }, new AbortController().signal);
+  const reply = await request(config, { verb: "sync", have: [first], cached: true });
   assert.ok("head" in reply && reply.head === moved, JSON.stringify(reply));
   const bundle = "bundle_b64" in reply ? reply.bundle_b64 : undefined;
   assert.ok(bundle !== undefined, JSON.stringify(reply));
@@ -264,7 +264,7 @@ test("the refresh asks GitHub only with a token that can read code, and skips a 
   config.now = () => now;
   const { tokens, scopes } = scopedTokens();
   config.github = tokens;
-  assert.equal((await handleRequest(config, { verb: "sync", repo: REPO }, new AbortController().signal)).exit, 0);
+  assert.equal((await request(config, { verb: "sync" })).exit, 0);
   scopes.length = 0;
   await moveMain("a.txt");
   now += 30_000;
