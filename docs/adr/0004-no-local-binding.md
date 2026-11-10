@@ -44,4 +44,4 @@ Changed by `0015-box-layout.md` (owner decision, 2026-11-07): there is no sessio
 
 ## Amendment 2026-11-08: paths
 
-The addresses file is `~/.local/share/underground/addresses` in the data folder, and setup writes it only once (`write_addresses`, `host/bin/ug-setup`). The root copy is `/Library/Underground/addresses` (`start_login_services`, `host/bin/ug-agent-setup`), which the usage broker reads (`addressesFile`, `host/gh-broker/usage-broker.ts`). This replaces `~/.ug/host/addresses` in the amendment of 2026-10-31.
+The addresses file is `~/.local/share/underground/addresses` in the data folder, and setup writes it only once (`write_addresses`, `host/bin/ug-setup`). The root copy is `/Library/Underground/code/addresses` since 2026-11-10 (`code.new`, `host/bin/ug-agent-setup`; `0024-state-over-incident-lists.md`), which the usage broker reads (`addressesFile`, `host/gh-broker/usage-broker.ts`). This replaces `~/.ug/host/addresses` in the amendment of 2026-10-31.

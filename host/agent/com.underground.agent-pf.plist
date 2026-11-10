@@ -6,7 +6,7 @@
   <string>com.underground.agent-pf</string>
   <key>ProgramArguments</key>
   <array>
-    <string>@ROOT@/pf-load</string>
+    <string>@ROOT@/code/pf-load</string>
   </array>
   <key>StartInterval</key>
   <integer>30</integer>

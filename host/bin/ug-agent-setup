@@ -33,6 +33,7 @@ owner_home=/Users/$owner
 ug_check_checkout "$src" ug-agent-setup || exit 1
 
 root=$(ug_fact root)
+code=$root/code
 data=$owner_home/$(ug_fact owner_data)
 agent_user=$(ug_fact agent_user)
 agent_home=$(ug_fact agent_home)
@@ -41,6 +42,7 @@ auth_user=$(ug_fact auth_user)
 auth_home=$(ug_fact auth_home)
 omp_group=$(ug_fact omp_group)
 agent_port=$(ug_fact agent_sshd_port)
+auth_broker_port=$(ug_fact auth_broker_port)
 socket=$root/$(ug_fact gh_broker_socket)
 bin_dir=$owner_home/.local/bin
 key_dir=$data/agent-ssh
@@ -131,7 +133,7 @@ fi
 
 omp_dir=$root/omp/$omp_pin
 omp_bin=$omp_dir/omp
-install -d -m 755 -o root -g wheel "$root" "$root/omp" "$omp_dir" "$root/bin" "$root/gh-broker" "$root/authorized_keys"
+install -d -m 755 -o root -g wheel "$root" "$root/omp" "$omp_dir"
 if [[ -n $staged ]]; then
   [[ -f $staged && ! -L $staged ]] || die "the downloaded omp $staged is not a file"
   omp_tmp=$(mktemp "$omp_dir/.omp.XXXXXX")
@@ -148,20 +150,10 @@ ug_ensure_owner_mode "$omp_bin" "root:$omp_group" 0550 || die "cannot make $omp_
 printf '%s\n' "$omp_sha" >"$omp_dir/.omp.sha256.tmp"
 install -m 444 -o root -g wheel "$omp_dir/.omp.sha256.tmp" "$omp_bin.sha256"
 rm -f "$omp_dir/.omp.sha256.tmp"
-ln -sfn "$omp_bin" "$root/bin/omp"
 for old in "$root"/omp/*; do
   [[ $old == "$omp_dir" ]] || rm -rf "$old"
 done
-cat >"$root/bin/gh-broker.tmp" <<EOF
-#!/bin/sh
-BUN_BE_BUN=1 UG_GH_BROKER_SOCKET=$socket exec $root/omp/$omp_pin/omp $root/gh-broker/client.ts "\$@"
-EOF
-install -m 555 -o root -g wheel "$root/bin/gh-broker.tmp" "$root/bin/gh-broker"
-rm -f "$root/bin/gh-broker.tmp"
-install -m 444 -o root -g wheel "$src/host/gh-broker/client.ts" "$root/gh-broker/client.ts"
-install -m 444 -o root -g wheel "$src/host/gh-broker/protocol.ts" "$root/gh-broker/protocol.ts"
-install -m 444 -o root -g wheel "$src/host/gh-broker/sweep.ts" "$root/gh-broker/sweep.ts"
-rm -rf "$root/broker" "$root/bin/broker" "$root/run/broker.sock" "$root/run/agent-sshd.pid"
+ug_say ok "$root/omp" "omp $omp_pin installed, old versions removed"
 
 rendered_dir=$(mktemp -d)
 cleanup+=("$rendered_dir")
@@ -171,19 +163,6 @@ render() {
   shift
   out=$(ug_render "$rendered_dir/${template##*/}" "$src/$template" "$template" "$@") || die "$out"
 }
-
-install -m 444 -o root -g wheel "$src/host/facts" "$root/facts"
-for name in pin.sb agent-session agent-start agent-refresh sshd_config; do
-  render "host/agent/$name"
-done
-/usr/bin/sandbox-exec -f "$rendered_dir/pin.sb" /usr/bin/true || die "host/agent/pin.sb does not load under sandbox-exec; the installed pin is unchanged"
-install -m 444 -o root -g wheel "$rendered_dir/pin.sb" "$root/pin.sb"
-for name in agent-session agent-start agent-refresh; do
-  install -m 555 -o root -g wheel "$rendered_dir/$name" "$root/$name"
-done
-install -m 444 -o root -g wheel "$rendered_dir/sshd_config" "$root/sshd_config"
-install -m 444 -o root -g wheel "$src/host/agent/config-names" "$root/config-names"
-ug_say ok "$root" "omp $omp_pin (old versions removed), facts, pin.sb, bin/, gh-broker, agent-session, agent-start, agent-refresh, sshd_config installed"
 
 install -d -m 710 -o "$owner" -g "$agent_group" "$root/run"
 
@@ -213,9 +192,33 @@ chown "$owner" "$owner_key" "$owner_key.pub"
 chmod 600 "$owner_key"
 ug_say ok "owner key for the agent login" "$owner_key"
 
-{ cut -d ' ' -f 1,2 "$owner_key.pub"; } >"$root/authorized_keys/$agent_user.tmp"
-install -m 444 -o root -g wheel "$root/authorized_keys/$agent_user.tmp" "$root/authorized_keys/$agent_user"
-rm -f "$root/authorized_keys/$agent_user.tmp"
+gateway=$(sed -n 's/^gateway=//p' "$data/addresses" 2>/dev/null) || true
+engine=$(sed -n 's/^engine=//p' "$data/addresses" 2>/dev/null) || true
+[[ $gateway =~ $ip_port && $engine =~ $ip_port ]] || die "$data/addresses needs a gateway=<ip>:<port> and an engine=<ip>:<port> line"
+
+for name in pin.sb agent-session agent-start agent-refresh sshd_config agent-home-tar agent-pf.conf agent-pf-load; do
+  render "host/agent/$name"
+done
+/usr/bin/sandbox-exec -f "$rendered_dir/pin.sb" /usr/bin/true || die "host/agent/pin.sb does not load under sandbox-exec; the installed code is unchanged"
+pfctl -n -f "$rendered_dir/agent-pf.conf" >/dev/null 2>&1 || die "pfctl rejects host/agent/agent-pf.conf; the installed code is unchanged"
+rm -rf "$code.new" "$code.old"
+install -d -m 755 -o root -g wheel "$code.new" "$code.new/bin" "$code.new/gh-broker" "$code.new/authorized_keys"
+ln -s "$omp_bin" "$code.new/bin/omp"
+printf '#!/bin/sh\nBUN_BE_BUN=1 UG_GH_BROKER_SOCKET=%s exec %s %s "$@"\n' "$socket" "$omp_bin" "$code/gh-broker/client.ts" >"$code.new/bin/gh-broker"
+install -m 555 -o root -g wheel "$rendered_dir/agent-home-tar" "$code.new/bin/agent-home-tar"
+install -m 444 -o root -g wheel "$src"/host/gh-broker/*.ts "$code.new/gh-broker/"
+install -m 444 -o root -g wheel "$src/host/facts" "$src/host/agent/config-names" "$data/addresses" "$rendered_dir/pin.sb" "$rendered_dir/sshd_config" "$code.new/"
+install -m 444 -o root -g wheel "$rendered_dir/agent-pf.conf" "$code.new/pf.conf"
+install -m 555 -o root -g wheel "$rendered_dir/agent-pf-load" "$code.new/pf-load"
+install -m 555 -o root -g wheel "$rendered_dir/agent-session" "$rendered_dir/agent-start" "$rendered_dir/agent-refresh" "$code.new/"
+cut -d ' ' -f 1,2 "$owner_key.pub" >"$code.new/authorized_keys/$agent_user"
+chown -hR root:wheel "$code.new"
+chmod 555 "$code.new/bin/gh-broker"
+chmod 444 "$code.new/authorized_keys/$agent_user"
+[[ ! -e $code ]] || mv "$code" "$code.old"
+mv "$code.new" "$code"
+rm -rf "$code.old"
+ug_say ok "$code" "built fresh from $src and swapped in: facts, pin.sb, pf.conf, pf-load, agent-session, agent-start, agent-refresh, sshd_config, config-names, addresses, authorized_keys, bin/, gh-broker/"
 
 host_key=$(cut -d ' ' -f 1,2 "$root/ssh_host_ed25519_key.pub")
 printf '[127.0.0.1]:%s %s\n' "$agent_port" "$host_key" >"$known_hosts.tmp"
@@ -314,20 +317,9 @@ fi
 stage_config
 
 start_login_services() {
-  local owner_uid gateway engine label f url err out fp inputs broker_out=""
-  owner_uid=$(id -u "$owner")
-  gateway=$(sed -n 's/^gateway=//p' "$data/addresses")
-  engine=$(sed -n 's/^engine=//p' "$data/addresses")
-  [[ $gateway =~ $ip_port && $engine =~ $ip_port ]] || die "$data/addresses needs a gateway=<ip>:<port> and an engine=<ip>:<port> line"
-  install -d -m 755 -o root -g wheel "$root/usage-broker"
-  for f in usage-broker.ts addresses.ts protocol.ts facts.ts; do
-    install -m 444 -o root -g wheel "$src/host/gh-broker/$f" "$root/usage-broker/$f"
-  done
-  install -m 444 -o root -g wheel "$data/addresses" "$root/addresses"
+  local label url out fp inputs broker_out=""
   install -d -m 700 -o root -g wheel "$root/state"
   for label in com.underground.auth-broker com.underground.auth-gateway com.underground.usage-broker; do
-    err=$(ug_stop_service "gui/$owner_uid/$label") || die "$err"
-    rm -f "$owner_home/Library/LaunchAgents/$label.plist"
     render "host/agent/$label.plist" -e "s|@OMP@|$omp_bin|g" -e "s|@GATEWAY@|$gateway|g" -e "s|@ENGINE@|$engine|g"
     rendered=$rendered_dir/$label.plist
     inputs=()
@@ -344,7 +336,7 @@ start_login_services() {
         ;;
       com.underground.usage-broker)
         url=http://127.0.0.1:$(ug_fact usage_broker_port)/v1/healthz
-        inputs=("$omp_bin.sha256" "$root/facts" "$root/usage-broker"/*.ts)
+        inputs=("$omp_bin.sha256" "$code/facts" "$code"/gh-broker/*.ts)
         ;;
     esac
     out=$(ug_trusted_daemon "$rendered") || die "a wall is open in the service $label: $out, so a user with fewer rights could change what it runs"
@@ -360,14 +352,14 @@ start_login_services() {
 }
 start_login_services
 
-/usr/sbin/sshd -t -f "$root/sshd_config" || die "sshd rejects $root/sshd_config; nothing was loaded"
+/usr/sbin/sshd -t -f "$code/sshd_config" || die "sshd rejects $code/sshd_config; nothing was loaded"
 for label in com.underground.agent-sshd com.underground.agent-refresh; do
   render "host/agent/$label.plist"
   out=$(ug_trusted_daemon "$rendered_dir/$label.plist") || die "a wall is open in the service $label: $out, so a user with fewer rights could change what it runs"
 done
 
 label=com.underground.agent-sshd
-fp=$(ug_fingerprint "$rendered_dir/$label.plist" "$root/sshd_config" "$root/ssh_host_ed25519_key.pub") || die "cannot read the inputs of the agent sshd"
+fp=$(ug_fingerprint "$rendered_dir/$label.plist" "$code/sshd_config" "$root/ssh_host_ed25519_key.pub") || die "cannot read the inputs of the agent sshd"
 out=$(ug_ensure_service system "$label" "$rendered_dir/$label.plist" "/Library/LaunchDaemons/$label.plist" "$root/state/$label.fingerprint" "$fp" ug_port_answers 127.0.0.1 "$agent_port") ||
   die "agent sshd: $out; check it with: sudo launchctl print system/$label"
 ug_say "$(ug_service_kind "$out")" "agent sshd at 127.0.0.1:$agent_port" "$out"
@@ -389,25 +381,28 @@ ln -sfn "$agent_dir/bin/ug-agent" "$bin_dir/omp"
 chown -h "$owner" "$bin_dir/omp"
 ug_say ok "omp on PATH" "$bin_dir/omp, the agent's launcher"
 
-render host/agent/agent-home-tar
-install -m 555 -o root -g wheel "$rendered_dir/agent-home-tar" "$root/bin/agent-home-tar"
 sudoers_tmp=$(mktemp) || die "cannot make a temp file for the backup sudoers rule"
 cleanup+=("$sudoers_tmp")
-printf '%s ALL=(root) NOPASSWD: %s\n' "$owner" "$root/bin/agent-home-tar" >"$sudoers_tmp"
+printf '%s ALL=(root) NOPASSWD: %s\n' "$owner" "$code/bin/agent-home-tar" >"$sudoers_tmp"
 visudo -cf "$sudoers_tmp" >/dev/null || die "the sudoers rule for the backup does not check; nothing was installed"
 install -m 440 -o root -g wheel "$sudoers_tmp" /etc/sudoers.d/underground-backup
-ug_say ok backup "$root/bin/agent-home-tar, and sudo for $owner to run it (/etc/sudoers.d/underground-backup)"
+ug_say ok backup "$code/bin/agent-home-tar, and sudo for $owner to run it (/etc/sudoers.d/underground-backup)"
 
 label=com.underground.agent-pf
-auth_broker_port=$(ug_fact auth_broker_port)
-for name in agent-pf.conf agent-pf-load "$label.plist"; do
-  render "host/agent/$name"
-done
-pfctl -n -f "$rendered_dir/agent-pf.conf" >/dev/null 2>&1 || die "pfctl rejects host/agent/agent-pf.conf; the installed firewall rule is unchanged"
-install -m 444 -o root -g wheel "$rendered_dir/agent-pf.conf" "$root/pf.conf"
-install -m 555 -o root -g wheel "$rendered_dir/agent-pf-load" "$root/pf-load"
+render "host/agent/$label.plist"
 out=$(ug_trusted_daemon "$rendered_dir/$label.plist") || die "a wall is open in the service $label: $out, so a user with fewer rights could change what it runs"
-fp=$(ug_fingerprint "$rendered_dir/$label.plist" "$root/pf.conf" "$root/pf-load") || die "cannot read the inputs of $label"
+fp=$(ug_fingerprint "$rendered_dir/$label.plist" "$code/pf.conf" "$code/pf-load") || die "cannot read the inputs of $label"
 out=$(ug_ensure_service system "$label" "$rendered_dir/$label.plist" "/Library/LaunchDaemons/$label.plist" "$root/state/$label.fingerprint" "$fp" ug_pf_refuses_listener "$(id -u "$agent_user")" "$auth_broker_port") ||
   die "agent firewall rule: $out; check it with: sudo pfctl -a com.apple/underground -sr"
 ug_say "$(ug_service_kind "$out")" "firewall: $agent_user cannot be the listener on the auth broker's port $auth_broker_port" "$out"
+
+for item in "$root"/* "$root"/.[!.]*; do
+  [[ -e $item || -L $item ]] || continue
+  case ${item##*/} in
+    omp | code | config | state | run | ssh_host_ed25519_key | ssh_host_ed25519_key.pub) ;;
+    *)
+      rm -rf "$item"
+      ug_say changed "$item" "deleted; this version of underground does not install it"
+      ;;
+  esac
+done

@@ -1,6 +1,6 @@
 #!/bin/sh
 set -eu
 
-/sbin/pfctl -q -a com.apple/underground -f @ROOT@/pf.conf
+/sbin/pfctl -q -a com.apple/underground -f @ROOT@/code/pf.conf
 
 /sbin/pfctl -s info 2>/dev/null | /usr/bin/grep -q '^Status: Enabled' || /sbin/pfctl -q -E

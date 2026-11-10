@@ -1,19 +1,20 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { realpath, rename, stat, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { isAgentBranch, isDefaultBranchName } from "./protocol.ts";
 
 export const KEPT_FILE = "ug-kept.json";
+export const HELD_DIR = "ug-held";
 export const MIN_AGE_MS = 10 * 60 * 1000;
+export const HOLD_MS = 14 * 24 * 60 * 60 * 1000;
 
-const CACHE_NAMES: Record<string, true> = { node_modules: true, ".DS_Store": true };
 const LSOF = "/usr/sbin/lsof";
 
 const execFileAsync = promisify(execFile);
 
-export type KeptReason = "unsaved files" | "ignored files" | "not in main" | "cannot remove";
+export type KeptReason = "unsaved files" | "not in main" | "cannot remove";
 export type Kept = { branch: string; worktree?: string; reason: KeptReason; detail: string; parked: boolean };
 export type KeptFile = { at: string; kept: Kept[] };
 export type Probe = () => Promise<{ ok: true; cwds: string[] } | { ok: false; reason: string }>;
@@ -86,7 +87,7 @@ async function treeState(path: string): Promise<{ dirty: string[]; ignored: stri
     const code = entry.slice(0, 2);
     const file = entry.slice(3);
     if (code === "!!") {
-      if (!file.replace(/\/$/, "").split("/").some((part) => CACHE_NAMES[part] === true)) ignored.push(file);
+      ignored.push(file.replace(/\/$/, ""));
     } else {
       dirty.push(file);
       if (code[0] === "R" || code[0] === "C") i++;
@@ -109,6 +110,36 @@ async function parkedBranches(cwd: string): Promise<Set<string>> {
     if (match !== null) parked.add(match[1]);
   }
   return parked;
+}
+
+async function holdIgnored(commonDir: string, tree: string, branch: string, files: string[], now: number): Promise<{ ok: true; dir: string } | { ok: false; error: string }> {
+  const dir = join(commonDir, HELD_DIR, `${now}-${encodeURIComponent(branch)}`);
+  try {
+    for (const file of files) {
+      const to = join(dir, file);
+      await mkdir(dirname(to), { recursive: true, mode: 0o700 });
+      await rename(join(tree, file), to);
+    }
+    return { ok: true, dir };
+  } catch (error) {
+    return { ok: false, error: `cannot move its ignored files to ${dir}: ${error instanceof Error ? error.message : String(error)}` };
+  }
+}
+
+async function expireHeld(commonDir: string, now: number, lines: string[]): Promise<void> {
+  const held = join(commonDir, HELD_DIR);
+  const names = await readdir(held).catch(() => []);
+  for (const name of names) {
+    const at = /^(\d+)-/.exec(name)?.[1];
+    if (at === undefined || now - Number(at) < HOLD_MS) continue;
+    const path = join(held, name);
+    try {
+      await rm(path, { recursive: true, force: true });
+      lines.push(`gh-broker: deleted held files ${path}, older than 14 days`);
+    } catch (error) {
+      lines.push(`gh-broker: cannot delete held files ${path}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
 }
 
 async function writeKept(commonDir: string, kept: Kept[], now: number): Promise<void> {
@@ -143,6 +174,7 @@ export async function sweep(options: SweepOptions): Promise<SweepReport> {
   const branches = await git(cwd, ["for-each-ref", "--format=%(refname) %(objectname)", "refs/heads/"]);
   if (!branches.ok) throw new Error(`cannot list the branches: ${branches.stderr}`);
   const parked = await parkedBranches(cwd);
+  await expireHeld(commonDir, now, lines);
 
   let cwds: string[] | undefined;
   let probeFailed = false;
@@ -177,6 +209,7 @@ export async function sweep(options: SweepOptions): Promise<SweepReport> {
     if (born.some((ms) => ms !== undefined && now - ms < minAge)) continue;
     if (tree !== undefined && (await inUse(tree.path))) continue;
 
+    let ignored: string[] = [];
     if (tree !== undefined) {
       const state = await treeState(tree.path);
       if ("error" in state) {
@@ -187,10 +220,7 @@ export async function sweep(options: SweepOptions): Promise<SweepReport> {
         keep("unsaved files", sample(state.dirty));
         continue;
       }
-      if (state.ignored.length > 0) {
-        keep("ignored files", sample(state.ignored));
-        continue;
-      }
+      ignored = state.ignored;
     }
     const merged = await git(cwd, ["merge-base", "--is-ancestor", sha, mainRef]);
     if (!merged.ok) {
@@ -199,6 +229,14 @@ export async function sweep(options: SweepOptions): Promise<SweepReport> {
     }
 
     if (tree !== undefined) {
+      if (ignored.length > 0) {
+        const held = await holdIgnored(commonDir, tree.path, branch, ignored, now);
+        if (!held.ok) {
+          keep("cannot remove", held.error);
+          continue;
+        }
+        lines.push(`gh-broker: moved the ignored ${sample(ignored)} of ${branch} to ${held.dir}; they are deleted after 14 days`);
+      }
       const removed = await git(cwd, ["worktree", "remove", tree.path]);
       if (!removed.ok) {
         keep("cannot remove", removed.stderr);

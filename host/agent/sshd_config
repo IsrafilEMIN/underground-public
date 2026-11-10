@@ -6,8 +6,8 @@ PermitRootLogin no
 PasswordAuthentication no
 KbdInteractiveAuthentication no
 AuthenticationMethods publickey
-AuthorizedKeysFile @ROOT@/authorized_keys/%u
-ForceCommand @ROOT@/agent-session
+AuthorizedKeysFile @ROOT@/code/authorized_keys/%u
+ForceCommand @ROOT@/code/agent-session
 PermitTTY yes
 AllowTcpForwarding no
 AllowAgentForwarding no

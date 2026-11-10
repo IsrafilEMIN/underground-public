@@ -43,7 +43,7 @@ omp owns the session worktree. The config repo sets `worktree.onStart: create` a
 
 Known holes, accepted: a resumed session whose worktree is gone opens in the clone, and the agent reports that (`AGENTS.md`); a headless `omp -p` works in the clone; `remove` deletes a worktree whose only changes are gitignored files; a worktree with commits is never removed by omp, only by `gh-broker merge`.
 
-Changed on 2026-11-09 by `0020-state-based-branch-cleanup.md`: a sweep at each session start removes a worktree with commits once its commits are in main, nobody uses it, and it holds no unsaved or ignored files.
+Changed on 2026-11-09 by `0020-state-based-branch-cleanup.md`: a sweep at each session start removes a worktree with commits once its commits are in main, nobody uses it, and it holds no unsaved or ignored files. Since 2026-11-10 ignored files do not keep it: they move to `ug-held/` for 14 days (`0024-state-over-incident-lists.md`).
 
 ## Amendment 2026-11-07: the agent box (proposed)
 

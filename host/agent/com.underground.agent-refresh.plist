@@ -10,8 +10,8 @@
   <array>
     <string>/usr/bin/sandbox-exec</string>
     <string>-f</string>
-    <string>@ROOT@/pin.sb</string>
-    <string>@ROOT@/agent-refresh</string>
+    <string>@ROOT@/code/pin.sb</string>
+    <string>@ROOT@/code/agent-refresh</string>
   </array>
   <key>WorkingDirectory</key>
   <string>@AGENT_HOME@</string>

@@ -12,4 +12,4 @@ for word in "${words[@]}"; do
     exit 64
   }
 done
-exec /usr/bin/sandbox-exec -f @ROOT@/pin.sb @ROOT@/agent-start "${words[@]}"
+exec /usr/bin/sandbox-exec -f @ROOT@/code/pin.sb @ROOT@/code/agent-start "${words[@]}"

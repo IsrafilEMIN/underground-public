@@ -63,7 +63,6 @@ export type ServerConfig = {
 const HOME = homedir();
 const CHILD_PATH = "/opt/homebrew/bin:/usr/bin:/bin";
 const EMPTY_GH_CONFIG = "/var/empty";
-const UNAUTHORIZED = /HTTP 401|Bad credentials|Authentication failed|Invalid username or password|could not read Username/;
 const GITHUB = "https://github.com/";
 const PR_STATUS_FIELDS = "number,state,headRefName,headRefOid,baseRefName,mergeable,mergeStateStatus,statusCheckRollup,url";
 const REFRESH_EVERY_MS = 30 * 1000;
@@ -186,8 +185,7 @@ async function asApp(
       return { exit: 1, rawStdout: "", stderr: `gh-broker: cannot get a GitHub App token: ${redactTokens(message)}\n` };
     }
     const result = await run(token);
-    if (result.exit === 0 || !UNAUTHORIZED.test(result.stderr)) return result;
-    config.github.drop(repo, scope);
+    if (result.exit === 0 || !(await config.github.dropIfRejected(repo, token, signal, scope))) return result;
     if (access === "write" || attempt > 1) return result;
   }
 }

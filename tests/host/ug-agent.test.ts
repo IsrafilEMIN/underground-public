@@ -181,7 +181,8 @@ test("agent-home-tar leaves every config name out of the stream, so the gateway 
   await writeFile(join(home, ".omp/agent/models.yml"), "apiKey: bearer-value\n");
   await writeFile(join(home, ".omp/agent/skills/x/SKILL.md"), "x\n");
   await writeFile(join(home, ".omp/agent/sessions/s.jsonl"), "{}\n");
-  await copyFile(join(ROOT, "host/agent/config-names"), join(dir, "config-names"));
+  await mkdir(join(dir, "code"));
+  await copyFile(join(ROOT, "host/agent/config-names"), join(dir, "code/config-names"));
   const tar = await render(dir, "host/agent/agent-home-tar", { root: dir, agent_home: home });
   const stream = spawnSync("sh", [tar], { encoding: "buffer" });
   assert.equal(stream.status, 0, stream.stderr.toString());
@@ -198,18 +199,19 @@ test(
     const dir = await tempDir(join(tmpdir(), "ug-start-"));
     t.after(() => rm(dir, { recursive: true, force: true }));
     const root = join(dir, "root");
+    const code = join(root, "code");
     const bin = join(root, "omp/1.0/omp");
     await mkdir(join(root, "omp/1.0"), { recursive: true });
-    await mkdir(join(root, "bin"));
+    await mkdir(join(code, "bin"), { recursive: true });
     await writeFile(bin, '#!/bin/sh\necho "OMP_RAN $*"\n');
     await chmod(bin, 0o755);
-    await symlink(bin, join(root, "bin/omp"));
-    await writeFile(join(root, "config-names"), "");
+    await symlink(bin, join(code, "bin/omp"));
+    await writeFile(join(code, "config-names"), "");
     const start = await render(dir, "host/agent/agent-start", { root, agent_home: join(dir, "agent-home") });
     const run = (env: Record<string, string> = {}) =>
       spawnSync("bash", [start, "-p", "hi"], { env: { PATH: "/usr/bin:/bin", ...env }, encoding: "utf8" });
-    await writeFile(join(root, "bin/gh-broker"), "#!/bin/sh\nexit 1\n");
-    await chmod(join(root, "bin/gh-broker"), 0o755);
+    await writeFile(join(code, "bin/gh-broker"), "#!/bin/sh\nexit 1\n");
+    await chmod(join(code, "bin/gh-broker"), 0o755);
     const inRepo = { UG_REPO: "owner/repo" };
 
     const missing = run();
@@ -234,12 +236,12 @@ test(
     assert.doesNotMatch(brokenBoth.stderr, /gh-broker sync/);
     assert.doesNotMatch(brokenBoth.stdout, /OMP_RAN/);
 
-    await writeFile(join(root, "bin/gh-broker"), "#!/bin/sh\necho garbage\n");
+    await writeFile(join(code, "bin/gh-broker"), "#!/bin/sh\necho garbage\n");
     const brokenQuiet = run(inRepo);
     assert.equal(brokenQuiet.status, 1);
     assert.match(brokenQuiet.stderr, /does not match its pinned SHA-256/);
     assert.doesNotMatch(brokenQuiet.stderr, /gh-broker sync/);
-    await writeFile(join(root, "bin/gh-broker"), "#!/bin/sh\nexit 1\n");
+    await writeFile(join(code, "bin/gh-broker"), "#!/bin/sh\nexit 1\n");
 
     await writeFile(`${bin}.sha256`, `${createHash("sha256").update(await readFile(bin)).digest("hex")}\n`);
     const syncFailed = run(inRepo);
@@ -247,7 +249,7 @@ test(
     assert.match(syncFailed.stderr, /gh-broker sync owner\/repo failed: is the gh-broker app installed/);
     assert.doesNotMatch(syncFailed.stdout, /OMP_RAN/);
 
-    await writeFile(join(root, "bin/gh-broker"), "#!/bin/sh\nexit 69\n");
+    await writeFile(join(code, "bin/gh-broker"), "#!/bin/sh\nexit 69\n");
     const brokerDown = run(inRepo);
     assert.equal(brokerDown.status, 69);
     assert.match(brokerDown.stderr, /gh-broker sync owner\/repo failed: the gh-broker does not answer/);
@@ -256,7 +258,7 @@ test(
     await mkdir(join(root, "config"));
     await writeFile(join(root, "config/models.yml"), "x\n");
     await chmod(join(root, "config/models.yml"), 0o000);
-    await writeFile(join(root, "config-names"), "models.yml\n");
+    await writeFile(join(code, "config-names"), "models.yml\n");
     const copyFailed = run();
     assert.equal(copyFailed.status, 1);
     assert.match(copyFailed.stderr, /config copy failed/);
@@ -294,9 +296,9 @@ test(
     const root = join(dir, "root");
     const home = join(dir, "agent-home");
     const calls = join(dir, "calls");
-    await mkdir(join(root, "bin"), { recursive: true });
+    await mkdir(join(root, "code/bin"), { recursive: true });
     await stub(
-      join(root, "bin"),
+      join(root, "code/bin"),
       "gh-broker",
       [
         'here=$(pwd -P); echo "$here $*" >>"$CALLS"',
@@ -394,16 +396,17 @@ test(
     const dir = await tempDir(join(tmpdir(), "ug-busy-"));
     t.after(() => rm(dir, { recursive: true, force: true }));
     const root = join(dir, "root");
+    const code = join(root, "code");
     const home = join(dir, "agent-home");
     const bin = join(root, "omp/1.0/omp");
     await mkdir(join(root, "omp/1.0"), { recursive: true });
-    await mkdir(join(root, "bin"));
+    await mkdir(join(code, "bin"), { recursive: true });
     await writeFile(bin, '#!/bin/sh\necho "OMP_RAN $*"\n');
     await chmod(bin, 0o755);
     await writeFile(`${bin}.sha256`, `${createHash("sha256").update(await readFile(bin)).digest("hex")}\n`);
-    await symlink(bin, join(root, "bin/omp"));
-    await writeFile(join(root, "config-names"), "");
-    await stub(join(root, "bin"), "gh-broker", "echo SYNC_CALLED\nexit 1");
+    await symlink(bin, join(code, "bin/omp"));
+    await writeFile(join(code, "config-names"), "");
+    await stub(join(code, "bin"), "gh-broker", "echo SYNC_CALLED\nexit 1");
     const start = await render(dir, "host/agent/agent-start", { root, agent_home: home });
     const run = (repo: string) =>
       spawnSync("bash", [start, "-p", "hi"], { env: { PATH: "/usr/bin:/bin", UG_REPO: repo }, encoding: "utf8" });
@@ -431,8 +434,8 @@ test("the agent sshd config holds the contract lines", async (t) => {
     "ListenAddress 127.0.0.1:2345",
     "HostKey /r/ssh_host_ed25519_key",
     "AllowUsers agentx",
-    "AuthorizedKeysFile /r/authorized_keys/%u",
-    "ForceCommand /r/agent-session",
+    "AuthorizedKeysFile /r/code/authorized_keys/%u",
+    "ForceCommand /r/code/agent-session",
     "PermitRootLogin no",
     "PasswordAuthentication no",
     "KbdInteractiveAuthentication no",
@@ -451,7 +454,7 @@ test("the agent sshd config holds the contract lines", async (t) => {
 test("the agent sshd LaunchDaemon runs its own sshd config and is kept alive", async () => {
   const plist = await readFile(join(ROOT, "host/agent/com.underground.agent-sshd.plist"), "utf8");
   assert.match(plist, /<string>com.underground.agent-sshd<\/string>/);
-  assert.match(plist, /<string>\/usr\/sbin\/sshd<\/string>\s*<string>-D<\/string>\s*<string>-f<\/string>\s*<string>@ROOT@\/sshd_config<\/string>/);
+  assert.match(plist, /<string>\/usr\/sbin\/sshd<\/string>\s*<string>-D<\/string>\s*<string>-f<\/string>\s*<string>@ROOT@\/code\/sshd_config<\/string>/);
   assert.match(plist, /<key>KeepAlive<\/key>\s*<true\/>/);
 });
 

@@ -14,7 +14,7 @@ data=$HOME/$(ug_fact owner_data)
 restic_bin="$data/restic/$restic_pin/restic"
 backup="$data/backup"
 config="$backup/config"
-agent_tar=${UG_AGENT_HOME_TAR:-$(ug_fact root)/bin/agent-home-tar}
+agent_tar=${UG_AGENT_HOME_TAR:-$(ug_fact root)/code/bin/agent-home-tar}
 
 log() { printf '%s ug-backup: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >&2; }
 die() {

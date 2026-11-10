@@ -166,13 +166,21 @@ link() {
   ln -s "$target" "$at"
 }
 
-rename_broker() {
-  local label=com.underground.broker old="$data/broker" new="$data/gh-broker"
-  if [[ -e $agents_dir/$label.plist ]] || launchctl print "gui/$UID/$label" >/dev/null 2>&1; then
-    launchctl bootout "gui/$UID/$label" >/dev/null 2>&1 || true
-    rm -f "$agents_dir/$label.plist"
-    ug_say changed gh-broker "booted out and deleted the old agent $label"
-  fi
+retire_agents() {
+  local plist label err
+  for plist in "$agents_dir"/com.underground.*.plist; do
+    [[ -e $plist || -L $plist ]] || continue
+    label=${plist##*/}
+    label=${label%.plist}
+    [[ " ${labels[*]} " != *" $label "* ]] || continue
+    err=$(ug_stop_service "gui/$UID/$label") || die "$err"
+    rm -f "$plist"
+    ug_say changed "service $label" "booted out and deleted; this version of underground does not run it"
+  done
+}
+
+move_broker_records() {
+  local old="$data/broker" new="$data/gh-broker"
   if [[ -e $old || -L $old ]]; then
     [[ ! -e $new && ! -L $new ]] || die "both $old and $new exist; keep the one with the current records, then run setup again"
     mv "$old" "$new"
@@ -307,7 +315,8 @@ check_walls() {
 }
 
 install_restic
-rename_broker
+retire_agents
+move_broker_records
 install_service_code
 setup_backup
 prepare_services

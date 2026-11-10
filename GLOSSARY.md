@@ -105,7 +105,7 @@ The owner's command for the auth services, with four short commands. `ug-auth lo
 _Avoid_: vanilla omp, admin omp
 
 **Agent home backup** (was the arena backup):
-The daily restic snapshot of the agent home `/Users/ugagent`, minus `.cache` and `node_modules`, in one repo on the owner's other machine (launchd `com.underground.backup`, `host/bin/ug-backup`, settings in `~/.local/share/underground/backup/config`). The tar stream is read through the root helper `/Library/Underground/bin/agent-home-tar` (`host/agent/agent-home-tar`). It keeps every snapshot, so harm to the home can be undone (`docs/SPEC.md`, B10).
+The daily restic snapshot of the agent home `/Users/ugagent`, minus `.cache` and `node_modules`, in one repo on the owner's other machine (launchd `com.underground.backup`, `host/bin/ug-backup`, settings in `~/.local/share/underground/backup/config`). The tar stream is read through the root helper `/Library/Underground/code/bin/agent-home-tar` (`host/agent/agent-home-tar`). It keeps every snapshot, so harm to the home can be undone (`docs/SPEC.md`, B10).
 _Avoid_: archive, sync, Time Machine
 
 **Setup**:
@@ -127,7 +127,7 @@ _Avoid_: domain list, egress list
 ### GitHub and the merge
 
 **gh-broker**:
-The host service that does GitHub operations for the sessions (launchd `com.underground.gh-broker`). It holds the only GitHub credential that agents use. One socket, `/Library/Underground/run/gh-broker.sock` (`socketPath`, `host/gh-broker/server.ts`), serves every session, and the agent user reaches it through `/Library/Underground/bin/gh-broker`. The gh-broker has no roles and no list of repos: it serves each repo where the gh-broker app is installed (`docs/SPEC.md`, B7).
+The host service that does GitHub operations for the sessions (launchd `com.underground.gh-broker`). It holds the only GitHub credential that agents use. One socket, `/Library/Underground/run/gh-broker.sock` (`socketPath`, `host/gh-broker/server.ts`), serves every session, and the agent user reaches it through `/Library/Underground/code/bin/gh-broker`. The gh-broker has no roles and no list of repos: it serves each repo where the gh-broker app is installed (`docs/SPEC.md`, B7).
 _Avoid_: broker (alone), agent-gh, proxy
 
 **Reviewer role**:
