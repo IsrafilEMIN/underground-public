@@ -13,7 +13,7 @@ const PING = "https://hc-ping.example/uuid";
 const FAKE_CURL = `#!/bin/sh
 printf '%s\\n' "$*" >>"$HOME/curl"
 case "$*" in *--data-binary*) cat >>"$HOME/curl-body" ;; esac
-case "$*" in *:18765*) [ ! -e "$HOME/usage-down" ] ;; *) exit 0 ;; esac
+case "$*" in *:18765*) [ ! -e "$HOME/usage-down" ] ;; *:4000*) [ ! -e "$HOME/gateway-down" ] ;; *) exit 0 ;; esac
 `;
 
 const FAKE_NC = `#!/bin/sh
@@ -72,26 +72,29 @@ test("ug-watch with every job healthy writes a status with no problem and pings 
   assert.equal(r.stderr, "");
 });
 
-test("ug-watch reports each problem that is still there on the second look, and sends them to the outside check as a failure", async (t) => {
+test("ug-watch reports each problem that is still there on the second look, and sends only the job names to the outside check", async (t) => {
   const o = await fakeHome(t);
   const old = Math.floor(Date.now() / 1000) - 600;
-  await writeFile(join(o.data, "gh-broker/status"), `at=${old}\nfailed=\n`);
+  await writeFile(join(o.data, "gh-broker/status"), `at=${old}\nfailed=o/secret-repo\n`);
   await writeFile(join(o.data, "backup/last"), `${old - 40 * 3600}\n`);
   await writeFile(join(o.home, "backup-failed"), "");
   await writeFile(join(o.home, "usage-down"), "");
+  await writeFile(join(o.home, "gateway-down"), "");
   const r = run(o);
   assert.equal(r.status, 0, r.stderr);
   const lines = (await status(o)).trim().split("\n");
   assert.match(lines[0], /^at=\d+$/);
   assert.deepEqual(
     lines.slice(1).map((line) => line.slice(0, line.indexOf(":"))),
-    ["gh-broker", "backup", "backup", "usage broker"],
+    ["gh-broker", "backup", "backup", "auth gateway", "usage broker"],
   );
   assert.match(lines.join("\n"), /backup: its last run exited with 1/);
   const sent = await pings(o);
   assert.equal(sent.length, 1, sent.join("\n"));
   assert.ok(sent[0].endsWith(`${PING}/fail`), sent[0]);
-  assert.equal(await readFile(join(o.home, "curl-body"), "utf8"), `${lines.slice(1).join("\n")}\n`);
+  const body = await readFile(join(o.home, "curl-body"), "utf8");
+  assert.equal(body, "gh-broker\nbackup\nauth gateway\nusage broker\n");
+  assert.doesNotMatch(body, /\/Users\/|\/var\/|\d+\.\d+\.\d+\.\d+|secret-repo/, "no path, address, or repo leaves the mac");
   assert.doesNotMatch(r.stderr, /hc-ping/, "the log never holds the secret ping address");
 });
 

@@ -79,5 +79,5 @@ fi
 if [[ -z $found ]]; then
   curl -fsS -o /dev/null --max-time 10 --retry 3 "$url" || log "the ping to the outside check failed"
 else
-  printf '%s\n' "$found" | curl -fsS -o /dev/null --max-time 10 --retry 3 --data-binary @- "$url/fail" || log "the failure ping to the outside check failed"
+  printf '%s\n' "$found" | awk -F: '!seen[$1]++ { print $1 }' | curl -fsS -o /dev/null --max-time 10 --retry 3 --data-binary @- "$url/fail" || log "the failure ping to the outside check failed"
 fi
