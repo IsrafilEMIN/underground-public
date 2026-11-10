@@ -1,7 +1,6 @@
-
 import assert from "node:assert/strict";
 import { execFile, execFileSync } from "node:child_process";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import type { Server } from "node:net";
 import { tmpdir } from "node:os";
@@ -10,17 +9,14 @@ import { promisify } from "node:util";
 import { afterEach, beforeEach, test } from "node:test";
 import { isSyncPrReply, validateRequest } from "../../host/gh-broker/protocol.ts";
 import type { Reply } from "../../host/gh-broker/protocol.ts";
-import { defaultConfig, handleRequest, refreshRepos, serveConnection } from "../../host/gh-broker/server.ts";
+import { handleRequest, refreshRepos, serveConnection } from "../../host/gh-broker/server.ts";
 import type { ServerConfig } from "../../host/gh-broker/server.ts";
 import type { GithubTokens, TokenScope } from "../../host/gh-broker/github-app.ts";
-import { FAKE_TOKEN, fakeTokens, githubRemote } from "./fake-app.ts";
+import { FAKE_TOKEN } from "./fake-app.ts";
 import { tempDir } from "../temp.ts";
+import { GIT_ENV, REPO, brokerConfig, commit, git, initMirror, initRepo, seedMain } from "./fixture.ts";
 
-const REPO = "o/r";
 const CLIENT = join(import.meta.dirname, "../../host/gh-broker/client.ts");
-
-const NO_AUTO_MAINTENANCE = { GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "maintenance.auto", GIT_CONFIG_VALUE_0: "false" };
-const GIT_ENV = { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1", ...NO_AUTO_MAINTENANCE };
 const execFileAsync = promisify(execFile);
 
 const FAKE_GH = `#!/bin/sh
@@ -38,14 +34,6 @@ let work: string;
 let session: string;
 let server: Server | undefined;
 
-function git(dir: string, ...args: string[]): string {
-  return execFileSync(config.gitPath, ["-c", "user.name=t", "-c", "user.email=t@example.com", ...args], {
-    cwd: dir,
-    env: GIT_ENV,
-    encoding: "utf8",
-  }).trim();
-}
-
 function gitStatus(dir: string, ...args: string[]): number {
   try {
     execFileSync(config.gitPath, args, { cwd: dir, env: GIT_ENV, stdio: "ignore" });
@@ -53,13 +41,6 @@ function gitStatus(dir: string, ...args: string[]): number {
   } catch {
     return 1;
   }
-}
-
-async function commit(file: string): Promise<string> {
-  await writeFile(join(work, file), `${file}\n`);
-  git(work, "add", file);
-  git(work, "commit", "--quiet", "-m", file);
-  return git(work, "rev-parse", "HEAD");
 }
 
 async function openPr(head: string, pushed = head): Promise<void> {
@@ -96,32 +77,13 @@ async function client(cwd: string, env: Record<string, string>, ...args: string[
 
 beforeEach(async () => {
   root = await tempDir(join(process.env.XDG_STATE_HOME ?? tmpdir(), "ug-b2b-"));
-  config = {
-    ...defaultConfig("/unused/gh"),
-    socketPath: join(root, "run", "gh-broker.sock"),
-    reposRoot: join(root, "bare"),
-    pushesDir: join(root, "pushes"),
-    ghPath: join(root, "gh"),
-    github: fakeTokens(),
-    home: join(root, "home"),
-    tempRoot: join(root, "tmp"),
-    statusFile: join(root, "status"),
-  };
-  await mkdir(config.home);
-  await writeFile(config.ghPath, FAKE_GH, { mode: 0o755 });
-  remote = join(root, "remote.git");
-  execFileSync(config.gitPath, ["init", "--bare", "--quiet", "-b", "main", remote], { env: GIT_ENV });
-  const bare = join(config.reposRoot, `${REPO}.git`);
-  execFileSync(config.gitPath, ["init", "--bare", "--quiet", bare], { env: GIT_ENV });
-  git(bare, "config", `url.file://${remote}.insteadOf`, githubRemote(REPO));
-  git(bare, "config", "maintenance.auto", "false");
-  work = join(root, "work");
-  execFileSync(config.gitPath, ["init", "--quiet", "-b", "main", work], { env: GIT_ENV });
-  await commit("base.txt");
-  git(work, "push", "--quiet", remote, "main:main");
+  config = await brokerConfig(root, FAKE_GH);
+  remote = initRepo(join(root, "remote.git"), true);
+  initMirror(config, remote);
+  work = initRepo(join(root, "work"));
+  await seedMain(work, remote);
   git(work, "checkout", "--quiet", "-b", "agent/x");
-  session = join(root, "session");
-  execFileSync(config.gitPath, ["init", "--quiet", "-b", "main", session], { env: GIT_ENV });
+  session = initRepo(join(root, "session"));
 });
 
 afterEach(async () => {
@@ -135,7 +97,7 @@ afterEach(async () => {
 });
 
 test("sync --pr makes origin/pr/<n> in the session's repo at headRefOid, and moves it with the PR", async () => {
-  const head = await commit("a.txt");
+  const head = await commit(work, "a.txt");
   await openPr(head);
   const socket = await listen();
 
@@ -146,7 +108,7 @@ test("sync --pr makes origin/pr/<n> in the session's repo at headRefOid, and mov
   assert.equal(git(session, "for-each-ref", "--format=%(refname)"), "refs/remotes/origin/pr/7");
   assert.equal(git(join(config.reposRoot, `${REPO}.git`), "for-each-ref", "refs/gh-broker"), "");
 
-  const next = await commit("b.txt");
+  const next = await commit(work, "b.txt");
   await openPr(next);
   const again = await client(session, { UG_GH_BROKER_SOCKET: socket }, "sync", REPO, "--pr", "7");
   assert.equal(again.code, 0, again.stderr);
@@ -154,9 +116,9 @@ test("sync --pr makes origin/pr/<n> in the session's repo at headRefOid, and mov
 });
 
 test("sync --pr fails and leaves no origin/pr/<n> when the imported commit is not headRefOid", async () => {
-  const head = await commit("a.txt");
+  const head = await commit(work, "a.txt");
   await openPr(head);
-  const other = await commit("b.txt");
+  const other = await commit(work, "b.txt");
   const socket = await listen((reply) => (isSyncPrReply(reply) ? { ...reply, head: other } : reply));
   git(work, "push", "--quiet", session, `${head}:refs/remotes/origin/pr/7`);
 
@@ -167,8 +129,8 @@ test("sync --pr fails and leaves no origin/pr/<n> when the imported commit is no
 });
 
 test("the gh-broker refuses a PR sync when GitHub sends a commit that is not headRefOid", async () => {
-  const head = await commit("a.txt");
-  const stale = await commit("b.txt");
+  const head = await commit(work, "a.txt");
+  const stale = await commit(work, "b.txt");
   await openPr(head, stale);
   const reply = await handleRequest(config, { verb: "sync", repo: REPO, pr: 7 }, new AbortController().signal);
   assert.deepEqual(reply, {
@@ -179,7 +141,7 @@ test("the gh-broker refuses a PR sync when GitHub sends a commit that is not hea
 });
 
 test("a PR sync gives git only the token that can read code, never the token that pushes", async () => {
-  await openPr(await commit("a.txt"));
+  await openPr(await commit(work, "a.txt"));
   const real = config.gitPath;
   const read = `${FAKE_TOKEN}read`;
   config.github = { token: (_repo, _signal, scope = "app") => Promise.resolve(scope === "contents-read" ? read : FAKE_TOKEN), dropIfRejected: () => Promise.resolve(false) };
@@ -200,7 +162,7 @@ test("sync --pr without a PR number, or with a bad one, is a usage error", async
 
 test("sync without --pr imports origin/<default> into the session's repo, and no PR ref", async () => {
   const main = git(work, "rev-parse", "main");
-  await commit("local.txt");
+  await commit(work, "local.txt");
   const socket = await listen();
   const run = await client(session, { UG_GH_BROKER_SOCKET: socket }, "sync", REPO);
   assert.equal(run.code, 0, run.stderr);
@@ -209,7 +171,7 @@ test("sync without --pr imports origin/<default> into the session's repo, and no
 });
 
 async function moveMain(file: string): Promise<string> {
-  const head = await commit(file);
+  const head = await commit(work, file);
   git(work, "push", "--quiet", remote, "HEAD:main");
   return head;
 }
@@ -332,7 +294,7 @@ test("a refresh and a sync at the same moment both succeed and leave the copy at
 test("a clone whose origin/main the gh-broker does not know gets the full history", async () => {
   const main = git(work, "rev-parse", "main");
   const stray = join(root, "stray");
-  execFileSync(config.gitPath, ["init", "--quiet", "-b", "main", stray], { env: GIT_ENV });
+  initRepo(stray);
   git(stray, "commit", "--quiet", "--allow-empty", "-m", "stray");
   git(stray, "push", "--quiet", session, "HEAD:refs/remotes/origin/main");
   const socket = await listen();

@@ -5,17 +5,14 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, test } from "node:test";
-import { defaultConfig, refreshRepos, startServer, stopServer } from "../../host/gh-broker/server.ts";
+import { refreshRepos, startServer, stopServer } from "../../host/gh-broker/server.ts";
 import type { GhBroker, ServerConfig } from "../../host/gh-broker/server.ts";
-import { fakeTokens, githubRemote } from "./fake-app.ts";
+import { BRANCH, GIT_ENV, REAL_GIT, REPO, brokerConfig, git, initMirror, initRepo, seedMain } from "./fixture.ts";
 import { tempDir } from "../temp.ts";
 
-const REPO = "o/r";
-const BRANCH = "agent/x";
 const BROKER_DIR = join(import.meta.dirname, "../../host/gh-broker");
 const NODE = process.execPath;
 const REVIEWERS = ["code-review", "security-review", "risk-review"] as const;
-const GIT_ENV = { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" };
 const execFileAsync = promisify(execFile);
 
 type Role = "author" | (typeof REVIEWERS)[number];
@@ -33,7 +30,7 @@ const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const STATE = ${JSON.stringify(join(root, "gh-state.json"))};
 const REMOTE = ${JSON.stringify(remote)};
-const GIT = ${JSON.stringify(config.gitPath)};
+const GIT = ${JSON.stringify(REAL_GIT)};
 const git = (...args) => execFileSync(GIT, ["--git-dir", REMOTE, ...args], { encoding: "utf8" }).trim();
 const head = (branch) => { try { return git("rev-parse", "--verify", "--quiet", "refs/heads/" + branch); } catch { return undefined; } };
 const state = JSON.parse(fs.readFileSync(STATE, "utf8"));
@@ -82,14 +79,6 @@ else if (a === "pr" && b === "merge") {
   process.stdout.write("merged\\n");
 } else fail("fake gh: unexpected " + args.join(" "));
 `;
-}
-
-function git(cwd: string, ...args: string[]): string {
-  return execFileSync(config.gitPath, ["-c", "user.name=t", "-c", "user.email=t@example.com", ...args], {
-    cwd,
-    env: GIT_ENV,
-    encoding: "utf8",
-  }).trim();
 }
 
 function remoteRef(ref: string): string {
@@ -155,40 +144,15 @@ async function mergeOnGithub(pr: number, head: string): Promise<void> {
 }
 
 beforeEach(async () => {
-
   root = await tempDir(join(process.env.XDG_STATE_HOME ?? "/tmp", "u"));
-  const agents = join(root, "data/gh-broker");
-  config = {
-    ...defaultConfig("/unused/gh"),
-    socketPath: join(root, "run", "gh-broker.sock"),
-    reposRoot: join(agents, "repos"),
-    pushesDir: join(agents, "pushes"),
-    ghPath: join(root, "gh"),
-    github: fakeTokens(),
-    home: join(root, "gh-home"),
-    tempRoot: join(agents, "tmp"),
-    statusFile: join(agents, "status"),
-  };
-  await mkdir(agents, { recursive: true });
-  await mkdir(config.home);
-
-  remote = join(root, "github.git");
-  execFileSync(config.gitPath, ["init", "--bare", "--quiet", "-b", "main", remote], { env: GIT_ENV });
-  const seed = join(root, "seed");
-  execFileSync(config.gitPath, ["init", "--quiet", "-b", "main", seed], { env: GIT_ENV });
-  await writeFile(join(seed, "base.txt"), "base\n");
-  git(seed, "add", "base.txt");
-  git(seed, "commit", "--quiet", "-m", "base");
-  git(seed, "push", "--quiet", remote, "main:main");
-  const bare = join(config.reposRoot, `${REPO}.git`);
-  execFileSync(config.gitPath, ["init", "--bare", "--quiet", bare], { env: GIT_ENV });
-  git(bare, "config", `url.file://${remote}.insteadOf`, githubRemote(REPO));
+  remote = initRepo(join(root, "github.git"), true);
+  await seedMain(initRepo(join(root, "seed")), remote);
   await writeFile(join(root, "gh-state.json"), JSON.stringify({ ci: "SUCCESS", prs: [] }));
-  await writeFile(config.ghPath, fakeGh(), { mode: 0o755 });
+  config = await brokerConfig(root, fakeGh());
+  initMirror(config, remote);
 
   broker = await startServer(config);
-  work = join(root, "repo");
-  execFileSync(config.gitPath, ["init", "--quiet", "-b", "main", work], { env: GIT_ENV });
+  work = initRepo(join(root, "repo"));
   git(work, "remote", "add", "origin", `https://github.com/${REPO}.git`);
 
   await ok("author", work, "sync", REPO);

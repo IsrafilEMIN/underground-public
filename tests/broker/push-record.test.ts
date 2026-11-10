@@ -1,20 +1,15 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdir, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
 import { isReply } from "../../host/gh-broker/protocol.ts";
 import type { Reply } from "../../host/gh-broker/protocol.ts";
 import { dropPushRecord, listPushRecords, pushRecordPath, readPushRecord, writePushRecord } from "../../host/gh-broker/push-record.ts";
-import { defaultConfig, handleRequest } from "../../host/gh-broker/server.ts";
 import type { ServerConfig } from "../../host/gh-broker/server.ts";
-import { fakeTokens, githubRemote } from "./fake-app.ts";
 import { tempDir } from "../temp.ts";
-
-const REPO = "o/r";
-const BRANCH = "agent/x";
-const GIT_ENV = { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" };
+import { BRANCH, REPO, brokerConfig, bundleOf, commit, git, initMirror, initRepo, request } from "./fixture.ts";
 
 const FAKE_GH = `#!/bin/sh
 case "$1 $2 $4" in
@@ -36,29 +31,8 @@ let config: ServerConfig;
 let work: string;
 let remote: string;
 
-function git(cwd: string, ...args: string[]): string {
-  return execFileSync(config.gitPath, ["-c", "user.name=t", "-c", "user.email=t@example.com", ...args], {
-    cwd,
-    env: GIT_ENV,
-    encoding: "utf8",
-  }).trim();
-}
-
-async function commit(file: string): Promise<string> {
-  git(work, "checkout", "--quiet", "-B", BRANCH);
-  await writeFile(join(work, file), `${file}\n`);
-  git(work, "add", file);
-  git(work, "commit", "--quiet", "-m", file);
-  return git(work, "rev-parse", "HEAD");
-}
-
-function bundleB64(): string {
-  return execFileSync(config.gitPath, ["bundle", "create", "-", `refs/heads/${BRANCH}`], { cwd: work, env: GIT_ENV }).toString("base64");
-}
-
 function brokerPush(sha: string): Promise<Reply> {
-  const request = { verb: "push", repo: REPO, branch: BRANCH, sha, bundle_b64: bundleB64() };
-  return handleRequest(config, request, new AbortController().signal);
+  return request(config, { verb: "push", branch: BRANCH, sha, bundle_b64: bundleOf(work, BRANCH) });
 }
 
 function brokerProcess(request: Record<string, unknown>): Reply {
@@ -72,26 +46,10 @@ function brokerProcess(request: Record<string, unknown>): Reply {
 
 beforeEach(async () => {
   root = await tempDir(join(tmpdir(), "ug-b4-"));
-  config = {
-    ...defaultConfig("/unused/gh"),
-    socketPath: join(root, "run", "gh-broker.sock"),
-    reposRoot: join(root, "bare"),
-    pushesDir: join(root, "pushes"),
-    ghPath: join(root, "gh"),
-    github: fakeTokens(),
-    home: join(root, "home"),
-    tempRoot: join(root, "tmp"),
-    statusFile: join(root, "status"),
-  };
-  await mkdir(config.home);
-  await writeFile(config.ghPath, FAKE_GH, { mode: 0o755 });
-  remote = join(root, "remote.git");
-  execFileSync(config.gitPath, ["init", "--bare", "--quiet", remote], { env: GIT_ENV });
-  const bare = join(config.reposRoot, `${REPO}.git`);
-  execFileSync(config.gitPath, ["init", "--bare", "--quiet", bare], { env: GIT_ENV });
-  git(bare, "config", `url.file://${remote}.insteadOf`, githubRemote(REPO));
-  work = join(root, "work");
-  execFileSync(config.gitPath, ["init", "--quiet", "-b", "main", work], { env: GIT_ENV });
+  config = await brokerConfig(root, FAKE_GH);
+  remote = initRepo(join(root, "remote.git"), true);
+  initMirror(config, remote);
+  work = initRepo(join(root, "work"));
 });
 
 afterEach(async () => {
@@ -99,13 +57,13 @@ afterEach(async () => {
 });
 
 test("a gh-broker push records the commit for its repo and branch, and a later push replaces it", async () => {
-  const first = await commit("a.txt");
+  const first = await commit(work, "a.txt", BRANCH);
   const one = await brokerPush(first);
   assert.equal(one.exit, 0, JSON.stringify(one));
   assert.equal(git(remote, "rev-parse", `refs/heads/${BRANCH}`), first);
   assert.deepEqual(await readPushRecord(config.pushesDir, { repo: REPO, branch: BRANCH }), { kind: "pushed", sha: first });
 
-  const second = await commit("b.txt");
+  const second = await commit(work, "b.txt", BRANCH);
   const two = await brokerPush(second);
   assert.equal(two.exit, 0, JSON.stringify(two));
   assert.deepEqual(await readPushRecord(config.pushesDir, { repo: REPO, branch: BRANCH }), { kind: "pushed", sha: second });
@@ -114,10 +72,10 @@ test("a gh-broker push records the commit for its repo and branch, and a later p
 });
 
 test("a refused push leaves the record unchanged", async () => {
-  const first = await commit("a.txt");
+  const first = await commit(work, "a.txt", BRANCH);
   assert.equal((await brokerPush(first)).exit, 0);
-  const other = await commit("b.txt");
-  await commit("c.txt");
+  const other = await commit(work, "b.txt", BRANCH);
+  await commit(work, "c.txt", BRANCH);
   const reply = await brokerPush(other);
   assert.deepEqual(reply, { exit: 2, refused: "bundle ref does not match sha" });
   assert.deepEqual(await readPushRecord(config.pushesDir, { repo: REPO, branch: BRANCH }), { kind: "pushed", sha: first });
@@ -161,8 +119,8 @@ test("a write that fails leaves no temp file in the record folder", async () => 
 });
 
 test("the record survives a gh-broker restart", async () => {
-  const head = await commit("a.txt");
-  const pushed = brokerProcess({ verb: "push", repo: REPO, branch: BRANCH, sha: head, bundle_b64: bundleB64() });
+  const head = await commit(work, "a.txt", BRANCH);
+  const pushed = brokerProcess({ verb: "push", repo: REPO, branch: BRANCH, sha: head, bundle_b64: bundleOf(work, BRANCH) });
   assert.equal(pushed.exit, 0, JSON.stringify(pushed));
   assert.deepEqual(await readPushRecord(config.pushesDir, { repo: REPO, branch: BRANCH }), { kind: "pushed", sha: head });
 });

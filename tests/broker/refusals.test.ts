@@ -1,20 +1,16 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
 import type { Reply } from "../../host/gh-broker/protocol.ts";
 import { readPushRecord } from "../../host/gh-broker/push-record.ts";
-import { defaultConfig, handleRequest } from "../../host/gh-broker/server.ts";
+import { handleRequest } from "../../host/gh-broker/server.ts";
 import type { ServerConfig } from "../../host/gh-broker/server.ts";
-import { fakeTokens, githubRemote } from "./fake-app.ts";
 import { tempDir } from "../temp.ts";
+import { BRANCH, REPO, brokerConfig, bundleOf, commit, git, initMirror, initRepo, remoteRef, request, seedMain } from "./fixture.ts";
 
-const REPO = "o/r";
 const OTHER_REPO = "o/other";
-const BRANCH = "agent/x";
-const GIT_ENV = { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" };
 
 const FAKE_GH = `#!/bin/sh
 printf '%s\\n' "$*" >> "$HOME/gh-calls"
@@ -30,33 +26,8 @@ let config: ServerConfig;
 let work: string;
 let remote: string;
 
-function git(cwd: string, ...args: string[]): string {
-  return execFileSync(config.gitPath, ["-c", "user.name=t", "-c", "user.email=t@example.com", ...args], {
-    cwd,
-    env: GIT_ENV,
-    encoding: "utf8",
-  }).trim();
-}
-
-async function commit(branch: string, file: string): Promise<string> {
-  git(work, "checkout", "--quiet", "-B", branch);
-  await writeFile(join(work, file), `${file}\n`);
-  git(work, "add", file);
-  git(work, "commit", "--quiet", "-m", file);
-  return git(work, "rev-parse", "HEAD");
-}
-
-function request(input: Record<string, unknown>): Promise<Reply> {
-  return handleRequest(config, { repo: REPO, ...input }, new AbortController().signal);
-}
-
 function push(branch: string, sha: string): Promise<Reply> {
-  const bundle = execFileSync(config.gitPath, ["bundle", "create", "-", `refs/heads/${branch}`], { cwd: work, env: GIT_ENV }).toString("base64");
-  return request({ verb: "push", branch, sha, bundle_b64: bundle });
-}
-
-function remoteRef(branch: string): string {
-  return git(remote, "for-each-ref", "--format=%(objectname)", `refs/heads/${branch}`);
+  return request(config, { verb: "push", branch, sha, bundle_b64: bundleOf(work, branch) });
 }
 
 function readHome(name: string): Promise<string> {
@@ -70,30 +41,13 @@ function assertRefused(reply: Reply): void {
 
 beforeEach(async () => {
   root = await tempDir(join(tmpdir(), "ug-refusals-"));
-  config = {
-    ...defaultConfig("/unused/gh"),
-    socketPath: join(root, "run", "gh-broker.sock"),
-    reposRoot: join(root, "bare"),
-    pushesDir: join(root, "pushes"),
-    ghPath: join(root, "gh"),
-    github: fakeTokens(),
-    home: join(root, "home"),
-    tempRoot: join(root, "tmp"),
-    statusFile: join(root, "status"),
-  };
-  await mkdir(config.home);
+  config = await brokerConfig(root, FAKE_GH);
   await writeFile(join(config.home, "default-branch"), "main");
-  await writeFile(config.ghPath, FAKE_GH, { mode: 0o755 });
-  remote = join(root, "remote.git");
-  execFileSync(config.gitPath, ["init", "--bare", "--quiet", remote], { env: GIT_ENV });
-  const bare = join(config.reposRoot, `${REPO}.git`);
-  execFileSync(config.gitPath, ["init", "--bare", "--quiet", bare], { env: GIT_ENV });
-  git(bare, "config", `url.file://${remote}.insteadOf`, githubRemote(REPO));
-  work = join(root, "work");
-  execFileSync(config.gitPath, ["init", "--quiet", "-b", "main", work], { env: GIT_ENV });
-  const base = await commit("main", "base.txt");
-  git(work, "push", "--quiet", remote, "main:main");
-  assert.equal(remoteRef("main"), base);
+  remote = initRepo(join(root, "remote.git"), true);
+  initMirror(config, remote);
+  work = initRepo(join(root, "work"));
+  const base = await seedMain(work, remote);
+  assert.equal(remoteRef(remote, "main"), base);
 });
 
 afterEach(async () => {
@@ -102,19 +56,19 @@ afterEach(async () => {
 });
 
 test("a push to main is refused, and main on GitHub and the push records stay unchanged", async () => {
-  const base = remoteRef("main");
-  const head = await commit("main", "a.txt");
+  const base = remoteRef(remote, "main");
+  const head = await commit(work, "a.txt", "main");
 
   assertRefused(await push("main", head));
-  assert.equal(remoteRef("main"), base);
+  assert.equal(remoteRef(remote, "main"), base);
   assert.deepEqual(await readPushRecord(config.pushesDir, { repo: REPO, branch: "main" }), { kind: "none" });
 });
 
 test("a push to a branch that is not agent/* is refused and lands nothing on GitHub", async () => {
-  const head = await commit("feature/x", "a.txt");
+  const head = await commit(work, "a.txt", "feature/x");
 
   assertRefused(await push("feature/x", head));
-  assert.equal(remoteRef("feature/x"), "");
+  assert.equal(remoteRef(remote, "feature/x"), "");
   assert.deepEqual(await readPushRecord(config.pushesDir, { repo: REPO, branch: "feature/x" }), { kind: "none" });
 });
 
@@ -122,23 +76,23 @@ test("a push to the default branch is refused even when its name is agent/*, whi
   await writeFile(join(config.home, "default-branch"), "agent/main");
   const base = git(work, "rev-parse", "main");
   git(work, "push", "--quiet", remote, "main:agent/main");
-  const head = await commit("agent/main", "a.txt");
+  const head = await commit(work, "a.txt", "agent/main");
 
   assertRefused(await push("agent/main", head));
-  assert.equal(remoteRef("agent/main"), base);
+  assert.equal(remoteRef(remote, "agent/main"), base);
   assert.deepEqual(await readPushRecord(config.pushesDir, { repo: REPO, branch: "agent/main" }), { kind: "none" });
 
-  const other = await commit(BRANCH, "b.txt");
+  const other = await commit(work, "b.txt", BRANCH);
   const pushed = await push(BRANCH, other);
   assert.equal(pushed.exit, 0, JSON.stringify(pushed));
-  assert.equal(remoteRef(BRANCH), other);
+  assert.equal(remoteRef(remote, BRANCH), other);
 });
 
 test("a push whose record cannot be written fails and says the branch cleanup will not delete the branch", async () => {
-  const first = await commit(BRANCH, "a.txt");
+  const first = await commit(work, "a.txt", BRANCH);
   const one = await push(BRANCH, first);
   assert.equal(one.exit, 0, JSON.stringify(one));
-  const second = await commit(BRANCH, "b.txt");
+  const second = await commit(work, "b.txt", BRANCH);
 
   await chmod(join(config.pushesDir, REPO), 0o500);
   const two = await push(BRANCH, second);
@@ -152,10 +106,10 @@ test("a push whose record cannot be written fails and says the branch cleanup wi
 });
 
 test("an author's pr-create opens a PR from its agent branch with its title and body", async () => {
-  const head = await commit(BRANCH, "a.txt");
+  const head = await commit(work, "a.txt", BRANCH);
   assert.equal((await push(BRANCH, head)).exit, 0);
 
-  const reply = await request({ verb: "pr-create", head: BRANCH, title: "Fix the thing", body: "Line one\nLine two\n" });
+  const reply = await request(config, { verb: "pr-create", head: BRANCH, title: "Fix the thing", body: "Line one\nLine two\n" });
   assert.equal(reply.exit, 0, JSON.stringify(reply));
   assert.ok("stdout" in reply && reply.stdout.includes(`https://github.com/${REPO}/pull/7`), JSON.stringify(reply));
   const created = await readHome("created");
@@ -167,8 +121,8 @@ test("an author's pr-create opens a PR from its agent branch with its title and 
 });
 
 test("a repo where the gh-broker app is not installed gets no token, so no gh call, push, or record happens", async () => {
-  const head = await commit(BRANCH, "a.txt");
-  const bundle = execFileSync(config.gitPath, ["bundle", "create", "-", `refs/heads/${BRANCH}`], { cwd: work, env: GIT_ENV }).toString("base64");
+  const head = await commit(work, "a.txt", BRANCH);
+  const bundle = bundleOf(work, BRANCH);
   const signal = new AbortController().signal;
   const installed = config.github;
   config.github = {
