@@ -1,17 +1,17 @@
 # The agent user: its own macOS user, its own login, pinned to its home
 
-Date: 2026-11-08. Status: built (step 4, 2026-11-08: the box removed, `omp` switched to the agent user, the backup moved to the agent home). Owner decision of 2026-11-08: remove the containers; the agent runs as its own macOS user, and damage stays in that user's home. The login, the pin, and the backup ran on the owner's mac (Open; Step 4). This ADR supersedes `0013-agent-box.md`, `0014-session-containers.md`, and `0015-box-layout.md`. The checklist of every row is in `../THREAT-MODEL.md`, "The agent user against each row".
+Date: 2026-11-08. Status: built (step 4, 2026-11-08: the box removed, `omp` switched to the agent user, the backup moved to the agent home). Owner decision of 2026-11-08: remove the containers; the agent runs as its own macOS user, and damage stays in that user's home. The login, the pin, and the backup ran on the owner's mac (Open; Step 4). This ADR supersedes `0013-agent-box.md`, `0014-session-containers.md`, and `0015-box-layout.md`. The checklist of every row is `../THREAT-MODEL.md`.
 
 ## Context
 
-The box keeps the agent in a Linux VM. It costs a Linux image and a second omp pin (`VERSIONS`: `box_omp`), an undocumented `--network none` (`0013-agent-box.md`, Cost), a relay inside the box, and a backup that reads the home through the VM (`../THREAT-MODEL.md`, U37). The harm the owner wants walled is harm to the owner's own files, logins, and desktop. A second macOS user walls files by plain permissions; the owner's runs of 2026-11-08 show where it does not, and what closes each gap (`../THREAT-MODEL.md`, the agent user table).
+The box keeps the agent in a Linux VM. It costs a Linux image and a second omp pin (`VERSIONS`: `box_omp`), an undocumented `--network none` (`0013-agent-box.md`, "Cost"), a relay inside the box, and a backup that reads the home through the VM (`../THREAT-MODEL.md`, U37). The harm the owner wants walled is harm to the owner's own files, logins, and desktop. A second macOS user walls files by plain permissions; the owner's runs of 2026-11-08 show where it does not, and what closes each gap (the agent user rows of `../THREAT-MODEL.md`).
 
 ## Decision (proposed)
 
 The base is three things:
 
 1. **The owner's home is closed.** Mode 700. A new standard user is in the group `staff`, as the owner is (`Assigning UID: 502 GID: 20`), and with the owner's home at the macOS default it read the owner's files; with mode 700 it could not read, write, or reopen it (owner runs, 2026-11-08). Setup sets it, and a start refuses if it is open.
-2. **The agent's files are pinned to its home.** A sandbox profile, run with `sandbox-exec`, allows writes only in the agent's home, its own temp folder under `/private/var/folders`, `/dev/null`, and the terminal devices, and allows reads only of its home and the system folders that programs need to run. Reads are an allow list, not a list of denied places, so a path nobody listed stays closed. Under it, over ssh, `/tmp`, `/Users/Shared`, and `/Volumes` were closed, and git, a commit, and omp ran (owner run, 2026-11-08; `../THREAT-MODEL.md`, the agent user table). The profile as run on 2026-11-08, with the agent's home for `/Users/ugtest` (the current, narrower one is `host/agent/pin.sb`):
+2. **The agent's files are pinned to its home.** A sandbox profile, run with `sandbox-exec`, allows writes only in the agent's home, its own temp folder under `/private/var/folders`, `/dev/null`, and the terminal devices, and allows reads only of its home and the system folders that programs need to run. Reads are an allow list, not a list of denied places, so a path nobody listed stays closed. Under it, over ssh, `/tmp`, `/Users/Shared`, and `/Volumes` were closed, and git, a commit, and omp ran (owner run, 2026-11-08; the agent user rows of `../THREAT-MODEL.md`). The profile as run on 2026-11-08, with the agent's home for `/Users/ugtest` (the current, narrower one is `host/agent/pin.sb`):
 
    ```
    (version 1)

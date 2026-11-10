@@ -4,14 +4,14 @@ Date: 2026-11-02. Owner decision. Supersedes `0002-role-homes.md`, `0009-one-omp
 
 ## Context
 
-The first design drew the line between the agent and the owner as a list of paths inside the owner's home. omp assumes that it owns its home, so each normal omp action crossed that line, and each crossing needed a patch: the split omp root and the policy pins (`0002-role-homes.md`), `PI_CONFIG_DIR` and the one-by-one `XDG_*` and `CARGO_HOME` moves (in `host/bin/omp`, removed), `skillLinkRoots` (in `host/sandbox/srt-settings.template.json`, removed), the subagent rules hook and the moved reviewer stores (`0009-one-omp-root.md`), and `drop_secret_env` (`0008-preflight.md`). A deny list fails open when a new omp version loads code from a new path (`0002-role-homes.md`, cost). Role separation added per-role homes, sessions, state, and stores.
+The first design drew the line between the agent and the owner as a list of paths inside the owner's home. omp assumes that it owns its home, so each normal omp action crossed that line, and each crossing needed a patch: the split omp root and the policy pins (`0002-role-homes.md`), `PI_CONFIG_DIR` and the one-by-one `XDG_*` and `CARGO_HOME` moves (in `host/bin/omp`, removed), `skillLinkRoots` (in `host/sandbox/srt-settings.template.json`, removed), the subagent rules hook and the moved reviewer stores (`0009-one-omp-root.md`), and `drop_secret_env` (`0008-preflight.md`). A deny list fails open when a new omp version loads code from a new path (`0002-role-homes.md`, "Amendment 2026-10-31: the role home is writable, owner paths are denied"). Role separation added per-role homes, sessions, state, and stores.
 
 ## Decision
 
 - **One arena.** The agent has one home, `~/.ug/home`. The wrapper sets `HOME` to it, so omp, its caches, its helpers, and its worktrees live there on omp's default paths and default profile. srt grants writes on the arena only.
 - **omp runs unchanged.** No `PI_CONFIG_DIR`, no `PI_CONFIG_FILES` overlay, no policy pins, no per-path moves.
 - **Clean environment.** The wrapper starts omp with named variables only, not the owner's shell.
-- **Config from the owner's repo.** The owner keeps the agent config (`AGENTS.md`, skills, hooks, MCP config, settings, no secrets) in a private repo in the owner's zone, laid out like omp's `~/.omp/agent`. The owner's local folder is the source of truth. The wrapper copies it into `~/.ug/home/.omp/agent` at each start.
+- **Config from the owner's repo.** The owner keeps the agent config (`AGENTS.md`; skills, hooks, MCP config, settings; no secrets) in a private repo in the owner's zone, laid out like omp's `~/.omp/agent`. The owner's local folder is the source of truth. The wrapper copies it into `~/.ug/home/.omp/agent` at each start.
 - **Clones in the arena.** The agent works in its own clone of each repo in the arena, proposed at `~/.ug/home/work/<owner>/<repo>`, never in the owner's checkout. The clone is made and updated only inside the sandbox, with `gh-broker sync`. The host never runs git in the arena.
 - **One trust level.** Author and reviewers share the arena. The reviewers are a quality step, not a safety wall. Their rules come as skills in the config repo.
 - **Strict sockets.** `allowUnixSockets` lists only the gh-broker sockets in `~/.ug/run` and omp's helper sockets.
@@ -35,7 +35,7 @@ Role separation protects the review, and the review protects only the merge. A r
 - A session can damage another repo's clone or unpushed work in the arena (U21). Only agent work is lost.
 - A change that the agent makes to its own config lasts until the next start.
 - The arena clone holds GitHub's `main`, not the owner's unpushed edits.
-- To verify: that omp, bun, and git honor `HOME` on the pinned omp; the paths of omp's helper sockets (`../SPEC.md`, Checks). A tool that ignores `HOME` fails on the srt deny; it does not leak.
+- To verify: that omp, bun, and git honor `HOME` on the pinned omp; the paths of omp's helper sockets (`../SPEC.md`, "Checks that run"). A tool that ignores `HOME` fails on the srt deny; it does not leak.
 
 ## Amendment 2026-11-03: worktrees
 
@@ -47,7 +47,7 @@ Changed on 2026-11-09 by `0020-state-based-branch-cleanup.md`: a sweep at each s
 
 ## Amendment 2026-11-07: the agent box (proposed)
 
-`0013-agent-box.md` is proposed, not built. Until it is built, this ADR describes the system. Once built, it supersedes this ADR except "One trust level" and its reasoning, which still hold. The arena, the zones, srt as the sandbox, the strict socket list, the config copy at each start, and the clone made by `host/arena/init` go: the agent gets one long-running VM with no network, reaches the host only through sockets that the host mounts in, and runs each session in its own throwaway Linux container inside the VM (`0014-session-containers.md`). Sessions stay one trust level. A session can no longer change another session's worktree, session files, or processes, which narrows the cost "A session can damage another repo's clone or unpushed work in the arena (U21)" above; the shared history database stays writable by every session (`0014-session-containers.md`, Cost). The rejection of "A VM or a container" above is reversed. Its costs still apply and are listed in `0013-agent-box.md` and `0014-session-containers.md`, Cost. It weighed srt as light; the 2026-11-07 re-check found what srt leaves open: incoming connections on every interface, with the firewall off on this mac (`0013-agent-box.md`, Context).
+`0013-agent-box.md` is proposed, not built. Until it is built, this ADR describes the system. Once built, it supersedes this ADR except "One trust level" and its reasoning, which still hold. The arena, the zones, srt as the sandbox, the strict socket list, the config copy at each start, and the clone made by `host/arena/init` go: the agent gets one long-running VM with no network, reaches the host only through sockets that the host mounts in, and runs each session in its own throwaway Linux container inside the VM (`0014-session-containers.md`). Sessions stay one trust level. A session can no longer change another session's worktree, session files, or processes, which narrows the cost "A session can damage another repo's clone or unpushed work in the arena (U21)" above; the shared history database stays writable by every session (`0014-session-containers.md`, "Cost"). The rejection of "A VM or a container" above is reversed. Its costs still apply and are listed in `0013-agent-box.md` and `0014-session-containers.md`, "Cost". It weighed srt as light; the 2026-11-07 re-check found what srt leaves open: incoming connections on every interface, with the firewall off on this mac (`0013-agent-box.md`, "Context").
 
 2026-11-07: built as a trial, and removed. The arena, the srt sandbox, and `host/arena/init` were removed in #90 (commit 54a418a1); the box replaces them. "One trust level" still holds.
 

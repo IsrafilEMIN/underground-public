@@ -32,7 +32,7 @@ restic_hint() {
 
 [[ -n $restic_pin && -x $restic_bin ]] || fail "the pinned restic $restic_bin is missing; run host/bin/ug-setup"
 [[ -s $backup/password ]] || fail "the backup password $backup/password is missing; run host/bin/ug-setup"
-[[ -f $config ]] || fail "no $config; write its repo=, wake=, and sleep= lines (docs/SPEC.md, B10)"
+[[ -f $config ]] || fail "no $config; write it in the format that backup_target_read in host/lib/backup-target.bash reads"
 export RESTIC_PASSWORD_FILE="$backup/password"
 
 repo=""

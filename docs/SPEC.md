@@ -22,13 +22,13 @@ This page says what runs now: each built part with what it does and the file tha
 
 **Config staging.** Setup reads the last commit of the config repo (named by a hand-written pointer in the data folder) and of each skill repo named in the config repo, refuses a link, a special file, or a token shape in either (`vet_item`, `host/bin/ug-agent-setup`; shapes in `host/secret-patterns`), fills the gateway address and bearer into `models.yml`, and stages the result in a root folder the agent user alone can read among non-root users (`stage_config`, `host/bin/ug-agent-setup`). Each start copies it over the agent's own config, so the agent's config edits die at the next start.
 
-**Clone refresh.** `host/agent/agent-refresh` runs every 30 s as the agent user under the pin: it syncs each clone a session used in the last 7 days, with git hooks off, so agent-planted hooks never run between sessions (`docs/adr/0019-fast-launch-sync.md`, decision 8).
+**Clone refresh.** `host/agent/agent-refresh` runs every 30 s as the agent user under the pin: it syncs each clone a session used in the last 7 days, with git hooks off, so agent-planted hooks never run between sessions (`docs/adr/0019-fast-launch-sync.md`, "Decision", item 8).
 
 **gh-broker and the merge gate.** Open, in redesign (owner decision, 2026-11-10). What runs today: one host service answers the agent's GitHub calls over the socket of the facts (`gh_broker_socket`, `host/facts`), holds the app key and the only GitHub token an agent uses, keeps each used repo's main current, serves the launch sync, ends the branches it pushed once their commit is in main, and caps what a CI log can return (`host/gh-broker/`).
 
 **Branch and worktree cleanup.** The sweep (`sweep`, `host/gh-broker/sweep.ts`) removes a worktree only when its work is in main, it is not young, no process works in it, and it holds no unsaved files; it moves ignored files to a held folder for 14 days (`holdIgnored`, `host/gh-broker/sweep.ts`) and lists what it kept, with the reason, in `ug-kept.json` in the clone's git folder (`docs/adr/0020-state-based-branch-cleanup.md`).
 
-**Backup.** Once a day the backup job in the service table (`host/bin/ug-backup`) reads the agent home through the root helper `host/agent/agent-home-tar`, which a sudoers rule allows, excludes the staged config names and live sockets (`--exclude`, `host/agent/agent-home-tar`), and stores the tar stream in the restic repo the owner names in the backup settings, through the pinned restic. Every snapshot stays (`docs/adr/0016-agent-user.md`, Step 4).
+**Backup.** Once a day the backup job in the service table (`host/bin/ug-backup`) reads the agent home through the root helper `host/agent/agent-home-tar`, which a sudoers rule allows, excludes the staged config names and live sockets (`--exclude`, `host/agent/agent-home-tar`), and stores the tar stream in the restic repo the owner names in the backup settings, through the pinned restic. Every snapshot stays (`docs/adr/0016-agent-user.md`, "Step 4 (2026-11-08): the switch").
 
 **Watch.** `host/bin/ug-watch` runs every 5 minutes as the owner from the service table: it reads each job's record, asks the login services and the agent sshd, rechecks after 60 s, writes the status (`status`, `host/bin/ug-watch`), and pings the outside check whose address the owner writes by hand. The outside check alerts the owner on a failure and when no ping arrives within its period, so a dead mac or a dead watch cannot stay silent. The launcher prints the written status at each start, so the owner sees the problems before the first answer (`docs/adr/0023-failures-reach-the-owner.md`).
 
@@ -58,9 +58,9 @@ Live run before trust: in a throwaway repo that passes the checks, one task from
 ## Deferred
 
 - The gh-broker, the merge gate, auto merge, and a merge queue: open, in redesign.
-- A test of a program that talks to launchd directly, without the `launchctl` path the pin refuses (`docs/adr/0016-agent-user.md`, Open; `docs/adr/0021-github-holds-the-wall-on-main.md`, amendment 2026-11-10, item 3).
+- A test of a program that talks to launchd directly, without the `launchctl` path the pin refuses (`docs/adr/0016-agent-user.md`, "Open"; `docs/adr/0021-github-holds-the-wall-on-main.md`, "Amendment 2026-11-10: the rule against the other controls", item 3).
 - Per-repo network allowlists, with the data-out question (`docs/THREAT-MODEL.md`, U14).
-- A check that the owner has set a spend cap at each provider (`docs/adr/0021-github-holds-the-wall-on-main.md`, amendment 2026-11-10, item 4).
-- The notice at session start for kept branches (`docs/adr/0020-state-based-branch-cleanup.md`, decision 4).
+- A check that the owner has set a spend cap at each provider (`docs/adr/0021-github-holds-the-wall-on-main.md`, "Amendment 2026-11-10: the rule against the other controls", item 4).
+- The notice at session start for kept branches (`docs/adr/0020-state-based-branch-cleanup.md`, "Decision", item 4).
 - A feature request: `/usage` through the auth gateway, so the usage broker can go.
 - The MVPF rows of `docs/THREAT-MODEL.md`.

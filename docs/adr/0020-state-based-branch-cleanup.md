@@ -4,7 +4,7 @@ Date: 2026-11-09. Status: built, not run on the owner's mac. Owner decisions of 
 
 ## Context
 
-Only `gh-broker merge` cleaned up a merged branch: it deleted the head branch on GitHub, dropped the push record, and removed the local worktree and branch (`cleanUpMergedBranch` in `host/gh-broker/server.ts` and `cleanUpLocal` in `host/gh-broker/client.ts`, before this change). omp removes a session worktree at exit only when it has no change and no commit, and never one with commits (`0011-one-agent-arena.md`, amendment "worktrees"). The owner merges underground on GitHub, by design (`../SPEC.md`, onboarding check 6), and `gh-broker merge` refuses every PR until the reviewer skills write verdicts (`../../AGENTS.md`). So no cleanup ran. On 2026-11-08 the clone held 37 `wt/*` worktrees (agent run, `git worktree list`): 19 never got a commit, so omp's exit cleanup did not run for them, and the rest were merged. The push records of those branches stayed too.
+Only `gh-broker merge` cleaned up a merged branch: it deleted the head branch on GitHub, dropped the push record, and removed the local worktree and branch (`cleanUpMergedBranch` in `host/gh-broker/server.ts` and `cleanUpLocal` in `host/gh-broker/client.ts`, before this change). omp removes a session worktree at exit only when it has no change and no commit, and never one with commits (`0011-one-agent-arena.md`, "Amendment 2026-11-03: worktrees"). The owner merges underground on GitHub, by design (`../SPEC.md`, "Onboarding checks", item 6), and `gh-broker merge` refuses every PR until the reviewer skills write verdicts (`../../AGENTS.md`). So no cleanup ran. On 2026-11-08 the clone held 37 `wt/*` worktrees (agent run, `git worktree list`): 19 never got a commit, so omp's exit cleanup did not run for them, and the rest were merged. The push records of those branches stayed too.
 
 ## Decision
 
@@ -40,7 +40,7 @@ The rule deletes only what is in main, or in the case of an empty worktree, a co
 - The refresh can now mint a token that writes, which `0019-fast-launch-sync.md` (decision 2) kept out of it. It mints one only to delete a branch whose recorded commit is in main and that is still at that commit. A refresh with nothing to delete still uses only the read-only token (`tests/broker/branch-cleanup.test.ts`).
 - A repo with a push record and no launch for 7 days keeps its merged branch on GitHub until its next launch or the next start of the gh-broker.
 - A session that merges keeps its own worktree until a later start sweeps it, because it is young and in use. The old merge cleanup removed it at once.
-- A resumed session whose worktree the sweep removed opens in the clone (already accepted, `0011-one-agent-arena.md`, "Known holes").
+- A resumed session whose worktree the sweep removed opens in the clone (already accepted, `0011-one-agent-arena.md`, "Amendment 2026-11-03: worktrees", known holes).
 - Files written in a worktree after the last daily backup at 20:00 are not in the backup. The sweep never deletes a worktree that holds such files, unless they are caches.
 
 ## Evidence

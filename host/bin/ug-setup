@@ -111,7 +111,7 @@ setup_backup() {
     later+=("keep a copy of $backup/password in your password manager; without it, the backup cannot be opened after a loss of this mac")
   fi
   if [[ ! -f $backup/config ]]; then
-    later+=("write $backup/config with its repo=, wake=, and sleep= lines (docs/SPEC.md, B10); until then, no backup runs")
+    later+=("write $backup/config in the format that backup_target_read in host/lib/backup-target.bash reads; until then, no backup runs")
   fi
 }
 

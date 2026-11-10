@@ -15,6 +15,6 @@ Some lists in the code grew by one entry after each failure: an error text, a pa
 
 ## Not covered
 
-- Runtime files in `run/` are not swept. Root writes nothing there (`HOST-STATE.md`, Root zone).
+- Runtime files in `run/` are not swept. Root writes nothing there (`HOST-STATE.md`, "Root folder: `root` (root-owned)").
 - With the read list gone, the agent can read world-readable files outside the homes, for example in `/tmp`, `/Library`, and `/opt/homebrew/etc`. The owner's rule names only the homes. [inference] A Homebrew service config at mode 644 that holds a password is readable.
 - Not run on the owner's mac: the new pin, the code swap, and the LaunchAgent cleanup. The code swap and the top-level cleanup ran in a throwaway folder without root (agent run, 2026-11-10).

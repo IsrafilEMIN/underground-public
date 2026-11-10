@@ -2,7 +2,7 @@
 
 Date: 2026-10-30. Owner decision.
 
-Amended on 2026-11-02 by `0011-one-agent-arena.md`: the three reviewer roles stay, but as a quality step, not a safety wall. Their rules come as skills in the owner's config repo. The holds, attempts, and records stay as built until their review (`../SPEC.md`, Deferred).
+Amended on 2026-11-02 by `0011-one-agent-arena.md`: the three reviewer roles stay, but as a quality step, not a safety wall. Their rules come as skills in the owner's config repo. The holds, attempts, and records stay as built until their review (`../SPEC.md`, "Deferred").
 
 Superseded in part on 2026-10-31 by `docs/adr/0007-gh-broker-github-app.md`: the gh-broker acts as a GitHub App, and the owner decided that `gh-broker merge` merges only the auto path. So the owner's approval no longer merges or ends a hold, and the owner change request is no longer checked. A hold refuses `gh-broker merge` for good, and the owner merges that PR on GitHub. The parts marked "superseded" below are the ones that changed.
 

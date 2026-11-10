@@ -22,7 +22,7 @@ A launch takes about 2 s from enter to a ready prompt. The parts, measured on 20
 | omp from start to ready (`--mode rpc`) | 0.26 s | agent run, `PI_DEBUG_STARTUP` |
 | omp in the TUI: first log line to first skill compression | 0.2 s to 0.4 s | `~/.omp/logs`, owner launches of 2026-11-08 |
 | terminal return after omp removes its worktree | under 0.02 s | agent-side watcher against owner timestamps |
-| SHA-256 of the omp binary (`agent-start:16-19`, added by `0017-one-omp-binary-and-no-ug-folder.md`, not in the owner runs above) | 0.13 s, 0.18 s | agent runs |
+| SHA-256 of the omp binary (`agent-start:16-19`, added by `0017-one-omp-binary-and-no-ug-folder.md` and not in the owner runs above) | 0.13 s, 0.18 s | agent runs |
 
 So the sync was about half of the launch. It cost four steps in series, and two of them reached GitHub: `gh repo view` for the default branch (`defaultBranch`, `host/gh-broker/server.ts`, before this change) and a fetch into the bare repo (`refreshMain`, `host/gh-broker/server.ts`). Then a bundle of the full branch history (`handleSync`, `host/gh-broker/server.ts`) and the import in the clone (`importSync`, `host/gh-broker/client.ts`) ran on local disk. The config loop started about 60 processes, one `rm` and one `cp` per name.
 
@@ -63,7 +63,7 @@ GitHub: the check of step 1 is a git operation. "Git operations do not consume p
 
 Code: `host/gh-broker/server.ts` (timer, check, local sync, queue), `host/gh-broker/github-app.ts` (read-only token), `host/gh-broker/protocol.ts` (`have`, `parseRemoteHead`, the reply with `head` and an optional bundle), `host/gh-broker/client.ts` (send `have`, import or set the ref, retry once), `host/agent/agent-start` (the copy). One PR. The owner merges it and runs `host/bin/ug-setup` once, which installs the client and restarts the gh-broker. A launch while setup runs can meet a new client and an old gh-broker; the old one ignores `have` and sends no `head`, so that one sync fails, and the next launch works.
 
-Docs: `../SPEC.md` B3 and B4, `../THREAT-MODEL.md` (the agent user table: the new `have` input and this accepted risk).
+Docs: `../SPEC.md`, "Session start"; `../THREAT-MODEL.md` (the agent user table: the new `have` input and this accepted risk).
 
 ## Checks
 
