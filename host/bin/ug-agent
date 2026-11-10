@@ -18,10 +18,8 @@ known_hosts=$UG/agent-ssh/known_hosts
 sshd_config=${UG_SSHD_CONFIG:-/etc/ssh/sshd_config}
 re='^[A-Za-z0-9._=:/@+-]+$'
 
-die() { echo "ug-agent: $*" >&2; exit 1; }
-
 [[ -n $(find "$HOME" -maxdepth 0 -perm 700 2>/dev/null) ]] ||
-  die "your home $HOME is not mode 700; the agent user could read it. Run: host/bin/ug-setup"
+  ug_die ug-agent "your home $HOME is not mode 700; the agent user could read it. Run: host/bin/ug-setup"
 
 status=$UG/watch/status
 at=$(sed -n 's/^at=//p' "$status" 2>/dev/null) || at=''
@@ -34,23 +32,23 @@ else
 fi
 
 for arg in "$@"; do
-  [[ $arg =~ $re ]] || die "refused argument $arg: only letters, digits and . _ = : / @ + - are allowed"
+  [[ $arg =~ $re ]] || ug_die ug-agent "refused argument $arg: only letters, digits and . _ = : / @ + - are allowed"
 done
 
-[[ -f $key && -f $known_hosts ]] || die "no agent key or known_hosts under $UG/agent-ssh; run: host/bin/ug-setup"
+[[ -f $key && -f $known_hosts ]] || ug_die ug-agent "no agent key or known_hosts under $UG/agent-ssh; run: host/bin/ug-setup"
 
 if launchctl print system/com.openssh.sshd >/dev/null 2>&1; then
   ug_sshd_denies_agent "$sshd_config" "$key" ||
-    die "system Remote Login is running, and the system sshd does not deny $agent; without that, the agent user could log in there outside the pin. Run host/bin/ug-setup, or turn Remote Login off."
+    ug_die ug-agent "system Remote Login is running, and the system sshd does not deny $agent; without that, the agent user could log in there outside the pin. Run host/bin/ug-setup, or turn Remote Login off."
 fi
 
 top=$(git rev-parse --show-toplevel 2>/dev/null) || top=
 if [[ -n $top ]]; then
-  slug=$(ug_repo_slug "$top") || die "$top has no GitHub origin, so the agent cannot clone it"
+  slug=$(ug_repo_slug "$top") || ug_die ug-agent "$top has no GitHub origin, so the agent cannot clone it"
   [[ -z $slug ]] || export UG_REPO=$slug
 fi
 
 ug_port_answers 127.0.0.1 "$port" >/dev/null 2>&1 ||
-  die "the agent sshd on 127.0.0.1:$port does not answer. Check it with: sudo launchctl print system/com.underground.agent-sshd. Run host/bin/ug-setup to load it again."
+  ug_die ug-agent "the agent sshd on 127.0.0.1:$port does not answer. Check it with: sudo launchctl print system/$(ug_service_field "agent sshd" label). Run host/bin/ug-setup to load it again."
 
 exec ssh -tt -p "$port" -i "$key" -o IdentitiesOnly=yes -o UserKnownHostsFile="$known_hosts" -o StrictHostKeyChecking=yes -o LogLevel=ERROR -o SendEnv=UG_REPO "$agent@127.0.0.1" -- "$@"

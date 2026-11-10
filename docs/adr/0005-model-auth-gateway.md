@@ -55,7 +55,7 @@ Cost: the gateway bearer now also unlocks the engine. The engine is called `lm-s
 
 ## Amendment 2026-11-08: paths
 
-The model logins, `auth-broker.token`, and `auth-gateway.token` are in `/Users/ugauth/.omp`, omp's default profile (`0018-login-user.md`, Decision, step 1). Setup sets no `PI_CONFIG_DIR` and no `OMP_PROFILE` for them (`start_login_services`, `host/bin/ug-agent-setup`; `broker`, `host/bin/ug-auth`; `EnvironmentVariables`, `host/agent/com.underground.auth-broker.plist`). This replaces the `~/.ug/host/auth` paths above.
+The model logins, `auth-broker.token`, and `auth-gateway.token` are in `/Users/ugauth/.omp`, omp's default profile (`0018-login-user.md`, Decision, step 1). Setup sets no `PI_CONFIG_DIR` and no `OMP_PROFILE` for them (`start_services`, `host/bin/ug-agent-setup`; `broker`, `host/bin/ug-auth`; `EnvironmentVariables`, `host/agent/com.underground.auth-broker.plist`). This replaces the `~/.ug/host/auth` paths above.
 
 ## Amendment 2026-11-09: turn off one credential
 

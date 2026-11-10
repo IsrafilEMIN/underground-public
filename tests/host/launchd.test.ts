@@ -5,14 +5,30 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { tempDir } from "../temp.ts";
-import { factTokens } from "./render.ts";
+import { factTokens, services } from "./render.ts";
 
 const DIR = join(import.meta.dirname, "../../host/launchd");
 const LIB = join(import.meta.dirname, "../../host/lib/ug.bash");
 const AGENT_DIR = join(import.meta.dirname, "../../host/agent");
 const FILLED = new Set(["@DATA@", ...(await factTokens())]);
 const DAEMON_FILLED = new Set(["@OMP@", "@GATEWAY@", "@ENGINE@", ...(await factTokens())]);
-const DAEMONS = ["com.underground.auth-broker", "com.underground.auth-gateway", "com.underground.usage-broker"];
+const ROWS = await services();
+const DAEMONS = ROWS.filter((row) => row.user === "auth_user").map((row) => row.label);
+
+test("the service table reads each field in its own column, even when a middle field is empty", () => {
+  const sshd = ROWS.find((row) => row.label === "com.underground.agent-sshd");
+  assert.ok(sshd, "the table has the agent sshd");
+  assert.equal(sshd.log, "");
+  assert.match(sshd.inputs, /sshd_config/);
+});
+
+test("every token in the service table names a fact or a token setup fills", async () => {
+  const facts = new Set(await factTokens());
+  const special: Record<string, true> = { "@DATA@": true, "@GATEWAY@": true, "@OMP_SHA@": true };
+  for (const row of ROWS)
+    for (const token of [row.health, row.log, row.inputs].join(" ").match(/@[A-Z_]+@/g) ?? [])
+      assert.ok(facts.has(token) || token in special, `${row.label}: ${token}`);
+});
 
 const programArguments = (text: string): string[] => {
   const block = /<key>ProgramArguments<\/key>\s*<array>([\s\S]*?)<\/array>/.exec(text)?.[1] ?? "";
@@ -21,7 +37,8 @@ const programArguments = (text: string): string[] => {
 
 test("every owner launchd template uses only the placeholders that setup fills, so none can name the checkout", async () => {
   const files = (await readdir(DIR)).filter((n) => n.endsWith(".plist"));
-  assert.deepEqual(files.sort(), ["com.underground.backup.plist", "com.underground.gh-broker.plist", "com.underground.watch.plist"]);
+  assert.deepEqual(files.sort(), ROWS.filter((row) => row.scope === "agent").map((row) => `${row.label}.plist`).sort());
+  for (const row of ROWS.filter((row) => row.scope === "agent")) assert.equal(row.template, `host/launchd/${row.label}.plist`);
   for (const file of files) {
     const text = await readFile(join(DIR, file), "utf8");
     for (const placeholder of text.match(/@[A-Z_]+@/g) ?? []) assert.ok(FILLED.has(placeholder), `${file}: ${placeholder}`);

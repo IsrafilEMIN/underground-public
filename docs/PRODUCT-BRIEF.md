@@ -1,155 +1,79 @@
-# Product brief: underground MVP 0.5 (redesign)
+# Product brief: underground
 
-Owner decision, 2026-11-02. This brief replaces the design of the first MVP 0.5. `SPEC.md` lists the build work, `THREAT-MODEL.md` the threats and their controls, and `adr/0011-one-agent-arena.md` and `adr/0012-pinned-omp-and-setup.md` the reasons. The code ran the old design until #90 removed it (commit 54a418a1, 2026-11-07). The box ran the sessions until step 4 of `adr/0016-agent-user.md` removed it (2026-11-08); the agent's own macOS user runs them now.
-
-**Redesign phase** (owner decision, 2026-11-07; `../AGENTS.md`, "Redesign phase"). The architecture is being redesigned from the problem up. This brief describes the srt design, which the code ran until #90 removed its wrapper and arena start step (`host/bin/omp-arena`, `host/arena/init`, commit 54a418a1). For the new design, its summary, the first paragraph of its problem, its user and scope, and its north star hold. The rest (the second paragraph of the problem, the principles, zones, flows, "What stays", "What goes", and the trade-offs) is aid, not base: a part comes back only if the new base needs it. This includes "the rest stays" under Accepted trade-offs; it is not a decision for the box (`adr/0013-agent-box.md`).
-
-## Summary
-
-underground lets the omp coding agent work on the owner's mac like a coworker: the owner designs with it, and it implements ready tickets and merges its own PRs while the owner is away.
+This page holds the base: the problem, the user and scope, the north star, the gate, the harms that cannot be undone, what the agent needs to do its work, and for each harm the mechanism that handles it or the name under which it is accepted. `docs/SPEC.md` says what is built now. `docs/adr/` holds dated records, never today's state. History lives in git.
 
 ## Problem
 
-The owner runs omp without approvals, but does not trust an unattended run. The owner must watch only to stop harm that cannot be undone.
-
-The first design drew the line between the agent and the owner as a list of paths inside the owner's home. omp assumes that it owns its home: its root, logins, caches, skills, and updates. So each normal omp action crossed the line, and each crossing needed a patch: the split omp root, the policy pins, the `XDG_*` moves, `skillLinkRoots`, the subagent rules hook, `drop_secret_env`, and the reviewer store move (`adr/0002`, `adr/0008`, `adr/0009`). A new omp version can add a new path, so the list never ends [inference].
+The owner runs omp without approvals, but does not trust an unattended run. The owner must watch only to stop harm that cannot be undone. underground makes that harm impossible, undoable, or visible at once, so the owner can let the agent work alone.
 
 ## User and scope
 
-- One owner: a solo developer, on one macOS laptop, with one macOS user.
-- One agent: omp. The owner removes every other agent from the mac.
-- Repos: public for now. A private repo reopens the data-out question (U14).
+- One owner: a solo developer, on one macOS laptop. The agent runs as a macOS user of its own, not as the owner.
+- One agent: omp. The owner keeps no other agent on the mac.
+- Repos: public for now. A private repo reopens the data-out question (`docs/THREAT-MODEL.md`, U14).
+
+Two ways of working (owner decision, 2026-11-08):
+
+- **Together.** Design, architecture, specs, ADRs, and the split of user stories into tickets. The owner reads each step, but only after it runs: omp runs tool calls without approvals, so presence stops no call in time. A leak, a force-push, or a write to the owner's files is as irreversible here as in a run alone.
+- **On its own.** A ready ticket: the smallest unit of work, with no design decision left in it. Only this part runs unattended.
 
 ## North star
 
 The agent works like a coworker. The owner and the agent do the design together; the agent turns each ready ticket into a merged change on its own. Whatever the agent does without the owner's approval, in either way of working, the owner can undo.
 
-Before each decision, ask: does this stop an irreversible harm, or keep undo and work possible? If not, it waits.
+## The gate
 
-## Two ways of working
+Before each decision, the agent and the owner ask: does this bring us closer to the north star, or further away? It does only if it stops an irreversible harm, or keeps undo and work possible. If not, it waits. (`AGENTS.md`, "The gate".)
 
-Owner decision, 2026-11-08. Until this date the brief assumed that every session runs unattended. The agent now works in two ways:
+## The harms that cannot be undone
 
-- **Together.** Design, architecture, specs, ADRs, and the split of user stories into tickets. The owner works in the session with the agent and reads each step, but only after it has run: omp runs tool calls without approvals, so the owner's presence stops no call in time.
-- **On its own.** A ready ticket: the smallest unit of work, with no design decision left in it. The agent implements it, gets it merged, and reports back to the owner with the result. Only this part runs unattended.
+|id|harm|
+|---|---|
+|H1|Code runs as the owner, or the owner's files, logins, or desktop are read or changed: through a secret left on a command line, a listener the agent stands up, or a stray path.|
+|H2|A change reaches code that runs on the host, so a revert cannot undo what already ran.|
+|H3|The agent, or a service the setup needs, fails and stays silent, so undo and work stop while nobody knows.|
+|H4|The agent destroys data in its own home that the owner cannot rebuild: the session history, `history.db`, unpushed work.|
+|H5|The agent sends data it can read to anywhere outside the mac.|
+|H6|Model calls and spend run through a credential the agent holds.|
+|H7|The agent fills the mac's disk from its home.|
 
-The threat model is to be checked again against these two ways (`THREAT-MODEL.md`). The check splits a threat by whether the owner approves a call before it runs, not by whether the owner is there. A leak, a force-push, or a write to the owner's files is as irreversible in a session together as in one on its own.
+## What the agent needs to do its work
 
-## Principles
+|need|held by|
+|---|---|
+|Start as its own user, in its own home, on one binary, with the current rules.|The omp launcher (`host/bin/ug-agent`), the session start (`host/agent/agent-start`).|
+|A config that resets at each start, so its own edits die with the session.|The staged config copy (`config-names`, `host/agent/agent-start`); `host/bin/ug-agent-setup` stages it.|
+|Free read and write inside its own home.|The agent user's file rights.|
+|A current clone of each repo, kept current between sessions.|`host/agent/agent-refresh`.|
+|Reach GitHub without holding a credential.|One host service on a unix socket holds the only GitHub credential an agent uses (`host/gh-broker/`). The gh-broker, the merge gate, auto merge, and the merge queue are open, in redesign (owner decision, 2026-11-10).|
+|Call models without holding a login.|The auth broker and the auth gateway, run by the login user (`docs/adr/0005-model-auth-gateway.md`, `docs/adr/0018-login-user.md`).|
+|Usage numbers.|The usage broker (`host/gh-broker/usage-broker.ts`).|
+|Learn at once when something it depends on is broken.|The status lines the launcher prints (`status`, `host/bin/ug-agent`) and the watch (`docs/adr/0023-failures-reach-the-owner.md`).|
 
-1. **One arena.** The agent has one home of its own. srt keeps it there. srt stays because it is light.
-2. **omp runs unchanged.** Default paths and the default profile. If the design needs a patch to omp, the design is wrong.
-3. **No secret in the arena.** The agent uses a credential through a broker. It never reads one.
-4. **Control only the crossings.** Each way into or out of the arena has one control. Inside the arena, the agent is free.
-5. **Undo over prevention.** A bad merge gets a revert. A broken arena gets deleted and rebuilt.
-6. **One trust level.** All roles share the arena. Reviewers improve quality. They are not a safety wall.
-7. **A plain owner zone.** One root. Only setup writes it. No tool finds it by convention.
-8. **Count the parts.** Each part names its crossing or the irreversible harm that it stops. A part that names neither goes.
-9. **Few runtimes.** Each runtime on the start path is pinned. Measure the start time before and after a change.
+## The mechanisms
 
-## Zones
+**Agent user** (`docs/adr/0016-agent-user.md`). The agent is a standard, hidden macOS user of its own (the `agent_user` fact, `host/facts`). It starts through a login of its own, never from the owner's terminal, so it shares no clipboard, screen, or desktop session with the owner. A sandbox profile (`host/agent/pin.sb`) holds its writes to its own home. The owner's home is closed to it by file rights. Handles H1. Accepted by name: the agent reads the command lines of the owner's processes, so the rule is "no secret on a command line" (`docs/adr/0021-github-holds-the-wall-on-main.md`, amendment 2026-11-10, item 2); the pin is a wall for file paths only (same amendment, item 3); the agent reads world-readable files outside the homes (`docs/adr/0024-state-over-incident-lists.md`, decision 3).
 
-| zone | path | the agent may |
-|---|---|---|
-| arena | `/Users/ugagent` | do anything |
-| owner zone | `~/.ug/sys` | read only |
-| sockets | `/Library/Underground/run` | use the listed sockets only |
-| host | `~/.ug/host` | nothing |
-| owner's zone | everything else | nothing |
+**Login user** (`docs/adr/0018-login-user.md`). A second hidden user (`auth_user`, `host/facts`) owns the model logins and the tokens in a home the owner's user cannot read. The login services run as it. The owner cannot run the pinned omp and cannot read the gateway bearer. Handles H1, H6. Accepted by name: the owner through sudo reaches everything; the owner cannot stop it on purpose.
 
-- **Arena:** omp's own `~/.omp` (config, sessions, caches, helpers) and the agent's repo clones, proposed at `work/<owner>/<repo>`. The arena is the agent's `HOME`.
-- **Owner zone:** the pinned omp binary, the pinned restic, the pinned srt (removed in step 4 of `adr/0016-agent-user.md`, 2026-11-08; it was for the egress door's HTTP proxy in `host/egress/server.ts`, now removed), and `bin/omp` and `bin/ug-agent`, both links to the launcher `ug-agent` (`agent_dir`, `host/bin/ug-agent-setup`). The box's launcher `ug-box` is gone. `bin/` is on `PATH`.
-- **Sockets:** the gh-broker socket `/Library/Underground/run/gh-broker.sock` (`socketPath`, `host/gh-broker/server.ts`). The egress socket is gone (step 4 of `adr/0016-agent-user.md`). The agent cannot write here, so it cannot plant a socket or a link.
-- **Host:** everything the agent gets nothing of: the GitHub App key, the auth broker's logins, the gh-broker's records, the arena backup's password and settings (`SPEC.md`, B10), and the owner's hand-edited gh-broker files, such as the addresses file (owner decision, 2026-11-03).
-- **Owner's zone:** the owner's checkouts. underground runs from its checkout. The owner's agent config repo lives here too.
+**Pinned omp** (`docs/adr/0017-one-omp-binary-and-no-ug-folder.md`, `docs/adr/0018-login-user.md`). One omp binary on the mac, fixed by the version and SHA-256 in `VERSIONS` (`docs/adr/0012-pinned-omp-and-setup.md`): setup downloads the file and checks the hash, and root installs it with an owner and mode that admit only the agent user and the login user (`ug_ensure_owner_mode`, `host/bin/ug-agent-setup`). Every session checks its SHA-256 before omp starts (`omp_bin`, `host/agent/agent-start`). The agent cannot change the code its later sessions run, so the owner can trust that the code read after a merge is the code that runs. Handles H2.
 
-To uninstall: delete `~/.ug` and the launchd files.
+**Loopback firewall line** (`docs/adr/0022-loopback-one-firewall-line.md`). The sandbox profile (`host/agent/pin.sb`) and one pf line, each checked by setup, refuse the agent user a listener on the auth broker's port (`auth_broker_port`, `host/facts`), so the agent cannot stand in for the broker and take its bearer. Handles H1. Accepted by name: the agent reaches every listener of the owner on loopback; the guard is the owner's rule that no program of the owner listens without a secret (decision 3).
 
-## Flows
+**GitHub ruleset on main** (`docs/adr/0021-github-holds-the-wall-on-main.md`). On underground, GitHub refuses every merge to `main` without the owner's approval; a push after an approval needs a new one. Setup checks the rule before it pulls. Handles H2. Accepted by name: the merge gate on the other repos is a quality helper, not a wall; the wall there is onboarding check 5 (amendment 2026-11-10, item 1).
 
-**Start a session** (the srt design; `ug-agent` starts the session now, through `agent_user`, `host/bin/ug-agent`)
+**Backup** (`docs/adr/0016-agent-user.md`, Step 4). Once a day a restic snapshot of the agent's home goes to a repo on the owner's other machine, which the agent cannot reach. Every snapshot stays. Handles H4. Accepted: harm to work written since the last run.
 
-1. The owner types `omp` in a checkout. `PATH` finds the wrapper.
-2. The wrapper copies the owner's config repo into the arena's `~/.omp/agent`.
-3. It sets `HOME` to the arena and starts a clean environment.
-4. srt starts the pinned omp in that repo's clone in the arena.
+**Failures reach the owner** (`docs/adr/0023-failures-reach-the-owner.md`). Each job leaves a record that only its own user or root can write. The watch reads the records, asks the services, writes a status the launcher prints, and pings a check outside the mac that alerts when the pings stop. Handles H3.
 
-**Repos**
+**State over lists** (`docs/adr/0024-state-over-incident-lists.md`). A control rots while it still looks good when it trusts a saved list or value instead of the state. These controls read the state, so a change in reality shows at once: GitHub says whether a token is dead; setup checks the real pf anchor, the real ruleset, and the real rights of each file a service runs; setup builds its code folder fresh and removes what this version does not make.
 
-- The agent works in its own clone in the arena, never in the owner's checkout. Agent-written `.git` files, `.envrc`, or editor tasks then never run in a host tool (U4).
-- The host never runs git in the arena. Git there runs only inside the sandbox.
-- Agent work reaches the owner only through GitHub.
+**Data out** (`docs/adr/0001-accepted-risks.md`). There is no network wall: the agent reaches every site, the LAN, and the tailnet (owner decision, `docs/adr/0016-agent-user.md`). Accepted by name while the repos are public. H5.
 
-**Code out**
+**Spend through the bearer** (`docs/adr/0021-github-holds-the-wall-on-main.md`, amendment 2026-11-10, item 4). The gateway bearer is not a control: the agent reads it and can send it anywhere. Accepted: calls and spend through it, up to the cap the owner sets at each provider; nothing in this repo checks that a cap is set. H6.
 
-- Agent → gh-broker socket → GitHub, `agent/*` branches only → PR → CI → reviewers → merge gate.
-- Other repos: auto merge.
-- underground: the owner merges, because its code runs on the host.
+**Disk** (`docs/adr/0016-agent-user.md`, Open). No cap on the agent's home, by owner decision, 2026-11-08: not needed. H7.
 
-**Model calls**
+## In redesign
 
-- Agent → auth gateway (tailscale address) → auth broker (`127.0.0.1`) → provider.
-- Only the gateway talks to the broker. A direct broker client receives access tokens and API keys (omp `docs/auth-broker-gateway.md:3`, read 2026-11-02), so no session is a broker client.
-
-**`/usage`**
-
-- Agent → usage broker → gateway. The usage broker holds no credentials.
-- omp's `/usage` reads only local logins or a broker client (omp `packages/coding-agent/src/session/agent-session.ts:14301`, `main` at `650f3a1`, read 2026-11-02). So the usage broker stays until omp serves usage through the gateway.
-- It stays on `127.0.0.1:18765`, because localhost stays on for omp's own features (`SPEC.md`, B5).
-
-## The omp binary
-
-- One file, `omp-darwin-arm64`. It carries omp's code, the bun runtime, and the native parts. We never build omp.
-- Source: GitHub releases. The release file of v18.13.2 has the same SHA-256 as Tern's copy, `38c3645283ceba06f66462830ae15f27270cc7f84575e40a4c6bd68452a63d0f` (download and `shasum`, 2026-11-02). Releases back to v5.0.0 (2026-01-12) have the file; v14.0.0 does not (HTTP 404, 2026-11-02).
-- The pin is a version and a SHA-256 in `VERSIONS`. Setup downloads the file, checks the hash, and keeps its own copy.
-- Tern stays for the owner's iPhone. Its omp comes off `PATH`.
-
-**No unboxed session**
-
-- Inside the sandbox: impossible. Every child of the sandbox (`sandbox-exec`, `host/agent/agent-session`) stays in it.
-- From the owner's shell: only the launcher `ug-agent` (`agent_user`, `host/bin/ug-agent`) is on `PATH`.
-- By full path: only the owner can start the raw omp, because the owner's home is mode 700 (`owner_home`, `host/bin/ug-agent-setup`). It finds no login; it still finds the keyless providers that omp adds by itself (`adr/0012-pinned-omp-and-setup.md`, amendment 2026-11-08).
-
-## Updates
-
-- underground: run setup. It fast-forwards `main` in its own checkout from `origin`, then copies the code into `~/.ug/sys` (`ug_pull_main`, `host/lib/ug.bash`; `install_service_code`, `host/bin/ug-setup`; `adr/0012-pinned-omp-and-setup.md`, amendments "an installed copy of the host code" and "setup pulls main first"). The agent user's copy and its `omp` link come from `host/bin/ug-agent-setup`, which setup runs with sudo at its end.
-- omp: change the pin, then run setup.
-- Config: commit to the config repo, then run setup. Setup copies the last commit into `/Library/Underground/config` (`stage_config`, `host/bin/ug-agent-setup`), and each start copies that folder into the agent's `~/.omp/agent` (`config-names`, `host/agent/agent-start`).
-- Skills from a skill repo: list the repo's path in the config repo's `skill-repos` file, commit to either repo, then run setup. Like the config repo, setup reads the skill repo's last commit, adds each `<name>/SKILL.md` folder, at the top or under `skills/`, to the config's `skills/`, with the same link and token checks, and stops on a name that is already there or a path outside the owner's home (`stage_config`, `host/bin/ug-agent-setup`).
-
-Setup runs when underground's `main`, a pin, a host service, the config repo, or macOS changes. It installs the pinned omp and restic, makes the zones and their modes, and registers and restarts the launchd services (`host/bin/ug-setup`). At its end it runs `host/bin/ug-agent-setup` with sudo, which links the agent user's `omp` on `PATH`.
-
-## What stays
-
-- The auth gateway, the auth broker, and the usage broker.
-- The gh-broker and its merge gate.
-- The macOS build pin.
-- The onboarding checks (`SPEC.md`), including: a merge to `main` has no effect that a revert cannot undo.
-- The reviewer roles. Their rules come as skills.
-
-## What goes
-
-- The owner/agent split of the omp root, and the policy pins.
-- The one-by-one moves: `PI_CONFIG_DIR`, `XDG_*`, `CARGO_HOME`.
-- `skillLinkRoots` and the skill symlinks.
-- `drop_secret_env`. A clean environment replaces it.
-- Per-role homes, sessions, state, and reviewer stores.
-- The heavy install and its file hash record.
-
-## Accepted trade-offs
-These trade-offs are the srt design's. srt was removed in step 4 of `adr/0016-agent-user.md` (2026-11-08).
-
-- srt is a filter on the owner's macOS user, not a wall.
-- Localhost is open to every port for now. srt 0.0.81 has one switch for it (`dist/sandbox/macos-sandbox-utils.js:951` to `:954`).
-- The agent can send what it reads to an allowlisted domain (U14). This is fine while the repos are public.
-- A session can damage another repo's clone in the arena. Only agent work is lost.
-- The box can be swapped. If srt fails us, the arena moves into a VM, and the rest stays.
-
-## Deferred
-
-- Localhost: decided 2026-11-03, it stays on, because omp's own features need it (`SPEC.md`, B5). Still open: a per-port setting in srt.
-- Per-repo allowlists, with the data-out question.
-- The merge gate's machinery: what is still needed now that reviewers are quality only.
-- The runtime choice for scripts.
-- Probes: `HOME` on the pinned omp, omp's helper socket paths, the arena clone step.
-- A feature request to Stencil: `/usage` through the auth gateway.
+The gh-broker, the merge gate, auto merge, and a merge queue are open and out of scope until the owner redesigns them (owner decision, 2026-11-10). What runs today: one host service answers the agent's GitHub calls over a unix socket and holds the only GitHub credential an agent uses.

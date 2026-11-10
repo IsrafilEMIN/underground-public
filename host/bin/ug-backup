@@ -17,7 +17,7 @@ config="$backup/config"
 agent_tar=${UG_AGENT_HOME_TAR:-$(ug_fact root)/code/bin/agent-home-tar}
 
 log() { printf '%s ug-backup: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >&2; }
-die() {
+fail() {
   log "$*"
   exit 1
 }
@@ -30,9 +30,9 @@ restic_hint() {
   esac
 }
 
-[[ -n $restic_pin && -x $restic_bin ]] || die "the pinned restic $restic_bin is missing; run host/bin/ug-setup"
-[[ -s $backup/password ]] || die "the backup password $backup/password is missing; run host/bin/ug-setup"
-[[ -f $config ]] || die "no $config; write its repo=, wake=, and sleep= lines (docs/SPEC.md, B10)"
+[[ -n $restic_pin && -x $restic_bin ]] || fail "the pinned restic $restic_bin is missing; run host/bin/ug-setup"
+[[ -s $backup/password ]] || fail "the backup password $backup/password is missing; run host/bin/ug-setup"
+[[ -f $config ]] || fail "no $config; write its repo=, wake=, and sleep= lines (docs/SPEC.md, B10)"
 export RESTIC_PASSWORD_FILE="$backup/password"
 
 repo=""

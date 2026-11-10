@@ -16,7 +16,7 @@ Cost: the agent cannot run a local server and connect to it directly. If tailsca
 
 `install.sh` hard-coded the gateway as `<engine ip>:4000`, but `<engine ip>` is the engine's box, not this mac. The gateway could not bind, and launchd restarted it in a loop.
 
-Decision: the owner-only file `~/.ug/host/addresses` holds `gateway=<ip>:<port>` and `engine=<ip>:<port>`. `host/bin/ug-setup` writes it only when it is missing (`write_addresses`, `host/bin/ug-setup`), with the first line of `tailscale ip -4` and port `4000` for the gateway (same function), and never overwrites it. Setup reads it for the gateway plist and the engine address (`start_login_services`, `host/bin/ug-agent-setup`), and `host/bin/ug-agent-setup` reads the gateway in `stage_config`. The allowlist templates, which filled `@GATEWAY@` and `@ENGINE@` at each session start through `render-settings`, were removed with the srt design (`0001-accepted-risks.md`, opening paragraph).
+Decision: the owner-only file `~/.ug/host/addresses` holds `gateway=<ip>:<port>` and `engine=<ip>:<port>`. `host/bin/ug-setup` writes it only when it is missing (`write_addresses`, `host/bin/ug-setup`), with the first line of `tailscale ip -4` and port `4000` for the gateway (same function), and never overwrites it. Setup reads it for the gateway plist and the engine address (`start_services`, `host/bin/ug-agent-setup`), and `host/bin/ug-agent-setup` reads the gateway in `stage_config`. The allowlist templates, which filled `@GATEWAY@` and `@ENGINE@` at each session start through `render-settings`, were removed with the srt design (`0001-accepted-risks.md`, opening paragraph).
 
 ## Amendment 2026-10-31: loopback allowed
 
