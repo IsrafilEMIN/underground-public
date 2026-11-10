@@ -185,9 +185,22 @@ old_broker=$data/gh-broker
 for name in logs repos pushes reviews tmp; do
   install -d -m 700 -o "$broker_user" -g staff "$broker_home/$name"
 done
-if [[ -e $old_broker || -L $old_broker ]]; then
+if [[ -d $old_broker && ! -L $old_broker ]]; then
+  for name in repos pushes reviews; do
+    [[ -d $old_broker/$name && ! -L $old_broker/$name ]] || continue
+    [[ -z $(find "$broker_home/$name" -mindepth 1 -maxdepth 1 2>/dev/null) ]] ||
+      ug_die ug-agent-setup "both $old_broker/$name and $broker_home/$name hold records; keep the current one, delete the other, then run setup again"
+    copy=$(mktemp -d "$broker_home/.copy.XXXXXX")
+    cleanup+=("$copy")
+    sudo -u "$owner" /usr/bin/tar -C "$old_broker/$name" -cf - . | /usr/bin/tar -C "$copy" -xf - -o ||
+      ug_die ug-agent-setup "cannot copy $old_broker/$name into $broker_home/$name; nothing was moved"
+    chown -hR "$broker_user:staff" "$copy"
+    chmod 700 "$copy"
+    rmdir "$broker_home/$name"
+    mv "$copy" "$broker_home/$name"
+  done
   rm -rf "$old_broker"
-  ug_say changed gh-broker "deleted the old mirrors and records in $old_broker; root does not move or re-own a tree that you can write, so the gh-broker starts with fresh ones in $broker_home"
+  ug_say changed gh-broker "copied its mirrors and records from $old_broker into $broker_home with your rights, then deleted $old_broker"
 fi
 for name in github-app.json github-app.pem; do
   [[ -e $data/$name || -L $data/$name ]] || continue
