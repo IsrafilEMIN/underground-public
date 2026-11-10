@@ -93,7 +93,7 @@ Setup builds `code/` fresh from the checkout at each run, swaps it in, and at it
 | path | what it is for | who writes it | when a change takes effect |
 |---|---|---|---|
 | `github-app.pem`, `github-app.json` | The app key and client ID, mode 600 | root, from the wizard's copy in your data folder (`github-app.pem`, `host/bin/ug-agent-setup`) | at the next token mint (`appFiles`, `host/gh-broker/github-app.ts`) |
-| `repos/`, `pushes/`, `reviews/`, `tmp/` | The mirrors and the push and review records. Root moved them once from your data folder (`old_broker`, `host/bin/ug-agent-setup`). | the gh-broker (`defaultConfig`, `host/gh-broker/server.ts`) | at once. Nothing deletes old review records or runs `git gc` on the mirrors. |
+| `repos/`, `pushes/`, `reviews/`, `tmp/` | The mirrors and the push and review records. They start empty: root deletes the old ones in your data folder and does not move or re-own a tree that you can write (`old_broker`, `host/bin/ug-agent-setup`). | the gh-broker (`defaultConfig`, `host/gh-broker/server.ts`) | at once. Nothing deletes old review records or runs `git gc` on the mirrors. |
 | `logs/gh-broker.log` | The gh-broker log. Read it with `sudo cat`. | launchd | none |
 
 ## Agent user: `agent_home`

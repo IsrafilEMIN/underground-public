@@ -26,11 +26,15 @@ const FAKE_LAUNCHCTL = `#!/bin/sh
 case "$2" in
 *com.underground.backup) if [ -e "$HOME/backup-failed" ]; then printf '\\tlast exit code = 1: Operation not permitted\\n'; else printf '\\tlast exit code = 0\\n'; fi ;;
 *com.underground.agent-refresh) printf '\\tusername = ugagent\\n\\tlast exit code = (never exited)\\n' ;;
-*com.underground.gh-broker) if [ -e "$HOME/broker-as-owner" ]; then printf '\\tusername = kutluk\\n'; else printf '\\tusername = ugbroker\\n'; fi ;;
+*com.underground.gh-broker) if [ -e "$HOME/broker-as-owner" ]; then printf '\\tusername = kutluk\\n'; elif [ -e "$HOME/broker-pid-only" ]; then printf '\\tpid = 4242\\n'; else printf '\\tusername = ugbroker\\n'; fi ;;
 *com.underground.auth-broker|*com.underground.auth-gateway|*com.underground.usage-broker) printf '\\tusername = ugauth\\n' ;;
 *com.underground.agent-sshd|*com.underground.agent-pf) printf '\\tstate = running\\n' ;;
 *) exit 113 ;;
 esac
+`;
+
+const FAKE_PS = `#!/bin/sh
+[ "$4" = 4242 ] && printf 'kutluk\\n'
 `;
 
 async function exe(path: string, text: string) {
@@ -47,6 +51,7 @@ async function fakeHome(t: { after: (fn: () => unknown) => void }, { ping = true
   await exe(join(bin, "curl"), FAKE_CURL);
   await exe(join(bin, "nc"), FAKE_NC);
   await exe(join(bin, "launchctl"), FAKE_LAUNCHCTL);
+  await exe(join(bin, "ps"), FAKE_PS);
   const now = Math.floor(Date.now() / 1000);
   await writeFile(join(data, "gh-broker/status"), `at=${now}\nfailed=\n`);
   await writeFile(join(data, "backup/last"), `${now}\n`);
@@ -112,6 +117,13 @@ test("ug-watch names the repos whose last gh-broker refresh failed", async (t) =
 test("ug-watch reports a daemon that launchd runs as a user other than the one the service table names", async (t) => {
   const o = await fakeHome(t);
   await writeFile(join(o.home, "broker-as-owner"), "");
+  run(o);
+  assert.match(await status(o), /^gh-broker: launchd does not run it as ugbroker$/m);
+});
+
+test("ug-watch reads the user of a daemon from its pid when launchd prints no user name", async (t) => {
+  const o = await fakeHome(t);
+  await writeFile(join(o.home, "broker-pid-only"), "");
   run(o);
   assert.match(await status(o), /^gh-broker: launchd does not run it as ugbroker$/m);
 });
