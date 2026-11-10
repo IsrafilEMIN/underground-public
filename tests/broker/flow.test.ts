@@ -5,7 +5,7 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, test } from "node:test";
-import { defaultConfig, startServer, stopServer } from "../../host/gh-broker/server.ts";
+import { defaultConfig, refreshRepos, startServer, stopServer } from "../../host/gh-broker/server.ts";
 import type { GhBroker, ServerConfig } from "../../host/gh-broker/server.ts";
 import { fakeTokens, githubRemote } from "./fake-app.ts";
 import { tempDir } from "../temp.ts";
@@ -76,15 +76,9 @@ else if (a === "pr" && b === "merge") {
   const tree = git("rev-parse", oid + "^{tree}");
   const commit = git("-c", "user.name=gh", "-c", "user.email=gh@example.com", "commit-tree", tree, "-p", "refs/heads/main", "-p", oid, "-m", "Merge pull request #" + pr.number + " from ${REPO.split("/")[0]}/" + pr.headRefName);
   git("update-ref", "refs/heads/main", commit);
-  if (state.afterMerge === "delete") git("update-ref", "-d", "refs/heads/" + pr.headRefName);
-  if (state.afterMerge === "move") {
-    state.moved = git("-c", "user.name=w", "-c", "user.email=w@example.com", "commit-tree", tree, "-p", oid, "-m", "late");
-    git("update-ref", "refs/heads/" + pr.headRefName, state.moved);
-  }
   pr.state = "MERGED";
   pr.mergedHead = oid;
   save();
-  fs.appendFileSync(${JSON.stringify(join(root, "merged"))}, args.join(" ") + "\\n");
   process.stdout.write("merged\\n");
 } else fail("fake gh: unexpected " + args.join(" "));
 `;
@@ -102,7 +96,7 @@ function remoteRef(ref: string): string {
   return git(remote, "for-each-ref", "--format=%(objectname)", ref);
 }
 
-type GhState = { ci: string; log?: string; afterMerge?: "delete" | "move"; moved?: string; prs: unknown[] };
+type GhState = { ci: string; log?: string; prs: unknown[] };
 
 async function ghState(): Promise<GhState> {
   return JSON.parse(await readFile(join(root, "gh-state.json"), "utf8"));
@@ -110,10 +104,6 @@ async function ghState(): Promise<GhState> {
 
 async function setGh(patch: Partial<GhState>): Promise<void> {
   await writeFile(join(root, "gh-state.json"), JSON.stringify({ ...(await ghState()), ...patch }));
-}
-
-async function setCi(conclusion: string): Promise<void> {
-  await setGh({ ci: conclusion });
 }
 
 async function pushRecord(branch: string): Promise<string | undefined> {
@@ -154,48 +144,25 @@ async function newHead(file: string): Promise<string> {
 }
 
 async function openPr(): Promise<number> {
-  const out = await ok("author", tree, "pr-create", REPO, BRANCH, "planted", "a change");
+  const out = await ok("author", tree, "pr-create", REPO, BRANCH, "a change", "a change");
   const number = /\/pull\/(\d+)\s*$/.exec(out)?.[1];
   assert.ok(number !== undefined, out);
   return Number(number);
 }
 
-function review(role: Role, pr: number, head: string, verdict: string, reason = ""): Promise<string> {
-  return ok(role, root, "review", REPO, String(pr), head, role, verdict, reason);
-}
-
-async function passAll(pr: number, head: string): Promise<void> {
-  for (const role of REVIEWERS) await review(role, pr, head, "pass");
-}
-
-async function prStatus(pr: number): Promise<{ headRefOid: string; reviewRecords: { role: string; head: string; verdict: string; reason: string }[] }> {
-  return JSON.parse(await ok("author", work, "pr-status", REPO, String(pr)));
-}
-
-async function assertRefusedWithoutMerge(pr: number, reason?: RegExp): Promise<void> {
-  const main = remoteRef("refs/heads/main");
-  const branch = remoteRef(`refs/heads/${BRANCH}`);
-  const result = await brokerAs("author", tree, "merge", REPO, String(pr));
-  assert.notEqual(result.code, 0, result.stdout);
-  if (reason !== undefined) assert.match(result.stderr, reason);
-  assert.equal(existsSync(join(root, "merged")), false);
-  assert.equal(remoteRef("refs/heads/main"), main);
-  assert.equal(remoteRef(`refs/heads/${BRANCH}`), branch);
-  assert.equal(existsSync(tree), true);
+async function mergeOnGithub(pr: number, head: string): Promise<void> {
+  execFileSync(config.ghPath, ["pr", "merge", String(pr), "--repo", REPO, "--merge", "--match-head-commit", head], { env: GIT_ENV });
 }
 
 beforeEach(async () => {
 
   root = await tempDir(join(process.env.XDG_STATE_HOME ?? "/tmp", "u"));
   const agents = join(root, "data/gh-broker");
-  const owner = join(root, "data");
   config = {
     ...defaultConfig("/unused/gh"),
     socketPath: join(root, "run", "gh-broker.sock"),
     reposRoot: join(agents, "repos"),
-    reviewsDir: join(agents, "reviews"),
     pushesDir: join(agents, "pushes"),
-    protectedDir: join(owner, "protected-paths"),
     ghPath: join(root, "gh"),
     github: fakeTokens(),
     home: join(root, "gh-home"),
@@ -203,7 +170,6 @@ beforeEach(async () => {
     statusFile: join(agents, "status"),
   };
   await mkdir(agents, { recursive: true });
-  await mkdir(owner, { recursive: true });
   await mkdir(config.home);
 
   remote = join(root, "github.git");
@@ -236,99 +202,7 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-async function plantedDefect(): Promise<{ pr: number; head: string }> {
-  const head = await newHead("leak.txt");
-  const pr = await openPr();
-  await review("code-review", pr, head, "pass");
-  await review("risk-review", pr, head, "pass");
-  await review("security-review", pr, head, "block", "leak.txt writes the token to a world-readable file");
-  return { pr, head };
-}
-
-test("a security-review block on a planted defect refuses the merge, and the author sees the block and its reason in pr-status", async () => {
-  const { pr, head } = await plantedDefect();
-
-  await assertRefusedWithoutMerge(pr);
-  const status = await prStatus(pr);
-  assert.equal(status.headRefOid, head);
-  const block = status.reviewRecords.find((record) => record.verdict === "block");
-  assert.deepEqual(
-    { role: block?.role, head: block?.head, reason: block?.reason },
-    { role: "security-review", head, reason: "leak.txt writes the token to a world-readable file" },
-  );
-  assert.deepEqual(status.reviewRecords.map((record) => record.role).sort(), [...REVIEWERS].sort());
-});
-
-test("a fixed new head with a fresh pass from all three roles and green CI merges, the remote branch goes, and the author's new worktree waits for a later sweep", async () => {
-  const { pr, head: blocked } = await plantedDefect();
-  await rm(join(tree, "leak.txt"));
-  git(tree, "rm", "--quiet", "--cached", "leak.txt");
-  const head = await newHead("fix.txt");
-  assert.notEqual(head, blocked);
-
-  await review("code-review", pr, head, "pass");
-  await review("security-review", pr, head, "pass");
-  await assertRefusedWithoutMerge(pr);
-  await review("risk-review", pr, head, "pass");
-
-  const result = await brokerAs("author", tree, "merge", REPO, String(pr));
-  assert.equal(result.code, 0, result.stderr);
-  assert.match(await readFile(join(root, "merged"), "utf8"), new RegExp(`--match-head-commit ${head}\\b`));
-  assert.equal(git(remote, "rev-parse", "refs/heads/main^2"), head);
-  assert.equal(remoteRef(`refs/heads/${BRANCH}`), "");
-  assert.equal(existsSync(tree), true);
-  assert.equal(git(work, "for-each-ref", "--format=%(objectname)", `refs/heads/${BRANCH}`), head);
-  assert.equal(git(work, "rev-parse", "refs/remotes/origin/main^2"), head);
-  const records = (await prStatus(pr)).reviewRecords;
-  assert.ok(records.some((record) => record.head === blocked && record.verdict === "block"));
-});
-
-test("a fourth blocked head is a hold that a later head with a pass from all three roles and green CI does not end", async () => {
-  let pr = 0;
-  for (let attempt = 1; attempt <= 4; attempt++) {
-    const head = await newHead(`attempt-${attempt}.txt`);
-    if (pr === 0) pr = await openPr();
-    await review("code-review", pr, head, "block", `attempt ${attempt} misses the task`);
-  }
-  await assertRefusedWithoutMerge(pr, /owner merges this PR on GitHub/);
-
-  const head = await newHead("attempt-5.txt");
-  await passAll(pr, head);
-  await assertRefusedWithoutMerge(pr, /owner merges this PR on GitHub/);
-});
-
-test("red CI refuses a head with a pass from all three roles", async () => {
-  const head = await newHead("a.txt");
-  const pr = await openPr();
-  await passAll(pr, head);
-  await setCi("FAILURE");
-
-  await assertRefusedWithoutMerge(pr);
-});
-
-test("a PR head that another writer pushed, not the gh-broker, refuses with a pass from all three roles and green CI", async () => {
-  await newHead("a.txt");
-  const pr = await openPr();
-  const other = join(root, "other");
-  execFileSync(config.gitPath, ["clone", "--quiet", "--branch", BRANCH, remote, other], { env: GIT_ENV });
-  await writeFile(join(other, "b.txt"), "b\n");
-  git(other, "add", "b.txt");
-  git(other, "commit", "--quiet", "-m", "b");
-  git(other, "push", "--quiet", "origin", `HEAD:refs/heads/${BRANCH}`);
-  const foreign = git(other, "rev-parse", "HEAD");
-  assert.equal((await prStatus(pr)).headRefOid, foreign);
-  await passAll(pr, foreign);
-
-  await assertRefusedWithoutMerge(pr);
-});
-
-async function mergeOk(pr: number, cwd = tree): Promise<string> {
-  const result = await brokerAs("author", cwd, "merge", REPO, String(pr));
-  assert.equal(result.code, 0, result.stderr);
-  return result.stdout;
-}
-
-test("each reviewer imports the PR head into its session's repo with sync --pr, reviews that commit, and the author's merge lands it", async () => {
+test("each reviewer imports the PR head into its session's repo with sync --pr and reads that commit", async () => {
   const head = await newHead("feature.txt");
   const pr = await openPr();
   for (const role of REVIEWERS) {
@@ -339,129 +213,60 @@ test("each reviewer imports the PR head into its session's repo with sync --pr, 
     const imported = git(clone, "rev-parse", `refs/remotes/origin/pr/${pr}`);
     assert.equal(imported, head);
     assert.equal(git(clone, "show", `${imported}:feature.txt`), "feature.txt");
-    await review(role, pr, imported, "pass");
   }
-
-  await mergeOk(pr);
-  assert.equal(git(remote, "rev-parse", "refs/heads/main^2"), head);
-  assert.equal(remoteRef(`refs/heads/${BRANCH}`), "");
-  assert.equal(await pushRecord(BRANCH), undefined);
-  const records = (await prStatus(pr)).reviewRecords;
-  assert.deepEqual(records.map((record) => [record.role, record.head, record.verdict]), REVIEWERS.map((role) => [role, head, "pass"]));
 });
 
-test("after red CI the author reads the failed log with ci-log and merge refuses; a fixed head with green CI and fresh passes merges", async () => {
+test("after red CI the author reads the failed log with ci-log, and a fixed green head shows no failed run", async () => {
   const red = await newHead("a.txt");
   const pr = await openPr();
-  await passAll(pr, red);
   await setGh({ ci: "FAILURE", log: "ci\ttest\tnot ok 1 - a.txt adds one\n" });
 
   const log = await ok("author", tree, "ci-log", REPO, String(pr));
   assert.match(log, new RegExp(`failed pull_request runs of PR ${pr} at ${red}: ci \\(1\\)`));
   assert.ok(log.includes("not ok 1 - a.txt adds one"), log);
-  await assertRefusedWithoutMerge(pr, /check ci is FAILURE/);
   assert.equal(await pushRecord(BRANCH), red);
 
   const green = await newHead("fix.txt");
   await setGh({ ci: "SUCCESS", log: "" });
   assert.match(await ok("author", tree, "ci-log", REPO, String(pr)), new RegExp(`no failed pull_request run on head ${green} of PR ${pr}`));
-  await passAll(pr, green);
-  await mergeOk(pr);
-  assert.equal(git(remote, "rev-parse", "refs/heads/main^2"), green);
-  assert.equal(await pushRecord(BRANCH), undefined);
 });
 
-test("a risk-review manual on one head is a hold that a later head with a pass from all three roles and green CI does not end", async () => {
-  const head = await newHead("pay.txt");
-  const pr = await openPr();
-  await review("code-review", pr, head, "pass");
-  await review("security-review", pr, head, "pass");
-  await review("risk-review", pr, head, "manual", "pay.txt moves money");
-  const hold = new RegExp(`owner merges this PR on GitHub: risk-review asked for manual review of ${head} at .*: pay\\.txt moves money`);
-  await assertRefusedWithoutMerge(pr, hold);
-
-  const next = await newHead("pay-2.txt");
-  await passAll(pr, next);
-  await assertRefusedWithoutMerge(pr, hold);
-  assert.equal(await pushRecord(BRANCH), next);
-  const records = (await prStatus(pr)).reviewRecords;
-  assert.deepEqual(records.filter((record) => record.verdict === "manual").map((record) => record.head), [head]);
-});
-
-test("a change to a path in the owner's protected paths list is a hold, with a pass from all three roles and green CI", async () => {
-  await mkdir(join(config.protectedDir, "o"), { recursive: true });
-  await writeFile(join(config.protectedDir, REPO), "# deploy scripts\ninfra/**\n");
-  const head = await newHead("infra/deploy.sh");
-  const pr = await openPr();
-  await passAll(pr, head);
-
-  await assertRefusedWithoutMerge(pr, /owner merges this PR on GitHub: protected path infra\/deploy\.sh changed/);
-  assert.equal(await pushRecord(BRANCH), head);
-});
-
-test("a change under .github is a hold with no protected paths list, with a pass from all three roles and green CI", async () => {
-  const head = await newHead(".github/workflows/ci.yml");
-  const pr = await openPr();
-  await passAll(pr, head);
-
-  await assertRefusedWithoutMerge(pr, /owner merges this PR on GitHub: protected path \.github\/workflows\/ci\.yml changed/);
-  assert.equal(await pushRecord(BRANCH), head);
-});
-
-test("a merge whose head branch moved right after it keeps that branch and its push record, and says so", async () => {
+test("a head branch that another writer moved after the owner's merge on GitHub keeps that branch and its push record", async () => {
   const head = await newHead("a.txt");
   const pr = await openPr();
-  await passAll(pr, head);
-  await setGh({ afterMerge: "move" });
+  await mergeOnGithub(pr, head);
+  const other = join(root, "other");
+  execFileSync(config.gitPath, ["clone", "--quiet", "--branch", BRANCH, remote, other], { env: GIT_ENV });
+  await writeFile(join(other, "b.txt"), "b\n");
+  git(other, "add", "b.txt");
+  git(other, "commit", "--quiet", "-m", "b");
+  git(other, "push", "--quiet", "origin", `HEAD:refs/heads/${BRANCH}`);
+  const moved = git(other, "rev-parse", "HEAD");
 
-  const out = await mergeOk(pr);
-  const moved = (await ghState()).moved;
-  assert.ok(moved !== undefined && moved !== head);
-  assert.match(out, new RegExp(`kept branch ${BRANCH}: it moved from the merged commit ${head} to ${moved}`));
+  await refreshRepos(config, new AbortController().signal);
   assert.equal(git(remote, "rev-parse", "refs/heads/main^2"), head);
   assert.equal(remoteRef(`refs/heads/${BRANCH}`), moved);
   assert.equal(await pushRecord(BRANCH), head);
   assert.equal(existsSync(tree), true);
 });
 
-test("a merge whose head branch GitHub deleted already counts as cleaned up and drops the push record", async () => {
+test("a head branch GitHub deleted at the merge counts as cleaned up and drops the push record", async () => {
   const head = await newHead("a.txt");
   const pr = await openPr();
-  await passAll(pr, head);
-  await setGh({ afterMerge: "delete" });
+  await mergeOnGithub(pr, head);
+  git(remote, "update-ref", "-d", `refs/heads/${BRANCH}`);
 
-  const out = await mergeOk(pr);
-  assert.match(out, new RegExp(`branch ${BRANCH} is gone already`));
+  await refreshRepos(config, new AbortController().signal);
   assert.equal(git(remote, "rev-parse", "refs/heads/main^2"), head);
   assert.equal(remoteRef(`refs/heads/${BRANCH}`), "");
   assert.equal(await pushRecord(BRANCH), undefined);
   assert.equal(existsSync(tree), true);
 });
 
-test("a review of a stale head is refused and records nothing, and a re-review of the new head merges it", async () => {
-  const old = await newHead("a.txt");
-  const pr = await openPr();
-  const head = await newHead("b.txt");
-
-  for (const role of REVIEWERS) {
-    const result = await brokerAs(role, root, "review", REPO, String(pr), old, role, "pass");
-    assert.equal(result.code, 2, result.stdout);
-    assert.match(result.stderr, new RegExp(`PR head is ${head}, not the reviewed ${old}`));
-  }
-  assert.deepEqual((await prStatus(pr)).reviewRecords, []);
-  await assertRefusedWithoutMerge(pr, /has no verdict on it/);
-
-  await passAll(pr, head);
-  await mergeOk(pr);
-  assert.equal(git(remote, "rev-parse", "refs/heads/main^2"), head);
-  assert.deepEqual((await prStatus(pr)).reviewRecords.map((record) => record.head), [head, head, head]);
-});
-
-test("a revert of a merged PR goes through the auto path like any PR and restores main's files", async () => {
+test("a revert of a PR the owner merged goes through push and pr-create like any PR and restores main's files", async () => {
   const head = await newHead("feature.txt");
   const pr = await openPr();
-  await passAll(pr, head);
-  await mergeOk(pr);
+  await mergeOnGithub(pr, head);
   assert.deepEqual(git(remote, "ls-tree", "--name-only", "refs/heads/main").split("\n"), ["base.txt", "feature.txt"]);
 
   await ok("author", work, "sync", REPO);
@@ -474,22 +279,23 @@ test("a revert of a merged PR goes through the auto path like any PR and restore
   const created = await ok("author", revertTree, "pr-create", REPO, revertBranch, "Revert feature", "feature.txt broke main");
   const revertPr = Number(/\/pull\/(\d+)\s*$/.exec(created)?.[1]);
   assert.equal(revertPr, pr + 1);
-  await passAll(revertPr, revert);
 
-  await mergeOk(revertPr, revertTree);
+  await mergeOnGithub(revertPr, revert);
   assert.equal(git(remote, "rev-parse", "refs/heads/main^2"), revert);
   assert.deepEqual(git(remote, "ls-tree", "--name-only", "refs/heads/main").split("\n"), ["base.txt"]);
+
+  await refreshRepos(config, new AbortController().signal);
   assert.equal(remoteRef(`refs/heads/${revertBranch}`), "");
   assert.equal(await pushRecord(revertBranch), undefined);
   assert.equal(existsSync(revertTree), true);
 });
 
-test("a launch sync right after a merge through the gh-broker gets the merged main, not the copy from before it", async () => {
+test("a launch sync right after the owner merges on GitHub gets the merged main, not the copy from before it", async () => {
   const head = await newHead("feature.txt");
   const pr = await openPr();
-  await passAll(pr, head);
   await ok("author", work, "sync", REPO, "--cached");
-  await mergeOk(pr);
+  await mergeOnGithub(pr, head);
+  await refreshRepos(config, new AbortController().signal);
   const synced = await ok("author", work, "sync", REPO, "--cached");
   assert.equal(synced, `origin/main is now ${remoteRef("refs/heads/main")}\n`);
 });

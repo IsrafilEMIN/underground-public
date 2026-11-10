@@ -4,30 +4,22 @@ import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
-import { REVIEWER_ROLES } from "../../host/gh-broker/protocol.ts";
 import type { Reply } from "../../host/gh-broker/protocol.ts";
-import { readPushRecord, writePushRecord } from "../../host/gh-broker/push-record.ts";
-import { appendReviewRecord } from "../../host/gh-broker/review-records.ts";
-import { defaultConfig } from "../../host/gh-broker/server.ts";
+import { readPushRecord } from "../../host/gh-broker/push-record.ts";
+import { defaultConfig, handleRequest } from "../../host/gh-broker/server.ts";
 import type { ServerConfig } from "../../host/gh-broker/server.ts";
 import { fakeTokens, githubRemote } from "./fake-app.ts";
-import { handleAs } from "./session.ts";
-import type { Session } from "./session.ts";
 import { tempDir } from "../temp.ts";
 
 const REPO = "o/r";
 const OTHER_REPO = "o/other";
 const BRANCH = "agent/x";
-const AUTHOR: Session = { role: "author" };
 const GIT_ENV = { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" };
 
 const FAKE_GH = `#!/bin/sh
 printf '%s\\n' "$*" >> "$HOME/gh-calls"
 case "$1 $2 $4" in
 "repo view "*) printf '{"defaultBranchRef":{"name":"%s"}}\\n' "$(cat "$HOME/default-branch")" ;;
-"pr view "*) cat "$HOME/pr.json" ;;
-"api --paginate repos/${REPO}/pulls/7/files") cat "$HOME/gh-files.json" ;;
-"pr merge "*) printf '%s\\n' "$*" >> "$HOME/merged"; echo merged ;;
 "pr create "*) printf '%s\\n' "$*" > "$HOME/created"; cat > "$HOME/created-body"; echo "https://github.com/${REPO}/pull/7" ;;
 *) echo "fake gh: unexpected $*" >&2; exit 1 ;;
 esac
@@ -54,8 +46,8 @@ async function commit(branch: string, file: string): Promise<string> {
   return git(work, "rev-parse", "HEAD");
 }
 
-function request(input: Record<string, unknown>, session: Session = AUTHOR): Promise<Reply> {
-  return handleAs(config, session, { repo: REPO, ...input }, new AbortController().signal);
+function request(input: Record<string, unknown>): Promise<Reply> {
+  return handleRequest(config, { repo: REPO, ...input }, new AbortController().signal);
 }
 
 function push(branch: string, sha: string): Promise<Reply> {
@@ -65,28 +57,6 @@ function push(branch: string, sha: string): Promise<Reply> {
 
 function remoteRef(branch: string): string {
   return git(remote, "for-each-ref", "--format=%(objectname)", `refs/heads/${branch}`);
-}
-
-async function readyPr(head: string, pr: Record<string, unknown> = {}): Promise<void> {
-  const view = {
-    headRefName: BRANCH,
-    baseRefName: "main",
-    isCrossRepository: false,
-    headRefOid: head,
-    statusCheckRollup: [{ __typename: "CheckRun", name: "ci", status: "COMPLETED", conclusion: "SUCCESS" }],
-    changedFiles: 1,
-    ...pr,
-  };
-  await writeFile(join(config.home, "pr.json"), JSON.stringify(view));
-  await writeFile(join(config.home, "gh-files.json"), JSON.stringify([[{ filename: "a.txt" }]]));
-  const at = new Date().toISOString();
-  for (const role of REVIEWER_ROLES) {
-    await appendReviewRecord(config.reviewsDir, { repo: REPO, pr: 7, role, head, verdict: "pass", reason: "", at });
-  }
-}
-
-function merge(): Promise<Reply> {
-  return request({ verb: "merge", number: 7 });
 }
 
 function readHome(name: string): Promise<string> {
@@ -104,9 +74,7 @@ beforeEach(async () => {
     ...defaultConfig("/unused/gh"),
     socketPath: join(root, "run", "gh-broker.sock"),
     reposRoot: join(root, "bare"),
-    reviewsDir: join(root, "reviews"),
     pushesDir: join(root, "pushes"),
-    protectedDir: join(root, "protected"),
     ghPath: join(root, "gh"),
     github: fakeTokens(),
     home: join(root, "home"),
@@ -166,7 +134,7 @@ test("a push to the default branch is refused even when its name is agent/*, whi
   assert.equal(remoteRef(BRANCH), other);
 });
 
-test("a push whose record cannot be written fails, and a merge of that head refuses and merges nothing", async () => {
+test("a push whose record cannot be written fails and says the branch cleanup will not delete the branch", async () => {
   const first = await commit(BRANCH, "a.txt");
   const one = await push(BRANCH, first);
   assert.equal(one.exit, 0, JSON.stringify(one));
@@ -175,36 +143,12 @@ test("a push whose record cannot be written fails, and a merge of that head refu
   await chmod(join(config.pushesDir, REPO), 0o500);
   const two = await push(BRANCH, second);
   await chmod(join(config.pushesDir, REPO), 0o700);
-  assert.notEqual(two.exit, 0, JSON.stringify(two));
-
-  await readyPr(second);
-  assertRefused(await merge());
-  assert.equal(await readHome("merged"), "");
-});
-
-test("merge refuses a PR whose head branch is in another repo, and the same PR from this repo merges", async () => {
-  const head = await commit(BRANCH, "a.txt");
-  assert.equal((await push(BRANCH, head)).exit, 0);
-  await readyPr(head, { isCrossRepository: true });
-
-  assertRefused(await merge());
-  assert.equal(await readHome("merged"), "");
-
-  await readyPr(head);
-  const ok = await merge();
-  assert.equal(ok.exit, 0, JSON.stringify(ok));
-  assert.equal(await readHome("merged"), `pr merge 7 --repo ${REPO} --merge --match-head-commit ${head}\n`);
-});
-
-test("merge refuses a PR whose head is not an agent/* branch, even with a push record, green CI, and three passes", async () => {
-  const head = await commit("feature/x", "a.txt");
-  git(work, "push", "--quiet", remote, "feature/x:feature/x");
-  await writePushRecord(config.pushesDir, { repo: REPO, branch: "feature/x" }, head);
-  await readyPr(head, { headRefName: "feature/x" });
-
-  assertRefused(await merge());
-  assert.equal(await readHome("merged"), "");
-  assert.equal(remoteRef("feature/x"), head);
+  assert.equal(two.exit, 1, JSON.stringify(two));
+  assert.ok(
+    "stderr" in two && two.stderr.includes("gh-broker: pushed, but cannot write the push record, so the branch cleanup will not delete this branch after its merge"),
+    JSON.stringify(two),
+  );
+  assert.deepEqual(await readPushRecord(config.pushesDir, { repo: REPO, branch: BRANCH }), { kind: "pushed", sha: first });
 });
 
 test("an author's pr-create opens a PR from its agent branch with its title and body", async () => {
@@ -222,7 +166,7 @@ test("an author's pr-create opens a PR from its agent branch with its title and 
   assert.equal(await readHome("created-body"), "Line one\nLine two\n");
 });
 
-test("a repo where the gh-broker app is not installed gets no token, so no gh call, push, merge, or record happens", async () => {
+test("a repo where the gh-broker app is not installed gets no token, so no gh call, push, or record happens", async () => {
   const head = await commit(BRANCH, "a.txt");
   const bundle = execFileSync(config.gitPath, ["bundle", "create", "-", `refs/heads/${BRANCH}`], { cwd: work, env: GIT_ENV }).toString("base64");
   const signal = new AbortController().signal;
@@ -237,13 +181,11 @@ test("a repo where the gh-broker app is not installed gets no token, so no gh ca
     { verb: "push", repo: OTHER_REPO, branch: BRANCH, sha: head, bundle_b64: bundle },
     { verb: "pr-create", repo: OTHER_REPO, head: BRANCH, title: "t", body: "" },
     { verb: "pr-status", repo: OTHER_REPO, number: 7 },
-    { verb: "merge", repo: OTHER_REPO, number: 7 },
   ]) {
-    const reply = await handleAs(config, AUTHOR, input, signal);
+    const reply = await handleRequest(config, input, signal);
     assert.notEqual(reply.exit, 0, `${input.verb}: ${JSON.stringify(reply)}`);
     assert.match(JSON.stringify(reply), /not installed on|cannot get a GitHub App token/, input.verb);
   }
   assert.equal(await readHome("gh-calls"), "");
-  assert.equal(await readHome("merged"), "");
   assert.deepEqual(await readPushRecord(config.pushesDir, { repo: OTHER_REPO, branch: BRANCH }), { kind: "none" });
 });

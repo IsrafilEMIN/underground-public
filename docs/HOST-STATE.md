@@ -15,14 +15,14 @@ Setup first asks GitHub, with your `gh` login, whether `main` of the checkout's 
     data folder: addresses ────┼──► root/code/addresses and the rendered service plists
     checkout: host/** ─────────┼──► owner_data/services/    (code that the services run)
     VERSIONS (version and SHA-256) ──► root/omp/<pin>/omp, root/gh/<pin>/gh
-    data folder: github-app.*, protected-paths/ ──► gh_broker_home/ (moved), root/code/protected-paths/ (copied)
+    data folder: github-app.* ──► gh_broker_home/ (moved)
 
 (2) EACH SESSION STARTS (omp ─► ssh to the agent sshd port ─► agent-start, as the agent user)
     root/config/ ──copy──► agent_home/.omp/agent/
     gh-broker sync ─────► agent_home/work/<owner>/<repo>
 
 (3) ALL THE TIME (services in host/services)
-    gh-broker     as gh_broker_user, reads  gh_broker_home/github-app.*, root/code/protected-paths/   writes  gh_broker_home/{repos,pushes,reviews}, root/run/gh-broker.status
+    gh-broker     as gh_broker_user, reads  gh_broker_home/github-app.*   writes  gh_broker_home/{repos,pushes}, root/run/gh-broker.status
     agent refresh every 30 s syncs each clone that a session used in the last 7 days
     agent firewall every 30 s loads root/code/pf.conf into the pf anchor
     auth broker   reads/writes  auth_home/.omp  (logins, tokens)
@@ -41,7 +41,7 @@ No code makes these files. Setup or the service reads them as they are.
 | `owner_data/config-repo` | One line: the path to your agent config repo (`config-repo`, `host/bin/ug-agent-setup`). A leading `~` means your home. | If it is missing, setup stops (`stage_config`, `host/bin/ug-agent-setup`). If it names a different repo that exists, setup stages that repo and gives no error. |
 | `skill-repos` in the config repo | One skill repo path on each line (`skill-repos`, `host/bin/ug-agent-setup`). | If a path is not a folder or is outside your home, setup stops (`skill-repos`, `host/bin/ug-agent-setup`). |
 | `owner_data/backup/config` | The lines `repo=sftp:<user>@<host>:<path>`, `wake=` and `sleep=` (`backup_target_read`, `host/lib/backup-target.bash`). | Setup gives only a warning (`setup_backup`, `host/bin/ug-setup`). The nightly backup then fails, and only `backup/backup.log` records it. |
-| `owner_data/protected-paths/<owner>/<repo>` | Globs, one on each line. A PR that changes a matching path gets a hold, so you merge it on GitHub (`protected-path`, `host/gh-broker/protocol.ts`). | Setup copies it into `root/code/protected-paths/`, so a change takes effect at the next setup (`protected-paths`, `host/bin/ug-agent-setup`). Setup stops on a link or a special file in it. If it is missing, the gh-broker reads it as empty and gives no warning (`readOptional`, `host/gh-broker/server.ts`). Then only `.github/**` and `CODEOWNERS` are protected (`isProtectedPath`, `host/gh-broker/protocol.ts`). |
+
 | `owner_data/watch/ping` | One `https://` line: the ping address of a check on an outside service (`ping_file`, `host/bin/ug-watch`; `docs/adr/0023-failures-reach-the-owner.md`). It is a secret: anyone with it can send "ok". | Setup lists it as left to do (`prepare_services`, `host/bin/ug-setup`). The watch still runs, but nothing outside the mac alerts you, and each launch warns about it. |
 
 ## Data folder: `owner_data` (yours, mode 700)
@@ -60,6 +60,8 @@ No code makes these files. Setup or the service reads them as they are.
 | `agent/bin/ug-agent` | The launcher. `~/.local/bin/omp` links to it. | `agent_dir`, `host/bin/ug-agent-setup` | your shell | at the next setup |
 | `state/`, `backup/backup.log`, `watch/watch.log` | Setup fingerprints and the service logs | setup, launchd | you | none |
 
+Nothing reads `protected-paths/` any more; you may delete it.
+
 ## Root folder: `root` (root-owned)
 
 Setup builds `code/` fresh from the checkout at each run, swaps it in, and at its end deletes each entry at the top of `root` that it does not make (`code.new` and `ssh_host_ed25519_key.pub`, `host/bin/ug-agent-setup`; `docs/adr/0024-state-over-incident-lists.md`).
@@ -74,7 +76,6 @@ Setup builds `code/` fresh from the checkout at each run, swaps it in, and at it
 | `code/pin.sb`, `code/agent-session`, `code/agent-start`, `code/agent-refresh`, `code/sshd_config`, `code/authorized_keys/ugagent`, `ssh_host_ed25519_key` | The agent login, its sandbox, and the clone refresh. Setup makes the host key once. | `code.new` and `ssh-keygen`, `host/bin/ug-agent-setup` | the agent sshd, `sandbox-exec`, `host/agent/agent-session`, and the refresh service |
 | `code/pf.conf`, `code/pf-load` | The firewall line that refuses the agent user as the listener on the auth broker's port (`auth_broker_port`), and its loader (`docs/adr/0022-loopback-one-firewall-line.md`) | `code.new`, `host/bin/ug-agent-setup` | the firewall service in `host/services`, at load and every 30 s (`StartInterval`, `host/agent/com.underground.agent-pf.plist`) |
 | `gh/<pin>/gh` | The pinned gh that the gh-broker runs, `root:wheel` mode 555. Its path is a program argument of the gh-broker job, so the trust check covers it. | `gh_bin`, `host/bin/ug-agent-setup` | the gh-broker (`ghPath`, `host/gh-broker/server.ts`) |
-| `code/protected-paths/` | Root's copy of your protected paths lists | `protected-paths`, `host/bin/ug-agent-setup` | `protectedDir`, `host/gh-broker/server.ts` |
 | `run/` | The folder of the gh-broker socket and status. The gh-broker user owns it, group `agent_group`, mode 711. Root writes nothing in it: the agent sshd keeps no pid file (`PidFile`, `host/agent/sshd_config`). | `710`, `host/bin/ug-agent-setup` | the gh-broker and its client |
 | `run/gh-broker.sock` | The gh-broker socket, mode 660 (`gh_broker_socket`, `host/facts`). It gets the group of its folder, so only the agent user can connect. | the gh-broker (`listenUnix`, `socketPath`, `host/gh-broker/server.ts`) | the agent's gh-broker client |
 | `run/gh-broker.status` | The time of the last 30 s refresh and the repos that failed in it, mode 644 (`gh_broker_status`, `host/facts`) | the gh-broker, each tick (`writeRefreshStatus`, `host/gh-broker/server.ts`) | `broker_stale`, `host/bin/ug-watch` reports it after 120 s |
@@ -93,7 +94,7 @@ Setup builds `code/` fresh from the checkout at each run, swaps it in, and at it
 | path | what it is for | who writes it | when a change takes effect |
 |---|---|---|---|
 | `github-app.pem`, `github-app.json` | The app key and client ID, mode 600 | root, from the wizard's copy in your data folder (`github-app.pem`, `host/bin/ug-agent-setup`) | at the next token mint (`appFiles`, `host/gh-broker/github-app.ts`) |
-| `repos/`, `pushes/`, `reviews/`, `tmp/` | The mirrors and the push and review records. Root copied them once from your data folder: it reads them with your rights, re-owns only the fresh copy, and then deletes the old folder (`old_broker`, `host/bin/ug-agent-setup`). | the gh-broker (`defaultConfig`, `host/gh-broker/server.ts`) | at once. Nothing deletes old review records or runs `git gc` on the mirrors. |
+| `repos/`, `pushes/`, `reviews/`, `tmp/` | The mirrors, the push records, and the old review records. Root copied them once from your data folder: it reads them with your rights, re-owns only the fresh copy, and then deletes the old folder (`old_broker`, `host/bin/ug-agent-setup`). Nothing reads `reviews/` since the merge gate is deleted (`docs/adr/0026-delete-the-merge-gate.md`). | the gh-broker (`defaultConfig`, `host/gh-broker/server.ts`) | at once. Nothing runs `git gc` on the mirrors. |
 | `logs/gh-broker.log` | The gh-broker log. Read it with `sudo cat`. | launchd | none |
 
 ## Agent user: `agent_home`

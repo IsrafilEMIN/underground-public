@@ -11,12 +11,11 @@ import { tempDir } from "../temp.ts";
 const HOME = homedir();
 const FACTS = readHostFacts();
 
-test("the gh-broker keeps its key, mirrors, and records in its own user's home, and its socket, status, and protected paths under the install root", () => {
-  const { socketPath, statusFile, protectedDir, reposRoot, reviewsDir, pushesDir, tempRoot, home, ghPath, gitPath } = defaultConfig("/pinned/gh");
+test("the gh-broker keeps its key, mirrors, and records in its own user's home, and its socket and status under the install root", () => {
+  const { socketPath, statusFile, reposRoot, pushesDir, tempRoot, home, ghPath, gitPath } = defaultConfig("/pinned/gh");
   assert.equal(socketPath, join(FACTS.root, "run/gh-broker.sock"));
   assert.equal(statusFile, join(FACTS.root, "run/gh-broker.status"));
-  assert.equal(protectedDir, join(FACTS.root, "code/protected-paths"));
-  assert.deepEqual([reposRoot, reviewsDir, pushesDir, tempRoot], ["repos", "reviews", "pushes", "tmp"].map((name) => join(HOME, name)));
+  assert.deepEqual([reposRoot, pushesDir, tempRoot], ["repos", "pushes", "tmp"].map((name) => join(HOME, name)));
   assert.equal(home, HOME);
   assert.equal(ghPath, "/pinned/gh");
   assert.equal(gitPath, "/usr/bin/git");

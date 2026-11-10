@@ -5,17 +5,14 @@ import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
 import { MAX_CI_LOG_BYTES, failedPullRequestRuns, tailLog } from "../../host/gh-broker/protocol.ts";
 import type { Reply } from "../../host/gh-broker/protocol.ts";
-import { defaultConfig } from "../../host/gh-broker/server.ts";
+import { defaultConfig, handleRequest } from "../../host/gh-broker/server.ts";
 import type { ServerConfig } from "../../host/gh-broker/server.ts";
 import { fakeTokens } from "./fake-app.ts";
-import { handleAs } from "./session.ts";
-import type { Session } from "./session.ts";
 import { tempDir } from "../temp.ts";
 
 const REPO = "o/r";
 const HEAD = "a".repeat(40);
 const OTHER = "b".repeat(40);
-const AUTHOR: Session = { role: "author" };
 
 const FAKE_GH = `#!/bin/sh
 case "$1 $2 $3 $4" in
@@ -30,8 +27,8 @@ esac
 let root: string;
 let config: ServerConfig;
 
-function ciLog(session: Session = AUTHOR): Promise<Reply> {
-  return handleAs(config, session, { verb: "ci-log", repo: REPO, number: 7 }, new AbortController().signal);
+function ciLog(): Promise<Reply> {
+  return handleRequest(config, { verb: "ci-log", repo: REPO, number: 7 }, new AbortController().signal);
 }
 
 function run(id: number, extra: Record<string, unknown> = {}): Record<string, unknown> {
@@ -50,9 +47,7 @@ beforeEach(async () => {
     ...defaultConfig("/unused/gh"),
     socketPath: join(root, "run", "gh-broker.sock"),
     reposRoot: join(root, "bare"),
-    reviewsDir: join(root, "reviews"),
     pushesDir: join(root, "pushes"),
-    protectedDir: join(root, "protected"),
     ghPath: join(root, "gh"),
     github: fakeTokens(),
     home: join(root, "home"),

@@ -31,10 +31,6 @@ function git(cwd: string, ...args: string[]): string {
   }).trim();
 }
 
-function localBranch(): string {
-  return git(work, "for-each-ref", "--format=%(objectname)", `refs/heads/${BRANCH}`);
-}
-
 async function broker(...replies: string[]): Promise<void> {
   server = createServer({ allowHalfOpen: true }, (conn) => {
     let text = "";
@@ -101,21 +97,15 @@ const SHA = "a".repeat(40);
 const USAGE_CASES: { name: string; argv: string[]; reason: string }[] = [
   { name: "no verb", argv: [], reason: "missing verb" },
   { name: "an unknown verb", argv: ["frobnicate", REPO], reason: "unknown verb: frobnicate" },
-  { name: "too few arguments", argv: ["merge", REPO], reason: "wrong number of arguments" },
-  { name: "too many arguments", argv: ["merge", REPO, "7", "8"], reason: "wrong number of arguments" },
-  { name: "a repo that is not owner/repo", argv: ["merge", "not-a-repo", "7"], reason: "invalid <owner/repo>" },
+  { name: "too few arguments", argv: ["pr-status", REPO], reason: "wrong number of arguments" },
+  { name: "too many arguments", argv: ["ci-log", REPO, "7", "8"], reason: "wrong number of arguments" },
+  { name: "a repo that is not owner/repo", argv: ["pr-status", "not-a-repo", "7"], reason: "invalid <owner/repo>" },
   { name: "a push of a branch outside agent/", argv: ["push", REPO, "main"], reason: "branch must match agent/<name>" },
   { name: "a pr-create from a branch outside agent/", argv: ["pr-create", REPO, "main", "t", "b"], reason: "branch must match agent/<name>" },
   { name: "a PR number that is not a positive integer", argv: ["pr-status", REPO, "0"], reason: "invalid PR number" },
-  { name: "a PR number with letters", argv: ["merge", REPO, "7a"], reason: "invalid PR number" },
-  { name: "a short sha", argv: ["review", REPO, "7", "abc1234", "code-review", "pass"], reason: "sha must be a full 40-hex commit sha" },
-  { name: "an unknown role", argv: ["review", REPO, "7", SHA, "author", "pass"], reason: "role must be code-review, security-review, risk-review" },
-  { name: "a review with no role", argv: ["review", REPO, "7", SHA, "pass"], reason: "wrong number of arguments" },
-  { name: "an unknown verdict", argv: ["review", REPO, "7", SHA, "code-review", "approve"], reason: "verdict must be pass, manual or block" },
-  { name: "a verdict that the role cannot give", argv: ["review", REPO, "7", SHA, "code-review", "manual", "why"], reason: "code-review cannot give manual: use pass or block" },
+  { name: "a PR number with letters", argv: ["ci-log", REPO, "7a"], reason: "invalid PR number" },
   { name: "a sync flag other than --pr", argv: ["sync", REPO, "--x", "7"], reason: "want sync <owner/repo> --pr <n>" },
   { name: "an empty PR title", argv: ["pr-create", REPO, BRANCH, "", "body"], reason: "invalid title" },
-  { name: "a block without a reason", argv: ["review", REPO, "7", SHA, "security-review", "block"], reason: "invalid reason" },
 ];
 
 for (const { name, argv, reason } of USAGE_CASES) {
@@ -216,54 +206,20 @@ test("a PR bundle with two refs is refused, and the session's repo gets no origi
 test("send resolves with a well-formed gh-broker reply", async () => {
   await broker(JSON.stringify({ exit: 0, stdout: "ok\n", stderr: "" }));
 
-  assert.deepEqual(await send(socket, { verb: "merge", repo: REPO, number: 7 }), { exit: 0, stdout: "ok\n", stderr: "" });
-  assert.deepEqual(requests, [{ verb: "merge", repo: REPO, number: 7 }]);
+  assert.deepEqual(await send(socket, { verb: "pr-status", repo: REPO, number: 7 }), { exit: 0, stdout: "ok\n", stderr: "" });
+  assert.deepEqual(requests, [{ verb: "pr-status", repo: REPO, number: 7 }]);
 });
 
 test("send rejects a JSON reply that is not a gh-broker reply", async () => {
   await broker(JSON.stringify({ ok: true, stdout: "ok\n" }));
 
-  await assert.rejects(send(socket, { verb: "merge", repo: REPO, number: 7 }), /malformed reply/);
+  await assert.rejects(send(socket, { verb: "pr-status", repo: REPO, number: 7 }), /malformed reply/);
 });
 
 test("send rejects a reply that is not JSON", async () => {
-  await broker("merged, trust me\n");
+  await broker("pr-status output, trust me\n");
 
-  await assert.rejects(send(socket, { verb: "merge", repo: REPO, number: 7 }), /malformed reply/);
-});
-
-function mainSyncReply(): string {
-  const bundle_b64 = execFileSync(REAL_GIT, ["bundle", "create", "-", "refs/heads/main"], { cwd: work, env: GIT_ENV }).toString("base64");
-  return JSON.stringify({ exit: 0, stdout: "", stderr: "", branch: "main", head: git(work, "rev-parse", "main"), bundle_b64 });
-}
-
-test("a refused or failed merge sends no sync and leaves local branches alone", async () => {
-  git(work, "-c", "core.logAllRefUpdates=false", "branch", BRANCH);
-  await broker(JSON.stringify({ exit: 1, stdout: "", stderr: "gh failed\n" }));
-
-  const run = await brokerAt(work, "merge", REPO, "7");
-  assert.equal(run.code, 1, JSON.stringify(run));
-  assert.deepEqual(requests, [{ verb: "merge", repo: REPO, number: 7 }]);
-  assert.notEqual(localBranch(), "");
-});
-
-test("after a merge the client syncs main and sweeps, so a merged branch with no worktree goes", async () => {
-  git(work, "-c", "core.logAllRefUpdates=false", "branch", BRANCH);
-  await broker(JSON.stringify({ exit: 0, stdout: "merged\n", stderr: "" }), mainSyncReply());
-
-  const run = await brokerAt(work, "merge", REPO, "7");
-  assert.equal(run.code, 0, JSON.stringify(run));
-  assert.deepEqual(requests[1], { verb: "sync", repo: REPO, have: [] });
-  assert.equal(run.stdout, `merged\norigin/main is now ${git(work, "rev-parse", "main")}\ngh-broker: deleted local branch ${BRANCH}\n`);
-  assert.equal(localBranch(), "");
-});
-
-test("a merge whose sync is refused exits 2 and says the merge went through", async () => {
-  await broker(JSON.stringify({ exit: 0, stdout: "merged\n", stderr: "" }), JSON.stringify({ exit: 2, refused: "busy" }));
-
-  const run = await brokerAt(work, "merge", REPO, "7");
-  assert.equal(run.code, 2, JSON.stringify(run));
-  assert.equal(run.stderr, "gh-broker: merged, but the sync was refused: busy\n");
+  await assert.rejects(send(socket, { verb: "pr-status", repo: REPO, number: 7 }), /malformed reply/);
 });
 
 test("sweep without one default branch name is a usage error", async () => {

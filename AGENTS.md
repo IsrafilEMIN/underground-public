@@ -17,7 +17,7 @@ Owner decision, 2026-11-07. We are redesigning the architecture from the problem
 
 The old docs still say what today's code does. Read them for that, not for the new design. A change to the architecture starts here, not from `docs/SPEC.md`.
 
-The base is decided and recorded (owner decisions of 2026-11-10). `docs/PRODUCT-BRIEF.md` holds it: the harms that cannot be undone, what the agent needs to do its work, and the mechanism that handles each harm or accepts it by name. `docs/SPEC.md` says what runs now, with no history. Of the earlier design, the gh-broker, the merge gate, auto merge, and a merge queue stay open, in redesign.
+The base is decided and recorded (owner decisions of 2026-11-10). `docs/PRODUCT-BRIEF.md` holds it: the harms that cannot be undone, what the agent needs to do its work, and the mechanism that handles each harm or accepts it by name. `docs/SPEC.md` says what runs now, with no history. Of the earlier design, the merge gate is deleted (owner decision, 2026-11-10, `docs/adr/0026-delete-the-merge-gate.md`); the gh-broker, auto merge, and a merge queue stay open, in redesign.
 
 ## Where to look
 
@@ -25,7 +25,7 @@ Open a file only when the task needs it. Each doc has one job; do not start a se
 
 - `docs/PRODUCT-BRIEF.md`: the base: the problem, scope, north star, the gate, the harms that cannot be undone, what the agent needs to do its work, and the mechanism that handles each harm or accepts it by name. Open it when a decision touches scope or a harm.
 - `docs/SPEC.md`: what runs now, the onboarding checks, the checks that run, and what is deferred. No history. Open it before you plan or test a change, and when a change touches a workflow file, the repo settings, or the gh-broker app.
-- `docs/THREAT-MODEL.md`: the threat checklist: each row with its control today, or its acceptance by name. Open it when a change touches the sandbox, the gh-broker, or the merge gate.
+- `docs/THREAT-MODEL.md`: the threat checklist: each row with its control today, or its acceptance by name. Open it when a change touches the sandbox or the gh-broker.
 - `docs/HOST-STATE.md`: the map of host files outside the repo and who writes them, and how a change reaches the running system. It names `host/facts` and `host/services` instead of copying values. Open it when a change touches a host path, a launchd job, or a file the owner writes by hand.
 - `docs/adr/`: a dated record of why a decision was made, never the source for today's state. Open an ADR when you change the thing it covers.
 - `GLOSSARY.md`: the live terms. Open it when you write docs.
@@ -46,8 +46,8 @@ Each session starts in its own worktree on a `wt/<timestamp>` branch, which omp 
 1. Commit in your worktree.
 2. Push: `gh-broker push <owner/repo> wt/<name>`.
 3. Open one PR for the branch: `gh-broker pr-create <owner/repo> wt/<name> <title> <body>`. To update it, push the same branch again.
-4. Check status with `gh-broker pr-status <owner/repo> <n>`. If a CI check failed, `gh-broker ci-log <owner/repo> <n>` shows its failed steps; fix them on a new head and push again. The gh-broker merges only an auto PR: green CI, the head that the gh-broker pushed, no hold, and a `pass` on the head from `code-review`, `security-review`, and `risk-review`. Then merge: `gh-broker merge <owner/repo> <n>`. The owner merges every other PR on GitHub. If `gh-broker merge` refuses with a hold, report the PR and the reason to the owner, and stop.
-5. After a merge, through `gh-broker merge` or by the owner on GitHub, the gh-broker deletes the remote branch within 30 s, unless the branch moved. `gh-broker merge` then syncs main and sweeps the clone. Your own worktree stays until a later session start sweeps it. The sweep keeps a worktree or branch with unsaved files or commits not in main, and lists it in `ug-kept.json` in the clone's git folder (`git rev-parse --git-common-dir`). Before it removes a worktree, it moves the worktree's ignored files to `ug-held/` in that folder, where they stay 14 days. If the merge reply says that the gh-broker kept a branch, report that to the owner.
+4. Check status with `gh-broker pr-status <owner/repo> <n>`. If a CI check failed, `gh-broker ci-log <owner/repo> <n>` shows its failed steps; fix them on a new head and push again. When CI is green, report the PR link to the owner, who merges on GitHub.
+5. After the owner merges on GitHub, the gh-broker deletes the remote branch within 30 s, unless the branch moved. Your own worktree stays until a later session start sweeps it. The sweep keeps a worktree or branch with unsaved files or commits not in main, and lists it in `ug-kept.json` in the clone's git folder (`git rev-parse --git-common-dir`). Before it removes a worktree, it moves the worktree's ignored files to `ug-held/` in that folder, where they stay 14 days.
 
 When the owner asks to review the kept branches, read `ug-kept.json` and show each branch with what it holds. Then do what the owner picks for each one: push it and open a PR, or park it with `git config branch.<name>.ugParked true`. A drop is not built yet: the guard blocks the forced delete it needs (`docs/adr/0020-state-based-branch-cleanup.md`, "Decision", item 4), so report the branch to the owner.
 
@@ -55,7 +55,7 @@ When the branch needs the current `main`, for a rebase, a conflict, or a PR that
 
 If the gh-broker refuses, stop and report the exact error. Never run `host/bin/ug-setup`: it changes the host, and only the owner runs it.
 
-There are no reviewer sessions. A reviewer is a skill (`docs/adr/0011-one-agent-arena.md`, "One trust level"). It reads a PR with `gh-broker sync <owner/repo> --pr <n>` and names its role in `gh-broker review <owner/repo> <n> <sha> <role> <verdict> [reason]`. Until the merge gate gets its review, no skill writes a verdict, so `gh-broker merge` refuses every PR and the owner merges each one on GitHub.
+There are no reviewer sessions. A reviewer is a skill (`docs/adr/0011-one-agent-arena.md`, "One trust level"). It reads a PR with `gh-broker sync <owner/repo> --pr <n>`.
 
 On underground itself, GitHub refuses every merge to `main` without the owner's approval, and a push after an approval needs a new one (`docs/adr/0021-github-holds-the-wall-on-main.md`). `host/bin/ug-setup` checks that rule before it pulls.
 

@@ -8,15 +8,12 @@ import {
   isAgentBranch,
   isDefaultBranchName,
   isSha,
-  isVerdict,
-  isReviewerRole,
   isReply,
   isSyncPrReply,
   isSyncReply,
   isRepo,
   MAX_SYNC_HAVES,
   parsePrNumber,
-  REVIEWER_ROLES,
   validateRequest,
 } from "./protocol.ts";
 import type { Reply, Request, SyncPrReply, SyncReply, SyncRequest } from "./protocol.ts";
@@ -34,8 +31,6 @@ const USAGE = `usage:
   gh-broker pr-create <owner/repo> <agent/branch> <title> <body>
   gh-broker pr-status <owner/repo> <n>
   gh-broker ci-log <owner/repo> <n>
-  gh-broker review <owner/repo> <n> <sha> code-review|security-review|risk-review pass|manual|block [reason]
-  gh-broker merge <owner/repo> <n>
   gh-broker sweep <default-branch>
 `;
 
@@ -107,17 +102,6 @@ export async function buildRequest(argv: string[]): Promise<Request> {
       return { verb, repo: needRepo(args[0]), head: needBranch(args[1]), title: args[2] ?? "", body: args[3] ?? "" };
     case "pr-status":
     case "ci-log":
-      needArgCount(args, 2, 2);
-      return { verb, repo: needRepo(args[0]), number: needNumber(args[1]) };
-    case "review": {
-      needArgCount(args, 5, 6);
-      const [repo, number, sha, role, verdict, reason] = args;
-      if (!isSha(sha)) throw new UsageError("sha must be a full 40-hex commit sha");
-      if (!isReviewerRole(role)) throw new UsageError(`role must be ${REVIEWER_ROLES.join(", ")}`);
-      if (!isVerdict(verdict)) throw new UsageError("verdict must be pass, manual or block");
-      return { verb, repo: needRepo(repo), number: needNumber(number), sha, role, verdict, reason: reason ?? "" };
-    }
-    case "merge":
       needArgCount(args, 2, 2);
       return { verb, repo: needRepo(args[0]), number: needNumber(args[1]) };
     default:
@@ -241,25 +225,6 @@ async function syncMain(socketPath: string, request: SyncRequest, first: Reply):
   return { branch: synced.branch };
 }
 
-async function afterMerge(socketPath: string, repo: string): Promise<number> {
-  const request: SyncRequest = { verb: "sync", repo, have: await originHeads() };
-  let reply: Reply;
-  try {
-    reply = await send(socketPath, request);
-  } catch (error) {
-    process.stderr.write(`gh-broker: merged, but cannot reach gh-broker to sync: ${error instanceof Error ? error.message : String(error)}\n`);
-    return EXIT_UNAVAILABLE;
-  }
-  if ("refused" in reply) {
-    process.stderr.write(`gh-broker: merged, but the sync was refused: ${reply.refused}\n`);
-    return EXIT_REFUSED;
-  }
-  process.stderr.write(reply.stderr);
-  if (reply.exit !== 0) return reply.exit;
-  const synced = await syncMain(socketPath, request, reply);
-  return typeof synced === "number" ? synced : runSweep([synced.branch]);
-}
-
 export async function main(argv: string[], socketPath: string | undefined = process.env[SOCKET_ENV]): Promise<number> {
   if (argv[0] === "sweep") return runSweep(argv.slice(1));
   let request: Request;
@@ -298,7 +263,6 @@ export async function main(argv: string[], socketPath: string | undefined = proc
   process.stdout.write(reply.stdout);
   process.stderr.write(reply.stderr);
   if (reply.exit !== 0) return reply.exit;
-  if (request.verb === "merge") return afterMerge(socketPath, request.repo);
   if (request.verb !== "sync") return 0;
   try {
     if (isSyncPrReply(reply)) return await importPr(reply);

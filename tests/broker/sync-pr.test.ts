@@ -100,9 +100,7 @@ beforeEach(async () => {
     ...defaultConfig("/unused/gh"),
     socketPath: join(root, "run", "gh-broker.sock"),
     reposRoot: join(root, "bare"),
-    reviewsDir: join(root, "reviews"),
     pushesDir: join(root, "pushes"),
-    protectedDir: join(root, "protected"),
     ghPath: join(root, "gh"),
     github: fakeTokens(),
     home: join(root, "home"),
@@ -180,7 +178,7 @@ test("the gh-broker refuses a PR sync when GitHub sends a commit that is not hea
   assert.equal(git(join(config.reposRoot, `${REPO}.git`), "for-each-ref", "refs/gh-broker"), "");
 });
 
-test("a PR sync gives git only the token that can read code, never the token that pushes and merges", async () => {
+test("a PR sync gives git only the token that can read code, never the token that pushes", async () => {
   await openPr(await commit("a.txt"));
   const real = config.gitPath;
   const read = `${FAKE_TOKEN}read`;
