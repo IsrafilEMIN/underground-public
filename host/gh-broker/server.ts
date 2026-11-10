@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { chmod, lstat, mkdir, mkdtemp, readFile, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
-import { createServer } from "node:net";
+import { connect, createServer } from "node:net";
 import type { Server, Socket } from "node:net";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
@@ -56,6 +56,7 @@ const REFRESH_EVERY_MS = 30 * 1000;
 const FRESH_FOR_MS = 40 * 1000;
 const REFRESH_FOR_MS = 7 * 24 * 60 * 60 * 1000;
 const CHECK_TIMEOUT_MS = 20 * 1000;
+const PROBE_TIMEOUT_MS = 5 * 1000;
 const NEVER_CANCEL = new AbortController().signal;
 
 export function defaultConfig(ghPath: string): ServerConfig {
@@ -343,10 +344,29 @@ async function refreshRepo(config: ServerConfig, repo: string, signal: AbortSign
   });
 }
 
-async function writeRefreshStatus(config: ServerConfig, at: number, failed: string[]): Promise<void> {
+function probeSocket(path: string): Promise<string> {
+  const { promise, resolve } = Promise.withResolvers<string>();
+  const socket = connect(path);
+  let settled = false;
+  const settle = (value: string): void => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(timer);
+    socket.destroy();
+    resolve(value);
+  };
+  const timer = setTimeout(() => settle("no reply in 5 s"), PROBE_TIMEOUT_MS);
+  socket.once("data", () => settle("ok"));
+  socket.once("error", (error: Error) => settle("code" in error && typeof error.code === "string" ? error.code : error.message.replace(/\s+/g, " ")));
+  socket.once("close", () => settle("closed with no reply"));
+  socket.end();
+  return promise;
+}
+
+async function writeRefreshStatus(config: ServerConfig, at: number, failed: string[], socket: string): Promise<void> {
   const temp = `${config.statusFile}.tmp`;
   try {
-    await writeFile(temp, `at=${Math.floor(at / 1000)}\nfailed=${failed.join(" ")}\n`, { mode: 0o644 });
+    await writeFile(temp, `at=${Math.floor(at / 1000)}\nfailed=${failed.join(" ")}\nsocket=${socket}\n`, { mode: 0o644 });
     await rename(temp, config.statusFile);
   } catch (error) {
     process.stderr.write(`${new Date().toISOString()} cannot write the refresh status ${config.statusFile}: ${error instanceof Error ? error.message : String(error)}\n`);
@@ -355,6 +375,7 @@ async function writeRefreshStatus(config: ServerConfig, at: number, failed: stri
 
 export async function refreshRepos(config: ServerConfig, signal: AbortSignal): Promise<void> {
   const now = (config.now ?? Date.now)();
+  const socketProbe = probeSocket(config.socketPath);
   const recorded = new Set((await listPushRecords(config.pushesDir)).map((pushed) => pushed.repo));
   for (const repo of recorded) repoState(config, repo);
   const due = [...(repoStates.get(config) ?? [])].filter(([repo, state]) => {
@@ -383,7 +404,7 @@ export async function refreshRepos(config: ServerConfig, signal: AbortSignal): P
       }
     }),
   );
-  await writeRefreshStatus(config, now, failed.sort());
+  await writeRefreshStatus(config, now, failed.sort(), await socketProbe);
 }
 
 async function handleSync(config: ServerConfig, req: SyncRequest, signal: AbortSignal): Promise<Reply> {
