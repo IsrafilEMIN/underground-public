@@ -4,6 +4,8 @@ This page lists each file outside the repo that underground reads or writes on t
 
 Most changes take effect only when you run `host/bin/ug-setup`. Setup copies your files into root-owned snapshots, and the services and sessions read only those snapshots.
 
+Setup first asks GitHub, with your `gh` login, whether `main` of the checkout's repo needs your approval for every merge. If not, it stops before it pulls (`ug_check_main_rule`, `host/lib/ug.bash:102`; `adr/0021-github-holds-the-wall-on-main.md`). So setup needs `gh` with your login, `jq`, and a reply from GitHub.
+
 ## When data moves
 
 ```text

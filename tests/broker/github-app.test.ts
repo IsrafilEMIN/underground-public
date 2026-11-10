@@ -12,7 +12,7 @@ import type { AppFiles, Fetch, GithubTokens } from "../../host/gh-broker/github-
 import type { Reply } from "../../host/gh-broker/protocol.ts";
 import { defaultConfig } from "../../host/gh-broker/server.ts";
 import type { ServerConfig } from "../../host/gh-broker/server.ts";
-import { FAKE_TOKEN, fakeTokens, tokenRemote } from "./fake-app.ts";
+import { FAKE_TOKEN, fakeTokens, githubRemote, tokenRemote } from "./fake-app.ts";
 import { handleAs } from "./session.ts";
 import type { Session } from "./session.ts";
 import { tempDir } from "../temp.ts";
@@ -21,6 +21,7 @@ const REPO = "o/r";
 const AUTHOR: Session = { role: "author" };
 const GIT_ENV = { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" };
 const NOW = Date.parse("2026-10-31T12:00:00Z");
+const basic = (token: string): string => Buffer.from(`x-access-token:${token}`).toString("base64");
 const { privateKey, publicKey } = generateKeyPairSync("rsa", {
   modulusLength: 2048,
   privateKeyEncoding: { type: "pkcs1", format: "pem" },
@@ -310,12 +311,14 @@ test("a contents-read token asks GitHub for read access to code only, and never 
   assert.deepEqual(github.calls.map((call) => call.body), [{ repositories: ["r"], permissions: { contents: "read" } }, { repositories: ["r"] }]);
 });
 
-test("redaction hides installation tokens of any length, also inside a remote URL", () => {
-  const text = `fatal: unable to access '${tokenRemote(REPO)}': 403\nGH_TOKEN=${FAKE_TOKEN} ghs_short\n`;
+test("redaction hides installation tokens of any length, also inside a remote URL or a Basic header", () => {
+  const text = `fatal: unable to access '${tokenRemote(REPO)}': 403\nGH_TOKEN=${FAKE_TOKEN} ghs_short\nAuthorization: Basic ${basic(FAKE_TOKEN)}\n`;
   const redacted = redactTokens(text);
   assert.ok(!redacted.includes(FAKE_TOKEN));
   assert.ok(!/ghs_[A-Za-z0-9]/.test(redacted), redacted);
   assert.match(redacted, /x-access-token:ghs_\[redacted\]@github\.com\/o\/r\.git/);
+  assert.ok(!redacted.includes(basic(FAKE_TOKEN)), redacted);
+  assert.match(redacted, /Authorization: Basic \[redacted\]\n/);
 });
 
 const FAKE_GH = `#!/bin/sh
@@ -375,13 +378,36 @@ function routeRemote(url: string): void {
   execFileSync(config.gitPath, ["-C", join(config.reposRoot, `${REPO}.git`), "config", `url.file://${remote}.insteadOf`, url], { env: GIT_ENV });
 }
 
+async function wrapGit(before: string = ""): Promise<void> {
+  const real = config.gitPath;
+  config.gitPath = join(root, "git");
+  await writeFile(
+    config.gitPath,
+    `#!/bin/sh
+printf '%s\\n' "$*" >> "$HOME/git-args"
+printf '%s=%s\\n' "$GIT_CONFIG_KEY_0" "$GIT_CONFIG_VALUE_0" >> "$HOME/git-env"
+${before}
+exec '${real}' "$@"
+`,
+    { mode: 0o755 },
+  );
+}
+
+async function gitHeaders(): Promise<string[]> {
+  return (await readFile(join(config.home, "git-env"), "utf8")).split("\n");
+}
+
+function header(token: string): string {
+  return `http.https://github.com/.extraheader=Authorization: Basic ${basic(token)}`;
+}
+
 async function ghEnv(): Promise<string[]> {
   return (await readFile(join(config.home, "gh-env"), "utf8")).trim().split("\n");
 }
 
 test("gh runs with the installation token in GH_TOKEN and no gh login of its own", async () => {
   await setUp(fakeTokens());
-  routeRemote(tokenRemote(REPO));
+  routeRemote(githubRemote(REPO));
   const reply = await prCreate();
   assert.equal(reply.exit, 0, JSON.stringify(reply));
   const [line] = await ghEnv();
@@ -398,17 +424,33 @@ test("gh runs with the installation token in GH_TOKEN and no gh login of its own
   await assert.rejects(access(existing, constants.W_OK), `gh cannot store a login in ${configDir}`);
 });
 
-test("git reaches GitHub through a remote URL that carries the installation token", async () => {
+test("git gets a plain GitHub URL on its command line, and the installation token only in its environment", async () => {
   await setUp(fakeTokens());
-  routeRemote(tokenRemote(REPO));
+  routeRemote(githubRemote(REPO));
+  await wrapGit();
   const reply = await sync();
   assert.equal(reply.exit, 0, JSON.stringify(reply));
   assert.ok("branch" in reply && reply.branch === "main");
+  const args = await readFile(join(config.home, "git-args"), "utf8");
+  assert.ok(args.includes(` ${githubRemote(REPO)} `), args);
+  assert.ok(!args.includes(FAKE_TOKEN) && !args.includes(basic(FAKE_TOKEN)) && !args.includes("x-access-token"), args);
+  assert.ok((await gitHeaders()).includes(header(FAKE_TOKEN)));
+});
+
+test("a git call that GitHub answers with a 401 drops the token and runs once more with a fresh one", async () => {
+  await setUp(rotatingTokens());
+  routeRemote(githubRemote(REPO));
+  await wrapGit(`if [ ! -f "$HOME/asked" ]; then case "$*" in *" ls-remote "*) : > "$HOME/asked"; echo "fatal: could not read Username for 'https://github.com': terminal prompts disabled" >&2; exit 128 ;; esac; fi`);
+  const reply = await sync();
+  assert.equal(reply.exit, 0, JSON.stringify(reply));
+  const headers = (await gitHeaders()).filter((line) => line.startsWith("http."));
+  assert.equal(headers[0], header(`${FAKE_TOKEN}0`));
+  assert.equal(headers.at(-1), header(`${FAKE_TOKEN}1`));
 });
 
 test("a 401 drops the token and the call runs once more with a fresh one", async () => {
   await setUp(rotatingTokens());
-  routeRemote(tokenRemote(REPO, `${FAKE_TOKEN}1`));
+  routeRemote(githubRemote(REPO));
   await writeFile(join(config.home, "gh-401"), "");
   const reply = await prCreate();
   assert.equal(reply.exit, 0, JSON.stringify(reply));
@@ -423,7 +465,7 @@ test("with the app provider, a 401 drops the cached token and the retry runs wit
   await writeApp({ client_id: "Iv23liABC", installation_id: 42 });
   const github = fakeGithub({ tokens: [`${FAKE_TOKEN}0`, `${FAKE_TOKEN}1`] });
   await setUp(createAppTokens({ files, fetch: github.fetch, now: () => NOW }));
-  routeRemote(tokenRemote(REPO, `${FAKE_TOKEN}1`));
+  routeRemote(githubRemote(REPO));
   await writeFile(join(config.home, "gh-401"), "");
   const reply = await prCreate();
   assert.equal(reply.exit, 0, JSON.stringify(reply));
@@ -443,12 +485,14 @@ test("a failing call never echoes the token in its reply", async () => {
   assert.match(JSON.stringify(reply), /ghs_\[redacted\]/);
 });
 
-test("a git failure never echoes the token URL in its reply", async () => {
+test("a git failure never echoes the token or its header in the reply", async () => {
   await setUp(fakeTokens());
-  execFileSync(config.gitPath, ["-C", join(config.reposRoot, `${REPO}.git`), "config", `url.file://${join(root, "missing.git")}?${FAKE_TOKEN}.insteadOf`, tokenRemote(REPO)], { env: GIT_ENV });
+  await wrapGit(`case "$*" in *" ls-remote "*) echo "fatal: $GIT_CONFIG_VALUE_0 for ${FAKE_TOKEN}" >&2; exit 128 ;; esac`);
   const reply = await sync();
   assert.notEqual(reply.exit, 0);
-  assert.ok(!JSON.stringify(reply).includes(FAKE_TOKEN), JSON.stringify(reply));
+  const text = JSON.stringify(reply);
+  assert.ok(!text.includes(FAKE_TOKEN) && !text.includes(basic(FAKE_TOKEN)), text);
+  assert.match(text, /Authorization: Basic \[redacted\] for ghs_\[redacted\]/);
 });
 
 test("no app token means no GitHub call, and the reply says why", async () => {

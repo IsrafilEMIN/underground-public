@@ -1,7 +1,7 @@
 
 import assert from "node:assert/strict";
 import { execFile, execFileSync } from "node:child_process";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import type { Server } from "node:net";
 import { tmpdir } from "node:os";
@@ -13,7 +13,7 @@ import type { Reply } from "../../host/gh-broker/protocol.ts";
 import { defaultConfig, handleRequest, refreshRepos, serveConnection } from "../../host/gh-broker/server.ts";
 import type { ServerConfig } from "../../host/gh-broker/server.ts";
 import type { GithubTokens, TokenScope } from "../../host/gh-broker/github-app.ts";
-import { FAKE_TOKEN, fakeTokens, tokenRemote } from "./fake-app.ts";
+import { FAKE_TOKEN, fakeTokens, githubRemote } from "./fake-app.ts";
 import { tempDir } from "../temp.ts";
 
 const REPO = "o/r";
@@ -114,7 +114,7 @@ beforeEach(async () => {
   execFileSync(config.gitPath, ["init", "--bare", "--quiet", "-b", "main", remote], { env: GIT_ENV });
   const bare = join(config.reposRoot, `${REPO}.git`);
   execFileSync(config.gitPath, ["init", "--bare", "--quiet", bare], { env: GIT_ENV });
-  git(bare, "config", `url.file://${remote}.insteadOf`, tokenRemote(REPO));
+  git(bare, "config", `url.file://${remote}.insteadOf`, githubRemote(REPO));
   git(bare, "config", "maintenance.auto", "false");
   work = join(root, "work");
   execFileSync(config.gitPath, ["init", "--quiet", "-b", "main", work], { env: GIT_ENV });
@@ -177,6 +177,19 @@ test("the gh-broker refuses a PR sync when GitHub sends a commit that is not hea
     refused: `PR 7 head moved during the sync: headRefOid is ${head}, GitHub sent ${stale}; run sync again`,
   });
   assert.equal(git(join(config.reposRoot, `${REPO}.git`), "for-each-ref", "refs/gh-broker"), "");
+});
+
+test("a PR sync gives git only the token that can read code, never the token that pushes and merges", async () => {
+  await openPr(await commit("a.txt"));
+  const real = config.gitPath;
+  const read = `${FAKE_TOKEN}read`;
+  config.github = { token: (_repo, _signal, scope = "app") => Promise.resolve(scope === "contents-read" ? read : FAKE_TOKEN), drop: () => {} };
+  config.gitPath = join(root, "git");
+  await writeFile(config.gitPath, `#!/bin/sh\nprintf '%s\\n' "$GIT_CONFIG_VALUE_0" >> "$HOME/git-headers"\nexec '${real}' "$@"\n`, { mode: 0o755 });
+  const reply = await handleRequest(config, { verb: "sync", repo: REPO, pr: 7 }, new AbortController().signal);
+  assert.equal(reply.exit, 0, JSON.stringify(reply));
+  const headers = (await readFile(join(config.home, "git-headers"), "utf8")).split("\n").filter((line) => line !== "");
+  assert.deepEqual([...new Set(headers)], [`Authorization: Basic ${Buffer.from(`x-access-token:${read}`).toString("base64")}`]);
 });
 
 test("sync --pr without a PR number, or with a bad one, is a usage error", async () => {

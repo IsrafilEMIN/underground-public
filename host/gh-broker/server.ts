@@ -36,7 +36,7 @@ import type {
   ResultReply,
   Request,
 } from "./protocol.ts";
-import { appFiles, createAppTokens, redactTokens } from "./github-app.ts";
+import { appFiles, basicAuth, createAppTokens, redactTokens } from "./github-app.ts";
 import type { GithubTokens, TokenScope } from "./github-app.ts";
 import { dropPushRecord, listPushRecords, readPushRecord, writePushRecord } from "./push-record.ts";
 import type { PushedBranch } from "./push-record.ts";
@@ -61,7 +61,8 @@ export type ServerConfig = {
 const HOME = homedir();
 const CHILD_PATH = "/opt/homebrew/bin:/usr/bin:/bin";
 const EMPTY_GH_CONFIG = "/var/empty";
-const UNAUTHORIZED = /HTTP 401|Bad credentials|Authentication failed|Invalid username or password/;
+const UNAUTHORIZED = /HTTP 401|Bad credentials|Authentication failed|Invalid username or password|could not read Username/;
+const GITHUB = "https://github.com/";
 const PR_STATUS_FIELDS = "number,state,headRefName,headRefOid,baseRefName,mergeable,mergeStateStatus,statusCheckRollup,url";
 const REFRESH_EVERY_MS = 30 * 1000;
 const FRESH_FOR_MS = 40 * 1000;
@@ -193,8 +194,8 @@ function gh(config: ServerConfig, repo: string, access: Access, args: string[], 
   );
 }
 
-function git(config: ServerConfig, bare: string, args: string[], signal: AbortSignal): Promise<ChildResult> {
-  return runChild(config, config.gitPath, ["-C", bare, "-c", "credential.helper=", "-c", "core.hooksPath=/dev/null", ...args], signal);
+function git(config: ServerConfig, bare: string, args: string[], signal: AbortSignal, env?: Record<string, string>): Promise<ChildResult> {
+  return runChild(config, config.gitPath, ["-C", bare, "-c", "credential.helper=", "-c", "core.hooksPath=/dev/null", ...args], signal, { env });
 }
 
 function gitRemote(
@@ -206,7 +207,15 @@ function gitRemote(
   signal: AbortSignal,
   scope: TokenScope = "app",
 ): Promise<ChildResult> {
-  return asApp(config, repo, access, signal, (token) => git(config, bare, args(`https://x-access-token:${token}@github.com/${repo}.git`), signal), scope);
+  const url = `${GITHUB}${repo}.git`;
+  return asApp(
+    config,
+    repo,
+    access,
+    signal,
+    (token) => git(config, bare, args(url), signal, { GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: `http.${GITHUB}.extraheader`, GIT_CONFIG_VALUE_0: `Authorization: ${basicAuth(token)}` }),
+    scope,
+  );
 }
 
 async function defaultBranch(config: ServerConfig, repo: string, signal: AbortSignal): Promise<string | ResultReply> {
@@ -431,7 +440,7 @@ async function handleSyncPr(config: ServerConfig, repo: string, number: number, 
       try {
         const initFailure = await ensureBareRepo(config, bare, signal);
         if (initFailure !== undefined) return initFailure;
-        const fetch = await gitRemote(config, bare, repo, "read", (url) => ["fetch", "--quiet", "--no-tags", "--no-write-fetch-head", url, `+refs/pull/${number}/head:${tempRef}`], signal);
+        const fetch = await gitRemote(config, bare, repo, "read", (url) => ["fetch", "--quiet", "--no-tags", "--no-write-fetch-head", url, `+refs/pull/${number}/head:${tempRef}`], signal, "contents-read");
         if (fetch.exit !== 0) return forward(fetch);
         const fetched = await git(config, bare, ["rev-parse", "--verify", "--quiet", `${tempRef}^{commit}`], signal);
         const sha = fetched.rawStdout.trim();
