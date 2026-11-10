@@ -5,7 +5,7 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
-import { KEPT_FILE, MIN_AGE_MS, sweep } from "../../host/gh-broker/sweep.ts";
+import { HELD_DIR, HOLD_MS, KEPT_FILE, MIN_AGE_MS, sweep } from "../../host/gh-broker/sweep.ts";
 import type { KeptFile, Probe, SweepOptions, SweepReport } from "../../host/gh-broker/sweep.ts";
 import { tempDir } from "../temp.ts";
 
@@ -93,20 +93,44 @@ test("a worktree with an untracked file stays and is listed as unsaved", async (
   assert.deepEqual((await keptFile()).kept, report.kept);
 });
 
-test("a worktree whose only extra files are ignored stays when one is not a cache, and goes when all are caches", async () => {
-  const keptTree = await sessionTree("wt/a");
+test("a merged worktree with ignored files goes, and its ignored files wait in the held folder under their own paths", async () => {
+  const tree = await sessionTree("wt/a");
   merge("wt/a");
-  await writeFile(join(keptTree, ".env"), "TOKEN=x\n");
-  const cacheTree = await sessionTree("wt/b");
-  merge("wt/b");
-  await mkdir(join(cacheTree, "node_modules", "x"), { recursive: true });
-  await writeFile(join(cacheTree, "node_modules", "x", "i.js"), "\n");
+  await writeFile(join(tree, ".env"), "TOKEN=x\n");
+  await mkdir(join(tree, "node_modules", "x"), { recursive: true });
+  await writeFile(join(tree, "node_modules", "x", "i.js"), "\n");
+  const now = LATER();
+
+  const report = await run({ now: () => now });
+  const held = join(work, ".git", HELD_DIR, `${now}-${encodeURIComponent("wt/a")}`);
+  assert.equal(existsSync(tree), false);
+  assert.equal(branch("wt/a"), "");
+  assert.deepEqual(report.kept, []);
+  assert.equal(await readFile(join(held, ".env"), "utf8"), "TOKEN=x\n");
+  assert.equal(existsSync(join(held, "node_modules", "x", "i.js")), true);
+});
+
+test("a worktree whose commits are not in main keeps its ignored files in place", async () => {
+  const tree = await sessionTree("wt/a");
+  await writeFile(join(tree, ".env"), "TOKEN=x\n");
 
   const report = await run();
-  assert.equal(existsSync(join(keptTree, ".env")), true);
-  assert.deepEqual(report.kept.map((k) => [k.branch, k.reason, k.detail]), [["wt/a", "ignored files", "1 file: .env"]]);
-  assert.equal(existsSync(cacheTree), false);
-  assert.equal(branch("wt/b"), "");
+  assert.deepEqual(report.kept.map((k) => [k.branch, k.reason]), [["wt/a", "not in main"]]);
+  assert.equal(existsSync(join(tree, ".env")), true);
+  assert.equal(existsSync(join(work, ".git", HELD_DIR)), false);
+});
+
+test("held files are deleted once they are 14 days old, and not before", async () => {
+  const now = LATER();
+  const held = join(work, ".git", HELD_DIR);
+  const old = join(held, `${now - HOLD_MS}-wt%2Fold`);
+  const young = join(held, `${now - HOLD_MS + 1}-wt%2Fyoung`);
+  await mkdir(old, { recursive: true });
+  await mkdir(young, { recursive: true });
+
+  await run({ now: () => now });
+  assert.equal(existsSync(old), false);
+  assert.equal(existsSync(young), true);
 });
 
 test("a clean worktree with commits that are not in main stays and is listed", async () => {

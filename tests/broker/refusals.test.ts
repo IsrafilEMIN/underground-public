@@ -229,7 +229,7 @@ test("a repo where the gh-broker app is not installed gets no token, so no gh ca
   const installed = config.github;
   config.github = {
     token: (repo, s) => (repo === REPO ? installed.token(repo, s) : Promise.reject(new Error(`the app is not installed on ${repo}`))),
-    drop: (repo) => installed.drop(repo),
+    dropIfRejected: (repo, token, s) => installed.dropIfRejected(repo, token, s),
   };
 
   for (const input of [

@@ -3,7 +3,7 @@ if [ "$#" -ne 0 ]; then
   echo "usage: agent-home-tar" >&2
   exit 64
 fi
-names=@ROOT@/config-names
+names=@ROOT@/code/config-names
 home=@AGENT_HOME@
 [ -f "$names" ] || { echo "agent-home-tar: no $names, so the agent's config cannot be left out" >&2; exit 1; }
 set -- --exclude ./.cache --exclude ./.omp/run --exclude ./Library --exclude node_modules

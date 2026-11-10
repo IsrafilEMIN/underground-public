@@ -9,7 +9,7 @@
   <key>ProgramArguments</key>
   <array>
     <string>@OMP@</string>
-    <string>@ROOT@/usage-broker/usage-broker.ts</string>
+    <string>@ROOT@/code/gh-broker/usage-broker.ts</string>
   </array>
   <key>WorkingDirectory</key>
   <string>@AUTH_HOME@</string>

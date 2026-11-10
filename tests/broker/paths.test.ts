@@ -22,7 +22,7 @@ test("the gh-broker listens on the socket under the install root and keeps every
 
 test("the usage broker reads root's addresses and its own user's token", () => {
   const usage = usageConfig();
-  assert.equal(usage.addressesFile, join(FACTS.root, "addresses"));
+  assert.equal(usage.addressesFile, join(FACTS.root, "code/addresses"));
   assert.equal(usage.gatewayTokenFile, join(HOME, ".omp/auth-gateway.token"));
 });
 

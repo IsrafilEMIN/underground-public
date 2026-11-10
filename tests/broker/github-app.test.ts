@@ -42,11 +42,14 @@ function jwtVerifies(jwt: string, key: string | KeyObject): boolean {
   return verify("sha256", Buffer.from(`${header}.${payload}`), key, Buffer.from(signature ?? "", "base64url"));
 }
 
-function fakeGithub(options: { tokens: string[]; installation?: number; status?: number; now?: () => number }): { fetch: Fetch; calls: Call[] } {
+function fakeGithub(options: { tokens: string[]; installation?: number; status?: number; now?: () => number; revoked?: string }): { fetch: Fetch; calls: Call[] } {
   let minted = 0;
-  return githubAnswering((url) => {
+  return githubAnswering((url, authorization) => {
     if (url === `https://api.github.com/repos/${REPO}/installation`) {
       return Response.json(options.installation === undefined ? { message: "Not Found" } : { id: options.installation }, { status: options.installation === undefined ? 404 : 200 });
+    }
+    if (url === "https://api.github.com/installation/repositories?per_page=1") {
+      return authorization === `token ${options.revoked}` ? Response.json({ message: "Bad credentials" }, { status: 401 }) : Response.json({ total_count: 1, repositories: [] });
     }
     if (options.status !== undefined) return Response.json({ message: "A JSON web token could not be decoded" }, { status: options.status });
     const token = options.tokens[minted++];
@@ -55,13 +58,14 @@ function fakeGithub(options: { tokens: string[]; installation?: number; status?:
   });
 }
 
-function githubAnswering(answer: (url: string) => Response): { fetch: Fetch; calls: Call[] } {
+function githubAnswering(answer: (url: string, authorization: string) => Response): { fetch: Fetch; calls: Call[] } {
   const calls: Call[] = [];
   const fetch: Fetch = async (url, init) => {
     const headers = new Headers(init.headers);
     const body = typeof init.body === "string" ? JSON.parse(init.body) : undefined;
-    calls.push({ url, method: init.method ?? "GET", authorization: headers.get("authorization") ?? "", body });
-    return answer(url);
+    const authorization = headers.get("authorization") ?? "";
+    calls.push({ url, method: init.method ?? "GET", authorization, body });
+    return answer(url, authorization);
   };
   return { fetch, calls };
 }
@@ -117,10 +121,10 @@ test("without installation_id the installation is looked up from the repo", asyn
   );
 });
 
-test("a token is reused until five minutes before it expires, and minted again after a drop", async () => {
+test("a token is reused until five minutes before it expires, and minted again after GitHub rejects it", async () => {
   await writeApp({ client_id: "Iv23liABC", installation_id: 42 });
   let now = NOW;
-  const github = fakeGithub({ tokens: ["ghs_first", "ghs_second", "ghs_third"], now: () => now });
+  const github = fakeGithub({ tokens: ["ghs_first", "ghs_second", "ghs_third"], now: () => now, revoked: "ghs_second" });
   const tokens = createAppTokens({ files, fetch: github.fetch, now: () => now });
   const signal = new AbortController().signal;
   assert.equal(await tokens.token(REPO, signal), "ghs_first");
@@ -129,10 +133,10 @@ test("a token is reused until five minutes before it expires, and minted again a
   assert.equal(github.calls.length, 1);
   now = NOW + 56 * 60 * 1000;
   assert.equal(await tokens.token(REPO, signal), "ghs_second");
-  assert.equal(await tokens.token(REPO, signal), "ghs_second", "a token minted now lives for an hour, so only a drop replaces it");
-  tokens.drop(REPO);
+  assert.equal(await tokens.token(REPO, signal), "ghs_second", "a token minted now lives for an hour, so only a rejection replaces it");
+  assert.equal(await tokens.dropIfRejected(REPO, "ghs_second", signal), true);
   assert.equal(await tokens.token(REPO, signal), "ghs_third");
-  assert.equal(github.calls.length, 3);
+  assert.equal(github.calls.filter((call) => call.method === "POST").length, 3);
 });
 
 test("a private key that others can read is refused, and no token is minted", async () => {
@@ -299,15 +303,15 @@ test("each repo gets its own token: a token cached for one repo never goes to an
 
 test("a contents-read token asks GitHub for read access to code only, and never stands in for the app token", async () => {
   await writeApp({ client_id: "Iv23liABC", installation_id: 42 });
-  const github = fakeGithub({ tokens: ["ghs_read", "ghs_app"] });
+  const github = fakeGithub({ tokens: ["ghs_read", "ghs_app"], revoked: "ghs_read" });
   const tokens = createAppTokens({ files, fetch: github.fetch, now: () => NOW });
   const signal = new AbortController().signal;
   assert.equal(await tokens.token("o/r", signal, "contents-read"), "ghs_read");
   assert.equal(await tokens.token("o/r", signal), "ghs_app");
   assert.equal(await tokens.token("o/r", signal, "contents-read"), "ghs_read");
-  tokens.drop("o/r", "contents-read");
+  assert.equal(await tokens.dropIfRejected("o/r", "ghs_read", signal, "contents-read"), true);
   assert.equal(await tokens.token("o/r", signal), "ghs_app", "a drop of the read token keeps the app token");
-  assert.deepEqual(github.calls.map((call) => call.body), [{ repositories: ["r"], permissions: { contents: "read" } }, { repositories: ["r"] }]);
+  assert.deepEqual(github.calls.filter((call) => call.method === "POST").map((call) => call.body), [{ repositories: ["r"], permissions: { contents: "read" } }, { repositories: ["r"] }]);
 });
 
 test("redaction hides installation tokens of any length, also inside a remote URL or a Basic header", () => {
@@ -330,12 +334,14 @@ printf '{"defaultBranchRef":{"name":"main"}}\\n'
 let config: ServerConfig;
 let remote: string;
 
-function rotatingTokens(): GithubTokens {
+function rotatingTokens(revoked = `${FAKE_TOKEN}0`): GithubTokens {
   let current = 0;
   return {
     token: () => Promise.resolve(`${FAKE_TOKEN}${current}`),
-    drop: () => {
+    dropIfRejected: (_repo, token) => {
+      if (token !== revoked) return Promise.resolve(false);
       current += 1;
+      return Promise.resolve(true);
     },
   };
 }
@@ -437,7 +443,7 @@ test("git gets a plain GitHub URL on its command line, and the installation toke
   assert.ok((await gitHeaders()).includes(header(FAKE_TOKEN)));
 });
 
-test("a git call that GitHub answers with a 401 drops the token and runs once more with a fresh one", async () => {
+test("a git call whose token GitHub rejects drops the token and runs once more with a fresh one", async () => {
   await setUp(rotatingTokens());
   routeRemote(githubRemote(REPO));
   await wrapGit(`if [ ! -f "$HOME/asked" ]; then case "$*" in *" ls-remote "*) : > "$HOME/asked"; echo "fatal: could not read Username for 'https://github.com': terminal prompts disabled" >&2; exit 128 ;; esac; fi`);
@@ -448,7 +454,7 @@ test("a git call that GitHub answers with a 401 drops the token and runs once mo
   assert.equal(headers.at(-1), header(`${FAKE_TOKEN}1`));
 });
 
-test("a 401 drops the token and the call runs once more with a fresh one", async () => {
+test("a call whose token GitHub rejects drops the token and runs once more with a fresh one", async () => {
   await setUp(rotatingTokens());
   routeRemote(githubRemote(REPO));
   await writeFile(join(config.home, "gh-401"), "");
@@ -461,9 +467,18 @@ test("a 401 drops the token and the call runs once more with a fresh one", async
   );
 });
 
-test("with the app provider, a 401 drops the cached token and the retry runs with a newly minted one", async () => {
+test("a failed call whose token GitHub still accepts runs once, whatever its error text says", async () => {
+  await setUp(rotatingTokens("no revoked token"));
+  routeRemote(githubRemote(REPO));
+  await writeFile(join(config.home, "gh-401"), "");
+  const reply = await prCreate();
+  assert.equal(reply.exit, 1, JSON.stringify(reply));
+  assert.deepEqual((await ghEnv()).map((line) => line.split(" ")[0]), [`${FAKE_TOKEN}0`]);
+});
+
+test("with the app provider, a token that GitHub rejects is dropped and the retry runs with a newly minted one", async () => {
   await writeApp({ client_id: "Iv23liABC", installation_id: 42 });
-  const github = fakeGithub({ tokens: [`${FAKE_TOKEN}0`, `${FAKE_TOKEN}1`] });
+  const github = fakeGithub({ tokens: [`${FAKE_TOKEN}0`, `${FAKE_TOKEN}1`], revoked: `${FAKE_TOKEN}0` });
   await setUp(createAppTokens({ files, fetch: github.fetch, now: () => NOW }));
   routeRemote(githubRemote(REPO));
   await writeFile(join(config.home, "gh-401"), "");
@@ -473,7 +488,23 @@ test("with the app provider, a 401 drops the cached token and the retry runs wit
     (await ghEnv()).map((line) => line.split(" ")[0]),
     [`${FAKE_TOKEN}0`, `${FAKE_TOKEN}1`, `${FAKE_TOKEN}1`],
   );
-  assert.equal(github.calls.length, 2, "the first token lives for an hour, so only the drop mints the second");
+  assert.deepEqual(
+    github.calls.map((call) => `${call.method} ${call.url.replace("https://api.github.com", "")} ${call.authorization.startsWith("token ") ? call.authorization : ""}`.trim()),
+    ["POST /app/installations/42/access_tokens", `GET /installation/repositories?per_page=1 token ${FAKE_TOKEN}0`, "POST /app/installations/42/access_tokens"],
+    "GitHub is asked about the failed token with that token, and only its 401 mints a new one",
+  );
+});
+
+test("with the app provider, a token that GitHub accepts, or a check that cannot reach GitHub, keeps the cached token", async () => {
+  await writeApp({ client_id: "Iv23liABC", installation_id: 42 });
+  const github = fakeGithub({ tokens: ["ghs_first", "ghs_second"] });
+  const tokens = createAppTokens({ files, fetch: github.fetch, now: () => NOW });
+  const signal = new AbortController().signal;
+  assert.equal(await tokens.token(REPO, signal), "ghs_first");
+  assert.equal(await tokens.dropIfRejected(REPO, "ghs_first", signal), false);
+  const offline = createAppTokens({ files, fetch: () => Promise.reject(new Error("offline")), now: () => NOW });
+  assert.equal(await offline.dropIfRejected(REPO, "ghs_first", signal), false);
+  assert.equal(await tokens.token(REPO, signal), "ghs_first");
 });
 
 test("a failing call never echoes the token in its reply", async () => {
@@ -496,7 +527,7 @@ test("a git failure never echoes the token or its header in the reply", async ()
 });
 
 test("no app token means no GitHub call, and the reply says why", async () => {
-  await setUp({ token: () => Promise.reject(new Error("cannot read /k/github-app.pem")), drop: () => {} });
+  await setUp({ token: () => Promise.reject(new Error("cannot read /k/github-app.pem")), dropIfRejected: () => Promise.resolve(false) });
   const reply = await sync();
   assert.equal(reply.exit, 1);
   assert.match("stderr" in reply ? reply.stderr : "", /cannot get a GitHub App token: cannot read \/k\/github-app\.pem/);

@@ -10,7 +10,7 @@ export type Fetch = (url: string, init: RequestInit) => Promise<Response>;
 export type TokenScope = "app" | "contents-read";
 export type GithubTokens = {
   token(repo: string, signal: AbortSignal, scope?: TokenScope): Promise<string>;
-  drop(repo: string, scope?: TokenScope): void;
+  dropIfRejected(repo: string, token: string, signal: AbortSignal, scope?: TokenScope): Promise<boolean>;
 };
 
 type Minted = { token: string; refreshAt: number };
@@ -148,8 +148,23 @@ export function createAppTokens({ files, fetch = globalThis.fetch, now = Date.no
       cache.set(key, minted);
       return minted.token;
     },
-    drop(repo, scope = "app") {
-      cache.delete(`${scope} ${repo}`);
+    async dropIfRejected(repo, token, signal, scope = "app") {
+      let status: number;
+      try {
+        const response = await fetch(`${API}/installation/repositories?per_page=1`, {
+          method: "GET",
+          headers: { Accept: "application/vnd.github+json", Authorization: `token ${token}`, "User-Agent": "underground-gh-broker", "X-GitHub-Api-Version": "2022-11-28" },
+          signal,
+        });
+        status = response.status;
+        await response.body?.cancel();
+      } catch {
+        return false;
+      }
+      if (status !== 401) return false;
+      const key = `${scope} ${repo}`;
+      if (cache.get(key)?.token === token) cache.delete(key);
+      return true;
     },
   };
 }

@@ -22,7 +22,7 @@ export type UsageReply = { status: number; etag?: string; body?: string };
 
 export function defaultConfig(): UsageBrokerConfig {
   return {
-    addressesFile: join(readHostFacts().root, "addresses"),
+    addressesFile: join(readHostFacts().root, "code/addresses"),
     gatewayTokenFile: join(homedir(), ".omp/auth-gateway.token"),
     fetchImpl: fetch,
   };

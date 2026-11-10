@@ -121,7 +121,7 @@ function scopedTokens(): { tokens: GithubTokens; scopes: TokenScope[] } {
         scopes.push(scope);
         return Promise.resolve(FAKE_TOKEN);
       },
-      drop: () => {},
+      dropIfRejected: () => Promise.resolve(false),
     },
     scopes,
   };
@@ -284,8 +284,9 @@ function countingTokens(): { tokens: GithubTokens; drops: () => number } {
   return {
     tokens: {
       token: () => Promise.resolve(FAKE_TOKEN),
-      drop: () => {
+      dropIfRejected: () => {
         drops += 1;
+        return Promise.resolve(true);
       },
     },
     drops: () => drops,

@@ -40,7 +40,7 @@ test("the login services run as the login user from root-owned code, with no pro
   const args = async (label: string) => programArguments(await readFile(join(AGENT_DIR, `${label}.plist`), "utf8"));
   assert.deepEqual((await args("com.underground.auth-broker")).slice(0, 3), ["@OMP@", "auth-broker", "serve"]);
   assert.deepEqual((await args("com.underground.auth-gateway")).slice(0, 3), ["@OMP@", "auth-gateway", "serve"]);
-  assert.deepEqual(await args("com.underground.usage-broker"), ["@OMP@", "@ROOT@/usage-broker/usage-broker.ts"]);
+  assert.deepEqual(await args("com.underground.usage-broker"), ["@OMP@", "@ROOT@/code/gh-broker/usage-broker.ts"]);
   for (const label of DAEMONS) {
     const text = await readFile(join(AGENT_DIR, `${label}.plist`), "utf8");
     assert.match(text, /<key>UserName<\/key>\s*<string>@AUTH_USER@<\/string>/, label);

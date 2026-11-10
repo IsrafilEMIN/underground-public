@@ -12,7 +12,7 @@ Setup first asks GitHub, with your `gh` login, whether `main` of the checkout's 
  (1) YOU RUN host/bin/ug-setup
      config repo (last commit) ─┐
      skill repos (last commit) ─┼──► /Library/Underground/config/  (models.yml gets the gateway and its bearer)
-     data folder: addresses ────┼──► /Library/Underground/addresses + rendered launchd plists
+     data folder: addresses ────┼──► /Library/Underground/code/addresses + rendered launchd plists
      checkout: host/** ─────────┼──► ~/.local/share/underground/services/  (code that the launchd jobs run)
      VERSIONS pin ──────────────┘──► /Library/Underground/omp/<pin>/omp
 
@@ -23,10 +23,10 @@ Setup first asks GitHub, with your `gh` login, whether `main` of the checkout's 
  (3) ALL THE TIME (launchd jobs)
      gh-broker     reads  github-app.pem/.json, protected-paths/   writes  gh-broker/{repos,pushes,reviews,status}
      agent refresh every 30 s syncs each clone that a session used in the last 7 days
-     agent firewall every 30 s loads /Library/Underground/pf.conf into the pf anchor com.apple/underground
+     agent firewall every 30 s loads /Library/Underground/code/pf.conf into the pf anchor com.apple/underground
      auth broker   reads/writes  /Users/ugauth/.omp  (logins, tokens)
      auth gateway  reads  /Users/ugauth/.omp, listens on the gateway address
-     usage broker  reads  /Library/Underground/addresses, /Users/ugauth/.omp/auth-gateway.token
+     usage broker  reads  /Library/Underground/code/addresses, /Users/ugauth/.omp/auth-gateway.token
      backup 20:00  reads  backup/config, backup/password, all of /Users/ugagent  writes  backup/last
      watch 5 min   reads  gh-broker/status, backup/last, addresses, watch/ping, launchd, health routes  writes  watch/status, pings the outside check
 ```
@@ -62,16 +62,17 @@ No code makes these files. Setup or the service reads them as they are.
 
 ## Root zone: `/Library/Underground` (root-owned)
 
+Setup builds `code/` fresh from the checkout at each run, swaps it in, and at its end deletes each entry at the top of `/Library/Underground` that it does not make (`code.new` and `ssh_host_ed25519_key.pub`, `host/bin/ug-agent-setup`; `adr/0024-state-over-incident-lists.md`).
+
 | path | what it is for | who writes it | who reads it |
 |---|---|---|---|
 | `config/` | The staged agent config. `models.yml` holds the gateway address and its bearer. It is `root:ugagent`, so you cannot read it. | `stage_config`, `host/bin/ug-agent-setup` | `config-names`, `host/agent/agent-start`, at each start |
-| `config-names` | The names that the agent config owns in `~/.omp/agent` | `config-names`, `host/bin/ug-agent-setup` | `config-names`, `host/agent/agent-start`, `host/agent/agent-home-tar` |
-| `addresses` | A root-owned copy of your `addresses`. The usage broker runs as `ugauth` and cannot read your home. | `addresses`, `host/bin/ug-agent-setup` | `addressesFile`, `host/gh-broker/usage-broker.ts` |
-| `omp/<pin>/omp`, `omp.sha256`, `bin/omp` | The one pinned omp, `root:ugomp` mode 550 | `omp_bin`, `host/bin/ug-agent-setup` | `omp_bin`, `host/agent/agent-start` checks the hash at each start |
-| `bin/gh-broker`, `gh-broker/*.ts` | The gh-broker client for the agent | `client.ts`, `host/bin/ug-agent-setup` | `bin/gh-broker`, `host/agent/agent-start`, and `sync_clone`, `host/agent/agent-refresh` |
-| `usage-broker/*.ts` | The usage broker code. The pinned omp runs it (`ProgramArguments`, `host/agent/com.underground.usage-broker.plist`). | `usage-broker`, `host/bin/ug-agent-setup` | its LaunchDaemon |
-| `pin.sb`, `agent-session`, `agent-start`, `agent-refresh`, `sshd_config`, `ssh_host_ed25519_key`, `authorized_keys/ugagent` | The agent login, its sandbox, and the clone refresh | `pin.sb`, `host/bin/ug-agent-setup` | the agent sshd, `sandbox-exec`, `host/agent/agent-session`, and the refresh LaunchDaemon |
-| `pf.conf`, `pf-load` | The firewall line that refuses `ugagent` as the listener on the auth broker's port 8765, and its loader (`adr/0022-loopback-one-firewall-line.md`) | `agent-pf`, `host/bin/ug-agent-setup` | the LaunchDaemon `com.underground.agent-pf`, at load and every 30 s (`StartInterval`, `host/agent/com.underground.agent-pf.plist`) |
+| `omp/<pin>/omp`, `omp.sha256` | The one pinned omp, `root:ugomp` mode 550 | `omp_bin`, `host/bin/ug-agent-setup` | `omp_bin`, `host/agent/agent-start` checks the hash at each start |
+| `code/facts`, `code/config-names`, `code/addresses` | The host facts, the names that the agent config owns in `~/.omp/agent`, and a root-owned copy of your `addresses`. The usage broker runs as `ugauth` and cannot read your home. | `code.new`, `host/bin/ug-agent-setup` | `config-names`, `host/agent/agent-start`, `host/agent/agent-home-tar`; `addressesFile`, `host/gh-broker/usage-broker.ts` |
+| `code/bin/omp`, `code/bin/gh-broker`, `code/gh-broker/*.ts` | The link to the pinned omp, the gh-broker client for the agent, and the usage broker code, which the pinned omp runs (`ProgramArguments`, `host/agent/com.underground.usage-broker.plist`) | `code.new`, `host/bin/ug-agent-setup` | `omp_bin` and `gh-broker`, `host/agent/agent-start`; `sync_clone`, `host/agent/agent-refresh`; the usage broker LaunchDaemon |
+| `code/bin/agent-home-tar` | The backup's root helper | `code.new`, `host/bin/ug-agent-setup` | `agent_tar`, `host/bin/ug-backup`, through `/etc/sudoers.d/underground-backup` |
+| `code/pin.sb`, `code/agent-session`, `code/agent-start`, `code/agent-refresh`, `code/sshd_config`, `code/authorized_keys/ugagent`, `ssh_host_ed25519_key` | The agent login, its sandbox, and the clone refresh. Setup makes the host key once. | `code.new` and `ssh-keygen`, `host/bin/ug-agent-setup` | the agent sshd, `sandbox-exec`, `host/agent/agent-session`, and the refresh LaunchDaemon |
+| `code/pf.conf`, `code/pf-load` | The firewall line that refuses `ugagent` as the listener on the auth broker's port 8765, and its loader (`adr/0022-loopback-one-firewall-line.md`) | `code.new`, `host/bin/ug-agent-setup` | the LaunchDaemon `com.underground.agent-pf`, at load and every 30 s (`StartInterval`, `host/agent/com.underground.agent-pf.plist`) |
 | `run/` | The folder of the gh-broker socket. It is yours, group `ugagent`, mode 710, so only you and the agent user can open it. Root writes nothing in it: the agent sshd keeps no pid file (`PidFile`, `host/agent/sshd_config`). | `710`, `host/bin/ug-agent-setup` | the gh-broker and its client |
 | `run/gh-broker.sock` | The gh-broker socket, mode 660. It gets the group `ugagent` from its folder [macOS gives a new file the group of its folder; a socket made by `ugagent` in a folder with that group had it, run 2026-11-09]. | the gh-broker (`listenUnix`, `socketPath`, `host/gh-broker/server.ts`) | the agent's gh-broker client |
 
@@ -98,9 +99,9 @@ No code makes these files. Setup or the service reads them as they are.
 | path | what it is for | who writes it |
 |---|---|---|
 | `/Library/LaunchDaemons/com.underground.{auth-broker,auth-gateway,usage-broker,agent-sshd,agent-refresh}.plist` | The login services, the agent sshd, and the clone refresh. Before setup loads one, it checks each program, folder, and `PATH` entry that the service names: root or the service's own user must own it and each folder above it, and no group, other user, or access rule may let another user write it (`ug_trusted_daemon`, `host/lib/ug.bash`). If not, setup stops. | `start_login_services`, `host/bin/ug-agent-setup` |
-| `~/Library/LaunchAgents/com.underground.{gh-broker,backup,watch}.plist` | Your gh-broker, the nightly backup, and the watch | `start_services`, `host/bin/ug-setup` |
+| `~/Library/LaunchAgents/com.underground.{gh-broker,backup,watch}.plist` | Your gh-broker, the nightly backup, and the watch. Setup boots out and deletes any other `com.underground.*` LaunchAgent (`retire_agents`, `host/bin/ug-setup`). | `start_services`, `host/bin/ug-setup` |
 | `/etc/ssh/sshd_config.d/010-underground-deny-ugagent.conf` | It keeps `ugagent` out of the system sshd. | `DenyUsers`, `host/bin/ug-agent-setup` |
-| `/etc/sudoers.d/underground-backup` | It lets you run `agent-home-tar` with no password. | `NOPASSWD`, `host/bin/ug-agent-setup` |
+| `/etc/sudoers.d/underground-backup` | It lets you run `/Library/Underground/code/bin/agent-home-tar` with no password. | `NOPASSWD`, `host/bin/ug-agent-setup` |
 | `/Library/LaunchDaemons/com.underground.agent-pf.plist` | The firewall loader, as root. Setup checks it with `ug_trusted_daemon` like the other services, and stops unless pf is on and the anchor holds the line (`ug_pf_refuses_listener`, `host/lib/ug.bash`). | `agent-pf`, `host/bin/ug-agent-setup` |
 | the pf anchor `com.apple/underground` (kernel state, not a file) | It holds the line of `pf.conf`. The main ruleset of `/etc/pf.conf` evaluates it through `anchor "com.apple/*"`; setup changes no file in `/etc`. To see it: `sudo pfctl -a com.apple/underground -sr`. | `pfctl`, `host/agent/agent-pf-load` |
 
@@ -112,4 +113,4 @@ No code makes these files. Setup or the service reads them as they are.
 |---|---|
 | the shell scripts | `ug_fact`, `host/lib/ug.bash`. It reads the `facts` file one folder above the `ug.bash` that the script sources, so setup installs a copy beside each installed `ug.bash`. |
 | templates: the plists, `sshd_config`, `pin.sb`, `agent-start`, `agent-refresh`, `agent-session`, `agent-home-tar`, `agent-pf.conf`, `agent-pf-load` | `ug_render`, `host/lib/ug.bash`. Each `key=value` line fills `@KEY@`; setup stops on a placeholder that nothing fills. |
-| the gh-broker and the usage broker | `readHostFacts`, `host/gh-broker/facts.ts`. It reads `../facts` next to the code: `~/.local/share/underground/services/host/facts` for the gh-broker, and `/Library/Underground/facts` for the usage broker. |
+| the gh-broker and the usage broker | `readHostFacts`, `host/gh-broker/facts.ts`. It reads `../facts` next to the code: `~/.local/share/underground/services/host/facts` for the gh-broker, and `/Library/Underground/code/facts` for the usage broker. |

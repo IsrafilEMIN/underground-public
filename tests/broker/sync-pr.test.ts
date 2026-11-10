@@ -184,7 +184,7 @@ test("a PR sync gives git only the token that can read code, never the token tha
   await openPr(await commit("a.txt"));
   const real = config.gitPath;
   const read = `${FAKE_TOKEN}read`;
-  config.github = { token: (_repo, _signal, scope = "app") => Promise.resolve(scope === "contents-read" ? read : FAKE_TOKEN), drop: () => {} };
+  config.github = { token: (_repo, _signal, scope = "app") => Promise.resolve(scope === "contents-read" ? read : FAKE_TOKEN), dropIfRejected: () => Promise.resolve(false) };
   config.gitPath = join(root, "git");
   await writeFile(config.gitPath, `#!/bin/sh\nprintf '%s\\n' "$GIT_CONFIG_VALUE_0" >> "$HOME/git-headers"\nexec '${real}' "$@"\n`, { mode: 0o755 });
   const reply = await handleRequest(config, { verb: "sync", repo: REPO, pr: 7 }, new AbortController().signal);
@@ -225,7 +225,7 @@ function scopedTokens(): { tokens: GithubTokens; scopes: TokenScope[] } {
         scopes.push(scope);
         return Promise.resolve(FAKE_TOKEN);
       },
-      drop: () => {},
+      dropIfRejected: () => Promise.resolve(false),
     },
   };
 }
