@@ -366,6 +366,7 @@ stage_config
 
 /usr/sbin/sshd -t -f "$code/sshd_config" || ug_die ug-agent-setup "sshd rejects $code/sshd_config; nothing was loaded"
 
+# shellcheck disable=SC2154
 start_services() {
   local label name scope user template health log tokens agent_input follows rendered out fp resolved logline seen=" " restarted=" " file want key
   local -a inputs

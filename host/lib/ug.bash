@@ -100,6 +100,7 @@ ug_service_login() {
   if [[ $1 == root ]]; then printf 'root\n'; else ug_fact "$1"; fi
 }
 
+# shellcheck disable=SC2034
 ug_service_probe() {
   local scope=$1 label=$2 health kind target domain agent
   health=$(ug_service_expand "$3") || { printf 'cannot expand the health of %s\n' "$label"; return 1; }

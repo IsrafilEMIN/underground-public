@@ -223,6 +223,7 @@ prepare_services() {
   write_addresses
 }
 
+# shellcheck disable=SC2154
 start_services() {
   local label name scope user template health log tokens agent_input follows rendered out fp resolved file
   local -a inputs=()
