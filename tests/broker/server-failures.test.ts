@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { connect, createServer } from "node:net";
 import type { Server, Socket } from "node:net";
 import { tmpdir } from "node:os";
@@ -479,6 +479,47 @@ test("a push leaves no temp ref in the gh-gh-broker's bare repo, whether it land
   assert.equal(remoteRef(BRANCH), head);
   assert.notEqual(next, head);
   assert.equal(brokerTempRefs(), "");
+});
+
+async function mergedOnGithub(): Promise<string> {
+  const head = await commit(BRANCH, "a.txt");
+  assert.equal((await push(BRANCH, head)).exit, 0);
+  git(remote, "update-ref", "refs/heads/main", head);
+  return head;
+}
+
+test("a refresh whose branch delete fails keeps the branch and its record, and names the repo as failed", async () => {
+  const head = await mergedOnGithub();
+  await failGit("--force-with-lease");
+
+  await refreshRepos(config, new AbortController().signal);
+  assert.match(await readFile(config.statusFile, "utf8"), new RegExp(`\\nfailed=${REPO}\\n$`));
+  assert.equal(remoteRef(BRANCH), head);
+  assert.deepEqual(await pushRecord(), { kind: "pushed", sha: head });
+});
+
+test("a refresh whose bare repo cannot be created keeps the branch and its record, and names the repo as failed", async () => {
+  const head = await mergedOnGithub();
+  await rm(join(config.reposRoot, `${REPO}.git`), { recursive: true, force: true });
+  await failGit("init --bare");
+
+  await refreshRepos(config, new AbortController().signal);
+  assert.match(await readFile(config.statusFile, "utf8"), new RegExp(`\\nfailed=${REPO}\\n$`));
+  assert.equal(remoteRef(BRANCH), head);
+  assert.deepEqual(await pushRecord(), { kind: "pushed", sha: head });
+});
+
+test("a refresh whose push record cannot be dropped deletes the branch, keeps the record, and names the repo as failed", async () => {
+  const head = await mergedOnGithub();
+  await chmod(join(config.pushesDir, REPO), 0o500);
+  try {
+    await refreshRepos(config, new AbortController().signal);
+  } finally {
+    await chmod(join(config.pushesDir, REPO), 0o700);
+  }
+  assert.match(await readFile(config.statusFile, "utf8"), new RegExp(`\\nfailed=${REPO}\\n$`));
+  assert.equal(remoteRef(BRANCH), "");
+  assert.deepEqual(await pushRecord(), { kind: "pushed", sha: head });
 });
 
 test("pr-create opens the PR against the default branch that GitHub names", async () => {
