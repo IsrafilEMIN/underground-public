@@ -17,16 +17,19 @@ Owner decision, 2026-11-07. We are redesigning the architecture from the problem
 
 The old docs still say what today's code does. Read them for that, not for the new design. A change to the architecture starts here, not from `docs/SPEC.md`.
 
+The base is decided and recorded (owner decisions of 2026-11-10). `docs/PRODUCT-BRIEF.md` holds it: the harms that cannot be undone, what the agent needs to do its work, and the mechanism that handles each harm or accepts it by name. `docs/SPEC.md` says what runs now, with no history. Of the earlier design, the gh-broker, the merge gate, auto merge, and a merge queue stay open, in redesign.
+
 ## Where to look
 
-Open a file only when the task needs it.
+Open a file only when the task needs it. Each doc has one job; do not start a second home for a fact.
 
-- `docs/PRODUCT-BRIEF.md`: the problem and why. Open it when a decision touches scope.
-- `docs/SPEC.md`: what MVP 0.5 builds, the onboarding checks, and the checks of the build. Open it before you plan or test a change, and when a change touches a workflow file, the repo settings, or the gh-broker app.
-- `docs/THREAT-MODEL.md`: the threats, split by underground and arkan, and by MVP. Open it when a change touches the sandbox, the gh-broker, or the merge gate.
-- `docs/HOST-STATE.md`: every file outside the repo that underground reads or writes, and how a change reaches the running system. Open it when a change touches a host path, a launchd job, or a file the owner writes by hand.
-- `docs/adr/`: why we built a thing one way. Open an ADR when you change the thing it covers.
-- `GLOSSARY.md`: the terms. Open it when you write docs.
+- `docs/PRODUCT-BRIEF.md`: the base: the problem, scope, north star, the gate, the harms that cannot be undone, what the agent needs to do its work, and the mechanism that handles each harm or accepts it by name. Open it when a decision touches scope or a harm.
+- `docs/SPEC.md`: what runs now, the onboarding checks, the checks that run, and what is deferred. No history. Open it before you plan or test a change, and when a change touches a workflow file, the repo settings, or the gh-broker app.
+- `docs/THREAT-MODEL.md`: the threat checklist: each row with its control today, or its acceptance by name. Open it when a change touches the sandbox, the gh-broker, or the merge gate.
+- `docs/HOST-STATE.md`: the map of host files outside the repo and who writes them, and how a change reaches the running system. It names `host/facts` and `host/services` instead of copying values. Open it when a change touches a host path, a launchd job, or a file the owner writes by hand.
+- `docs/adr/`: a dated record of why a decision was made, never the source for today's state. Open an ADR when you change the thing it covers.
+- `GLOSSARY.md`: the live terms. Open it when you write docs.
+- `host/facts` and the service table (`host/services`): the only homes of each shared host value and of the launchd job list. Code reads them; docs name them. A value in a doc is a second home and a future lie.
 
 ## The gate
 

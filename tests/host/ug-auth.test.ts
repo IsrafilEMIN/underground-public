@@ -13,7 +13,7 @@ const PIN = /^omp=(.+)$/m.exec(await readFile(join(SRC, "VERSIONS"), "utf8"))?.[
 async function fakeHome() {
   const home = await tempDir(join(tmpdir(), "ug-auth-"));
   const checkout = join(home, "checkout");
-  for (const f of ["host/bin", "host/lib", "host/gh-broker", "host/facts", "VERSIONS"]) await cp(join(SRC, f), join(checkout, f), { recursive: true });
+  for (const f of ["host/bin", "host/lib", "host/gh-broker", "host/facts", "host/services", "VERSIONS"]) await cp(join(SRC, f), join(checkout, f), { recursive: true });
   const data = join(home, ".local/share/underground");
   const install = spawnSync("bash", ["-c", `
     set -euo pipefail

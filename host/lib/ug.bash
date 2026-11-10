@@ -43,6 +43,95 @@ ug_fact() {
   printf '%s\n' "$value"
 }
 
+ug_services_file=${BASH_SOURCE[0]%/*}/../services
+
+ug_services() {
+  local want=${1:-} label name scope user template health log inputs
+  while IFS='|' read -r label name scope user template health log inputs || [[ -n $label ]]; do
+    [[ -n $label && $label != \#* ]] || continue
+    [[ -z $want || $scope == "$want" ]] || continue
+    printf '%s|%s|%s|%s|%s|%s|%s|%s\n' "$label" "$name" "$scope" "$user" "$template" "$health" "$log" "$inputs"
+  done <"$ug_services_file"
+}
+
+ug_service_field() {
+  local want=$1 field=$2 label name scope user template health log inputs
+  while IFS='|' read -r label name scope user template health log inputs || [[ -n $label ]]; do
+    [[ -n $label && $label != \#* ]] || continue
+    [[ $label == "$want" || $name == "$want" ]] || continue
+    case $field in
+      label) printf '%s\n' "$label" ;;
+      name) printf '%s\n' "$name" ;;
+      scope) printf '%s\n' "$scope" ;;
+      user) printf '%s\n' "$user" ;;
+      template) printf '%s\n' "$template" ;;
+      health) printf '%s\n' "$health" ;;
+      log) printf '%s\n' "$log" ;;
+      inputs) printf '%s\n' "$inputs" ;;
+      *) printf 'ug_service_field: no field %s\n' "$field" >&2; return 1 ;;
+    esac
+    return 0
+  done <"$ug_services_file"
+  printf 'ug_service_field: %s has no job %s\n' "$ug_services_file" "$want" >&2
+  return 1
+}
+
+ug_service_data() { printf '%s\n' "${UG_DATA:-$HOME/$(ug_fact owner_data)}"; }
+
+ug_service_expand() {
+  local text=$1 name value data
+  data=$(ug_service_data)
+  while [[ $text =~ @([A-Z_]+)@ ]]; do
+    name=${BASH_REMATCH[1]}
+    name=$(printf '%s' "$name" | tr 'A-Z' 'a-z')
+    case $name in
+      data) value=$data ;;
+      gateway) value=$(sed -n 's/^gateway=//p' "$data/addresses" 2>/dev/null | head -1) ;;
+      omp_sha) value=${UG_OMP_SHA:-} ;;
+      *) value=$(ug_fact "$name") || return 1 ;;
+    esac
+    [[ -n $value ]] || { printf 'ug_service_expand: no value for %s\n' "${BASH_REMATCH[0]}" >&2; return 1; }
+    text=${text/"${BASH_REMATCH[0]}"/$value}
+  done
+  printf '%s\n' "$text"
+}
+
+ug_service_inputs() {
+  local tokens=$1 tok opt m
+  local -a matches keep
+  for tok in $tokens; do
+    opt=0
+    [[ $tok != \?* ]] || { opt=1; tok=${tok#\?}; }
+    tok=$(ug_service_expand "$tok") || return 1
+    shopt -s nullglob
+    matches=( $tok )
+    shopt -u nullglob
+    if (( ${#matches[@]} == 0 )); then
+      (( opt )) || matches=( "$tok" )
+    elif (( opt )); then
+      keep=()
+      for m in "${matches[@]}"; do [[ -e $m ]] && keep+=("$m"); done
+      matches=( ${keep[@]+"${keep[@]}"} )
+    fi
+    (( ${#matches[@]} > 0 )) && printf '%s\n' "${matches[@]}"
+  done
+  return 0
+}
+
+ug_die() {
+  local tool=$1
+  shift
+  printf '%s%s: %s%s\n' "$(ug_paint 2 red)" "$tool" "$*" "$(ug_paint 2 off)" >&2
+  exit 1
+}
+
+ug_stopped() {
+  local status=$1 line=$2 command=$3 tool=$4 file=$5 mid=${6:-} tail=${7:-}
+  (( BASH_SUBSHELL == 0 )) || return 0
+  printf '%s%s: stopped at line %s of %s: "%s" failed with exit %s. The steps above it are done, and nothing after it ran%s. Fix the cause, then run host/bin/ug-setup again%s.%s\n' \
+    "$(ug_paint 2 red)" "$tool" "$line" "$file" "$command" "$status" "$mid" "$tail" "$(ug_paint 2 off)" >&2
+}
+
 ug_sha256() {
   local out
   out=$(shasum -a 256 "$1") || return 1

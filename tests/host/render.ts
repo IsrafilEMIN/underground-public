@@ -13,6 +13,29 @@ export async function factTokens(): Promise<string[]> {
     .map((line) => `@${line.slice(0, line.indexOf("=")).toUpperCase()}@`);
 }
 
+export type ServiceRow = {
+  label: string;
+  name: string;
+  scope: string;
+  user: string;
+  template: string;
+  health: string;
+  log: string;
+  inputs: string;
+};
+
+export async function services(): Promise<ServiceRow[]> {
+  const text = await readFile(join(ROOT, "host/services"), "utf8");
+  return text
+    .split(/\r?\n/)
+    .filter((line) => line.trim() !== "" && !line.startsWith("#"))
+    .map((line) => {
+      const f = line.split("|");
+      assert.equal(f.length, 8, `host/services row needs 8 fields: ${line}`);
+      return { label: f[0], name: f[1], scope: f[2], user: f[3], template: f[4], health: f[5], log: f[6], inputs: f[7] };
+    });
+}
+
 export async function render(dir: string, template: string, facts: Record<string, string> = {}, out = join(dir, basename(template))): Promise<string> {
   const lib = join(dir, "render/host/lib");
   await mkdir(lib, { recursive: true });

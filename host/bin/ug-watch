@@ -29,7 +29,7 @@ job_problem() {
 }
 
 problems() {
-  local now at failed gateway
+  local now at failed label name scope user template health log inputs target shown
   now=$(date +%s)
   at=$(record_value "$data/gh-broker/status" at)
   if [[ ! $at =~ ^[0-9]+$ ]] || (( now - 10#$at > broker_stale )); then
@@ -42,17 +42,31 @@ problems() {
   if [[ ! $at =~ ^[0-9]+$ ]] || (( now - 10#$at > backup_stale )); then
     printf 'backup: no good backup in the last 36 hours; see %s\n' "$data/backup/backup.log"
   fi
-  job_problem "gui/$UID/com.underground.backup" backup
-  job_problem system/com.underground.agent-refresh "agent refresh"
-  ug_http_answers "http://127.0.0.1:$(ug_fact auth_broker_port)/v1/healthz" 2>/dev/null || printf 'auth broker: no answer on port %s\n' "$(ug_fact auth_broker_port)"
-  gateway=$(record_value "$data/addresses" gateway)
-  if [[ -z $gateway ]]; then
-    printf 'auth gateway: %s has no gateway= line\n' "$data/addresses"
-  else
-    ug_http_answers "http://$gateway/healthz" 2>/dev/null || printf 'auth gateway: no answer on %s\n' "$gateway"
-  fi
-  ug_http_answers "http://127.0.0.1:$(ug_fact usage_broker_port)/v1/healthz" 2>/dev/null || printf 'usage broker: no answer on port %s\n' "$(ug_fact usage_broker_port)"
-  ug_port_answers 127.0.0.1 "$(ug_fact agent_sshd_port)" 2>/dev/null || printf 'agent sshd: no answer on port %s\n' "$(ug_fact agent_sshd_port)"
+  while IFS='|' read -r label name scope user template health log inputs; do
+    case ${health%% *} in
+      http)
+        if [[ $health == *@GATEWAY@* && -z $(record_value "$data/addresses" gateway) ]]; then
+          printf '%s: %s has no gateway= line\n' "$name" "$data/addresses"
+          continue
+        fi
+        target=$(ug_service_expand "${health#* }")
+        target=${target#http://}
+        target=${target%%/*}
+        shown=$target
+        [[ $target == 127.0.0.1:* ]] && shown="port ${target#127.0.0.1:}"
+        ug_http_answers "http://$target" 2>/dev/null || printf '%s: no answer on %s\n' "$name" "$shown"
+        ;;
+      port)
+        target=$(ug_service_expand "${health#port }")
+        ug_port_answers "${target%:*}" "${target##*:}" 2>/dev/null || printf '%s: no answer on port %s\n' "$name" "${target##*:}"
+        ;;
+      launchd)
+        target="system/$label"
+        [[ $scope == agent ]] && target="gui/$UID/$label"
+        job_problem "$target" "$name"
+        ;;
+    esac
+  done < <(ug_services)
 }
 
 found=$(problems)
