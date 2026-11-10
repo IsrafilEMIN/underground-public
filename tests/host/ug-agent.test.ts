@@ -402,8 +402,13 @@ test(
 test("the agent sshd config holds the contract lines", async (t) => {
   const dir = await tempDir(join(tmpdir(), "ug-sshd-"));
   t.after(() => rm(dir, { recursive: true, force: true }));
-  const conf = await readFile(await render(dir, "host/agent/sshd_config"), "utf8");
+  const conf = await readFile(await render(dir, "host/agent/sshd_config", { root: "/r", agent_user: "agentx", agent_sshd_port: "2345" }), "utf8");
   for (const line of [
+    "ListenAddress 127.0.0.1:2345",
+    "HostKey /r/ssh_host_ed25519_key",
+    "AllowUsers agentx",
+    "AuthorizedKeysFile /r/authorized_keys/%u",
+    "ForceCommand /r/agent-session",
     "PermitRootLogin no",
     "PasswordAuthentication no",
     "KbdInteractiveAuthentication no",

@@ -98,7 +98,7 @@ No code makes these files. Setup or the service reads them as they are.
 
 ## Host facts
 
-`host/facts` holds each value that more than one file needs: the install root, your data folder, the agent and login users with their homes and groups, the ports of the agent sshd, the auth broker, the usage broker, and the auth gateway, the gh-broker socket, and the node that runs your gh-broker. It is the only place that names them. Change a value there, then run setup.
+`host/facts` holds each value that more than one file of the code needs: the install root, your data folder, the agent and login users with their homes and groups, the ports of the agent sshd, the auth broker, the usage broker, and the auth gateway, the gh-broker socket, and the node that runs your gh-broker. The code reads these values only from it; the docs still spell them out, and the gh-broker keeps its own `gh` and `git` paths. Setup installs the new value at its next run, but it does not move what the old value made: a user, a home, or the old install root stays until you move it.
 
 | reader | how it gets the values |
 |---|---|
