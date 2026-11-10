@@ -12,7 +12,7 @@ import { readPushRecord, writePushRecord } from "../../host/gh-broker/push-recor
 import { appendReviewRecord, readReviewRecords } from "../../host/gh-broker/review-records.ts";
 import { defaultConfig, refreshRepos, serveConnection } from "../../host/gh-broker/server.ts";
 import type { ServerConfig } from "../../host/gh-broker/server.ts";
-import { FAKE_TOKEN, fakeTokens, tokenRemote } from "./fake-app.ts";
+import { FAKE_TOKEN, fakeTokens, githubRemote, tokenRemote } from "./fake-app.ts";
 import { handleAs } from "./session.ts";
 import type { Session } from "./session.ts";
 import { tempDir } from "../temp.ts";
@@ -72,7 +72,7 @@ fi
 if [ -f "$HOME/ls-remote-hangs" ]; then
   case "$*" in *" ls-remote "*) exec sleep 60 ;; esac
 fi
-exec '${REAL_GIT}' -c 'url.file://${remote}.insteadOf=${tokenRemote(REPO)}' "$@"
+exec '${REAL_GIT}' -c 'url.file://${remote}.insteadOf=${githubRemote(REPO)}' "$@"
 `;
 }
 

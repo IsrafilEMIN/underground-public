@@ -54,6 +54,8 @@ If the gh-broker refuses, stop and report the exact error. Never run `host/bin/u
 
 There are no reviewer sessions: `omp --role` is gone (`docs/SPEC.md`, B8). A reviewer is a skill. It reads a PR with `gh-broker sync <owner/repo> --pr <n>` and names its role in `gh-broker review <owner/repo> <n> <sha> <role> <verdict> [reason]`. Until the merge gate gets its review, no skill writes a verdict, so `gh-broker merge` refuses every PR and the owner merges each one on GitHub.
 
+On underground itself, GitHub refuses every merge to `main` without the owner's approval, and a push after an approval needs a new one (`docs/adr/0021-github-holds-the-wall-on-main.md`). `host/bin/ug-setup` checks that rule before it pulls.
+
 ## Evidence
 
 Mark each claim in a doc, a commit message, a PR body, or a review reason with a source: `file:line`, command output, or a doc URL with the read date. Otherwise mark it `[inference]`. In a chat reply, name a source only for a claim the owner may want to check, and say plainly when a claim is a guess.

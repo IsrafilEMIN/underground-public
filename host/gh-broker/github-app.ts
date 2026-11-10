@@ -19,6 +19,8 @@ const API = "https://api.github.com";
 const REFRESH_BEFORE_MS = 5 * 60 * 1000;
 const INSTALLATION_TOKEN = /^ghs_[A-Za-z0-9_.-]+$/;
 const INSTALLATION_TOKEN_TEXT = /ghs_[A-Za-z0-9_.-]+/g;
+const BASIC_USER = "x-access-token:";
+const BASIC_TEXT = new RegExp(`${Buffer.from(BASIC_USER).toString("base64")}[A-Za-z0-9+/=]+`, "g");
 
 export function appFiles(home: string): AppFiles {
   return {
@@ -27,8 +29,12 @@ export function appFiles(home: string): AppFiles {
   };
 }
 
+export function basicAuth(token: string): string {
+  return `Basic ${Buffer.from(`${BASIC_USER}${token}`).toString("base64")}`;
+}
+
 export function redactTokens(text: string): string {
-  return text.replace(INSTALLATION_TOKEN_TEXT, "ghs_[redacted]");
+  return text.replace(INSTALLATION_TOKEN_TEXT, "ghs_[redacted]").replace(BASIC_TEXT, "[redacted]");
 }
 
 function parseAppConfig(text: string): Checked<AppConfig> {

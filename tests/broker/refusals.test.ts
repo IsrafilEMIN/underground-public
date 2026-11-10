@@ -10,7 +10,7 @@ import { readPushRecord, writePushRecord } from "../../host/gh-broker/push-recor
 import { appendReviewRecord } from "../../host/gh-broker/review-records.ts";
 import { defaultConfig } from "../../host/gh-broker/server.ts";
 import type { ServerConfig } from "../../host/gh-broker/server.ts";
-import { fakeTokens, tokenRemote } from "./fake-app.ts";
+import { fakeTokens, githubRemote } from "./fake-app.ts";
 import { handleAs } from "./session.ts";
 import type { Session } from "./session.ts";
 import { tempDir } from "../temp.ts";
@@ -119,7 +119,7 @@ beforeEach(async () => {
   execFileSync(config.gitPath, ["init", "--bare", "--quiet", remote], { env: GIT_ENV });
   const bare = join(config.reposRoot, `${REPO}.git`);
   execFileSync(config.gitPath, ["init", "--bare", "--quiet", bare], { env: GIT_ENV });
-  git(bare, "config", `url.file://${remote}.insteadOf`, tokenRemote(REPO));
+  git(bare, "config", `url.file://${remote}.insteadOf`, githubRemote(REPO));
   work = join(root, "work");
   execFileSync(config.gitPath, ["init", "--quiet", "-b", "main", work], { env: GIT_ENV });
   const base = await commit("main", "base.txt");

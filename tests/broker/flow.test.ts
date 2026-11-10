@@ -7,7 +7,7 @@ import { promisify } from "node:util";
 import { afterEach, beforeEach, test } from "node:test";
 import { defaultConfig, startServer, stopServer } from "../../host/gh-broker/server.ts";
 import type { GhBroker, ServerConfig } from "../../host/gh-broker/server.ts";
-import { fakeTokens, tokenRemote } from "./fake-app.ts";
+import { fakeTokens, githubRemote } from "./fake-app.ts";
 import { tempDir } from "../temp.ts";
 
 const REPO = "o/r";
@@ -215,7 +215,7 @@ beforeEach(async () => {
   git(seed, "push", "--quiet", remote, "main:main");
   const bare = join(config.reposRoot, `${REPO}.git`);
   execFileSync(config.gitPath, ["init", "--bare", "--quiet", bare], { env: GIT_ENV });
-  git(bare, "config", `url.file://${remote}.insteadOf`, tokenRemote(REPO));
+  git(bare, "config", `url.file://${remote}.insteadOf`, githubRemote(REPO));
   await writeFile(join(root, "gh-state.json"), JSON.stringify({ ci: "SUCCESS", prs: [] }));
   await writeFile(config.ghPath, fakeGh(), { mode: 0o755 });
 

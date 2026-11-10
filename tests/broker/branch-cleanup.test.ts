@@ -11,7 +11,7 @@ import { appendReviewRecord, reviewRecordsPath } from "../../host/gh-broker/revi
 import { defaultConfig, refreshRepos } from "../../host/gh-broker/server.ts";
 import type { ServerConfig } from "../../host/gh-broker/server.ts";
 import type { GithubTokens, TokenScope } from "../../host/gh-broker/github-app.ts";
-import { FAKE_TOKEN, fakeTokens, tokenRemote } from "./fake-app.ts";
+import { FAKE_TOKEN, fakeTokens, githubRemote } from "./fake-app.ts";
 import { handleAs } from "./session.ts";
 import type { Session } from "./session.ts";
 import { tempDir } from "../temp.ts";
@@ -148,7 +148,7 @@ beforeEach(async () => {
   await writeFile(join(config.home, "remote-path"), remote);
   const bare = join(config.reposRoot, `${REPO}.git`);
   execFileSync(config.gitPath, ["init", "--bare", "--quiet", bare], { env: GIT_ENV });
-  git(bare, "config", `url.file://${remote}.insteadOf`, tokenRemote(REPO));
+  git(bare, "config", `url.file://${remote}.insteadOf`, githubRemote(REPO));
   work = join(root, "work");
   execFileSync(config.gitPath, ["init", "--quiet", "-b", "main", work], { env: GIT_ENV });
   git(work, "commit", "--quiet", "--allow-empty", "-m", "base");

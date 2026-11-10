@@ -60,6 +60,7 @@ ug_pull_main() {
   branch=$("${g[@]}" symbolic-ref --quiet --short HEAD) || branch=""
   [[ $branch == main ]] || { printf '%s: the checkout is on %s, not main; check out main, then run setup again. Nothing changed.\n' "$tool" "${branch:-a detached HEAD}" >&2; return 1; }
   before=$("${g[@]}" rev-parse HEAD)
+  ug_check_main_rule "$src" "$tool" || return 1
   "${g[@]}" fetch --quiet origin main || { printf '%s: cannot fetch main from origin; check the network and your GitHub login, then run setup again. Nothing changed.\n' "$tool" >&2; return 1; }
   "${g[@]}" merge --quiet --ff-only origin/main || { printf '%s: main cannot fast-forward to origin/main; setup does not merge or rebase. Nothing changed.\n' "$tool" >&2; return 1; }
   after=$("${g[@]}" rev-parse HEAD)
@@ -77,6 +78,57 @@ ug_repo_slug() {
   url=${url%.git}
   [[ $url =~ $re ]] || return 1
   echo "${BASH_REMATCH[2]}/${BASH_REMATCH[3]}"
+}
+
+# shellcheck disable=SC2016
+ug_main_rule_gaps='
+def rule(t): [.rules[]? | select(.type == t)][0];
+[
+  (if (.conditions.ref_name.include // []) | any(. == "~DEFAULT_BRANCH" or . == "refs/heads/main") then empty else "it does not target main" end),
+  (if ((.conditions.ref_name.exclude // []) | length) == 0 then empty else "it excludes some branches" end),
+  (rule("pull_request").parameters as $p
+    | if $p == null then "it does not require a pull request"
+      elif ($p.required_approving_review_count >= 1 and $p.require_code_owner_review and $p.require_last_push_approval and $p.dismiss_stale_reviews_on_push) then empty
+      else "its pull request rule needs 1 approval, review from code owners, approval of the most recent push, and dismissal of stale approvals" end),
+  (if rule("non_fast_forward") then empty else "it does not block force pushes" end),
+  (if rule("deletion") then empty else "it does not restrict deletions" end),
+  ((rule("required_status_checks").parameters.required_status_checks // []) as $checks
+    | if ($checks | length) > 0 and ($checks | all(.integration_id == 15368)) then empty else "it requires no status check from GitHub Actions" end),
+  (if .bypass_actors == null then "its bypass list is not readable with your login"
+    else (.bypass_actors[] | select(((.actor_type == "RepositoryRole" and .actor_id == 5) or .actor_type == "OrganizationAdmin") | not) | "its bypass list holds \(.actor_type) \(.actor_id)") end)
+] | join("; ")
+'
+
+ug_check_main_rule() {
+  local src=$1 tool=$2 repo login file="" name pattern owners star=0 ids id json gaps report=""
+  local open="$tool: a wall is open, so setup pulled nothing and changed nothing:"
+  repo=$(ug_repo_slug "$src") || { printf '%s the origin of %s is not a GitHub repo, so setup cannot check the rule on main\n' "$open" "$src" >&2; return 1; }
+  for name in gh jq; do
+    command -v "$name" >/dev/null || { printf '%s setup needs %s to check the rule on main of %s\n' "$open" "$name" "$repo" >&2; return 1; }
+  done
+  login=$(gh api user | jq -r '.login // empty') || login=""
+  [[ -n $login ]] || { printf '%s gh has no GitHub login; run: gh auth login\n' "$open" >&2; return 1; }
+
+  for name in .github/CODEOWNERS CODEOWNERS docs/CODEOWNERS; do
+    [[ ! -f $src/$name ]] || { file=$src/$name; break; }
+  done
+  [[ -n $file ]] || { printf '%s the checkout has no CODEOWNERS file, so no file needs your approval\n' "$open" >&2; return 1; }
+  while read -r pattern owners || [[ -n $pattern ]]; do
+    [[ -n $pattern && $pattern != \#* ]] || continue
+    [[ $owners == "@$login" ]] || { printf '%s %s gives "%s" to "%s"; each line must name only @%s\n' "$open" "$file" "$pattern" "$owners" "$login" >&2; return 1; }
+    [[ $pattern != "*" ]] || star=1
+  done <"$file"
+  [[ $star == 1 ]] || { printf '%s %s has no line "* @%s", so some files need no approval\n' "$open" "$file" "$login" >&2; return 1; }
+
+  ids=$(gh api "repos/$repo/rulesets?per_page=100" | jq -r '.[] | select(.enforcement == "active" and .target == "branch") | .id') || { printf '%s cannot read the rulesets of %s from GitHub\n' "$open" "$repo" >&2; return 1; }
+  for id in $ids; do
+    json=$(gh api "repos/$repo/rulesets/$id") || { printf '%s cannot read ruleset %s of %s from GitHub\n' "$open" "$id" "$repo" >&2; return 1; }
+    gaps=$(jq -r "$ug_main_rule_gaps" <<<"$json") || { printf '%s cannot read ruleset %s of %s: GitHub sent no ruleset\n' "$open" "$id" "$repo" >&2; return 1; }
+    [[ -n $gaps ]] || { ug_say same "main rule" "GitHub merges to main of $repo only with the approval of @$login (ruleset $id)"; return 0; }
+    report+=" Ruleset $id: $gaps."
+  done
+  printf '%s no active ruleset of %s makes main need your approval.%s Fix it in the repo settings under Rules (docs/SPEC.md, onboarding check 6).\n' "$open" "$repo" "${report:- It has no active branch ruleset.}" >&2
+  return 1
 }
 
 ug_stop_service() {

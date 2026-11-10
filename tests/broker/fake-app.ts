@@ -9,3 +9,7 @@ export function fakeTokens(token: string = FAKE_TOKEN): GithubTokens {
 export function tokenRemote(repo: string, token: string = FAKE_TOKEN): string {
   return `https://x-access-token:${token}@github.com/${repo}.git`;
 }
+
+export function githubRemote(repo: string): string {
+  return `https://github.com/${repo}.git`;
+}

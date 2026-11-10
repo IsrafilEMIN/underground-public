@@ -30,7 +30,7 @@ The owner checks each repo on GitHub before agents merge alone in it.
 3. GitHub-hosted runners only.
 4. The gh-broker app is a GitHub App of the owner's account, installed on selected repos, with no Workflows and no Administration permission (`adr/0007-gh-broker-github-app.md`).
 5. Each workflow that deploys, publishes, or uses secrets on `main` waits for the owner's approval in a GitHub environment. So a merge has no effect that a revert cannot undo.
-6. A repo whose code runs on the host, such as underground, gets no auto merge. The owner merges each PR and reads the merged change before the host runs it.
+6. A repo whose code runs on the host, such as underground, gets no auto merge. The owner merges each PR and reads the merged change before the host runs it. Test files count: setup runs `tests/broker` and `tests/host` as the owner (`run_mac_only_tests`, `host/bin/ug-setup:74`). GitHub enforces the first part: a ruleset on `main` needs the owner's approval as code owner for every merge, and setup stops before it pulls when that ruleset is missing or weaker (`ug_check_main_rule`, `host/lib/ug.bash:102`; `adr/0021-github-holds-the-wall-on-main.md`).
 
 A repo is onboarded when the owner has made these checks and installed the gh-broker app on it: the app's installation is the list (owner decision, 2026-11-03).
 
