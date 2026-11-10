@@ -1,6 +1,6 @@
 ListenAddress 127.0.0.1:2222
 HostKey /Library/Underground/ssh_host_ed25519_key
-PidFile /Library/Underground/run/agent-sshd.pid
+PidFile none
 AllowUsers ugagent
 PermitRootLogin no
 PasswordAuthentication no

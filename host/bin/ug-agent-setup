@@ -82,6 +82,9 @@ make_user() {
   ug_say ok "user $name" "standard, hidden, $shell, home /Users/$name mode 700"
 }
 
+agent_ssh=/Users/ugagent/.ssh
+agent_is_new=1
+if [[ -e /Users/ugagent || -L /Users/ugagent ]] || dscl . -read /Users/ugagent UniqueID >/dev/null 2>&1; then agent_is_new=0; fi
 make_user ugagent "Underground agent" /bin/sh
 make_user ugauth "Underground logins" /usr/bin/false
 
@@ -108,9 +111,15 @@ else
   ug_say same "group com.apple.access_ssh" "ugagent in place"
 fi
 
-install -d -m 755 -o root -g wheel /Users/ugagent/.ssh
-install -m 444 -o root -g wheel /dev/null /Users/ugagent/.ssh/authorized_keys
-ug_say ok /Users/ugagent/.ssh "root-owned, empty authorized_keys"
+if [[ $agent_is_new == 1 ]]; then
+  install -d -m 755 -o root -g wheel "$agent_ssh"
+  install -m 444 -o root -g wheel /dev/null "$agent_ssh/authorized_keys"
+  ug_say changed "$agent_ssh" "root-owned, empty authorized_keys"
+elif [[ ! -L $agent_ssh && $(stat -f '%Su %Lp' "$agent_ssh" 2>/dev/null) == "root 755" ]]; then
+  ug_say same "$agent_ssh" "root-owned"
+else
+  ug_say ok "$agent_ssh" "not the root-owned folder that setup made; setup writes nothing in the agent's home after it makes the user, and the system sshd still denies ugagent"
+fi
 
 omp_dir=$root/omp/$omp_pin
 omp_bin=$omp_dir/omp
@@ -144,7 +153,7 @@ rm -f "$root/bin/gh-broker.tmp"
 install -m 444 -o root -g wheel "$src/host/gh-broker/client.ts" "$root/gh-broker/client.ts"
 install -m 444 -o root -g wheel "$src/host/gh-broker/protocol.ts" "$root/gh-broker/protocol.ts"
 install -m 444 -o root -g wheel "$src/host/gh-broker/sweep.ts" "$root/gh-broker/sweep.ts"
-rm -rf "$root/broker" "$root/bin/broker" "$root/run/broker.sock"
+rm -rf "$root/broker" "$root/bin/broker" "$root/run/broker.sock" "$root/run/agent-sshd.pid"
 /usr/bin/sandbox-exec -f "$src/host/agent/pin.sb" /usr/bin/true || die "host/agent/pin.sb does not load under sandbox-exec; the installed pin is unchanged"
 install -m 444 -o root -g wheel "$src/host/agent/pin.sb" "$root/pin.sb"
 install -m 555 -o root -g wheel "$src/host/agent/agent-session" "$root/agent-session"
@@ -154,7 +163,7 @@ install -m 444 -o root -g wheel "$src/host/agent/sshd_config" "$root/sshd_config
 install -m 444 -o root -g wheel "$src/host/agent/config-names" "$root/config-names"
 ug_say ok "$root" "omp $omp_pin (old versions removed), pin.sb, bin/, gh-broker, agent-session, agent-start, agent-refresh, sshd_config installed"
 
-install -d -m 711 -o "$owner" -g wheel "$root/run"
+install -d -m 710 -o "$owner" -g ugagent "$root/run"
 
 if [[ ! -f $root/ssh_host_ed25519_key ]]; then
   ssh-keygen -q -t ed25519 -N '' -f "$root/ssh_host_ed25519_key"
@@ -315,9 +324,10 @@ start_login_services() {
         ;;
       com.underground.usage-broker)
         url=http://127.0.0.1:18765/v1/healthz
-        inputs=(/opt/homebrew/bin/node "$root/usage-broker/usage-broker.ts" "$root/usage-broker/addresses.ts" "$root/usage-broker/protocol.ts")
+        inputs=("$omp_bin.sha256" "$root/usage-broker/usage-broker.ts" "$root/usage-broker/addresses.ts" "$root/usage-broker/protocol.ts")
         ;;
     esac
+    out=$(ug_trusted_daemon "$rendered") || die "a wall is open in the service $label: $out, so a user with fewer rights could change what it runs"
     [[ $label == com.underground.usage-broker || ! -e $auth_home/.omp/agent/config.yml ]] || inputs+=("$auth_home/.omp/agent/config.yml")
     [[ $label != com.underground.auth-gateway || $broker_out != restarted* ]] || rm -f "$root/state/$label.fingerprint"
     fp=$(ug_fingerprint "$rendered" "${inputs[@]}") || die "cannot read the inputs of $label: ${inputs[*]}"
@@ -332,6 +342,9 @@ start_login_services
 
 plist=/Library/LaunchDaemons/com.underground.agent-sshd.plist
 /usr/sbin/sshd -t -f "$root/sshd_config" || die "sshd rejects $root/sshd_config; nothing was loaded"
+for label in com.underground.agent-sshd com.underground.agent-refresh; do
+  out=$(ug_trusted_daemon "$src/host/agent/$label.plist") || die "a wall is open in the service $label: $out, so a user with fewer rights could change what it runs"
+done
 fp=$(ug_fingerprint "$src/host/agent/com.underground.agent-sshd.plist" "$root/sshd_config" "$root/ssh_host_ed25519_key.pub") || die "cannot read the inputs of the agent sshd"
 out=$(ug_ensure_service system com.underground.agent-sshd "$src/host/agent/com.underground.agent-sshd.plist" "$plist" "$root/state/com.underground.agent-sshd.fingerprint" "$fp" ug_port_answers 127.0.0.1 2222) ||
   die "agent sshd: $out; check it with: sudo launchctl print system/com.underground.agent-sshd"

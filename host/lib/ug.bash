@@ -186,6 +186,48 @@ ug_ensure_owner_mode() {
   [[ $(stat -f '%Su:%Sg %Mp%Lp' "$file") == "$owner $mode" ]]
 }
 
+ug_trusted_path() {
+  local path=$1 part=$1 owner mode acl rule=' allow [^'$'\n'']*(write|add_file|add_subdirectory|delete|append|chown)'
+  shift
+  [[ $path == /* ]] || { printf '%s is not an absolute path\n' "$path"; return 1; }
+  while :; do
+    [[ ! -L $part ]] || { printf '%s is a link\n' "$part"; return 1; }
+    owner=$(stat -f '%Su %Lp' "$part" 2>/dev/null) || { printf '%s is missing or cannot be read\n' "$part"; return 1; }
+    mode=${owner#* }
+    owner=${owner% *}
+    [[ " $* " == *" $owner "* ]] || { printf '%s belongs to %s\n' "$part" "$owner"; return 1; }
+    (( (8#$mode & 8#022) == 0 )) || { printf '%s has mode %s, so its group or every user can write it\n' "$part" "$mode"; return 1; }
+    acl=$(ls -lde "$part" 2>/dev/null) || acl=""
+    [[ ! $acl =~ $rule ]] || { printf '%s has an access rule that lets a user change it: %s\n' "$part" "${BASH_REMATCH[0]# }"; return 1; }
+    [[ $part != / ]] || return 0
+    part=${part%/*}
+    part=${part:-/}
+  done
+}
+
+ug_trusted_daemon() {
+  local plist=$1 user value key why i=0 paths=() dirs
+  user=$(plutil -extract UserName raw -o - "$plist" 2>/dev/null) || user=root
+  while value=$(plutil -extract "ProgramArguments.$i" raw -o - "$plist" 2>/dev/null); do
+    [[ $value != /* ]] || paths+=("$value")
+    i=$((i + 1))
+  done
+  for key in WorkingDirectory EnvironmentVariables.HOME; do
+    ! value=$(plutil -extract "$key" raw -o - "$plist" 2>/dev/null) || paths+=("$value")
+  done
+  for key in StandardOutPath StandardErrorPath; do
+    ! value=$(plutil -extract "$key" raw -o - "$plist" 2>/dev/null) || paths+=("${value%/*}")
+  done
+  if value=$(plutil -extract EnvironmentVariables.PATH raw -o - "$plist" 2>/dev/null); then
+    IFS=: read -r -a dirs <<<"$value"
+    paths+=("${dirs[@]}")
+  fi
+  [[ ${#paths[@]} -gt 0 ]] || { printf 'it names no program\n'; return 1; }
+  for value in "${paths[@]}"; do
+    why=$(ug_trusted_path "$value" root "$user") || { printf 'it runs as %s and uses %s, but %s\n' "$user" "$value" "$why"; return 1; }
+  done
+}
+
 ug_render_plist() {
   local out=$1 template=$2 shown=$3 left
   shift 3

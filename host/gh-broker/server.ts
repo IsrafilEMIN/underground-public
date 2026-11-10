@@ -788,7 +788,7 @@ async function listenUnix(path: string, handle: Handler): Promise<Server> {
   } finally {
     process.umask(previousUmask);
   }
-  await chmod(path, 0o666);
+  await chmod(path, 0o660);
   process.stdout.write(`${new Date().toISOString()} listening on ${path}\n`);
   return server;
 }
