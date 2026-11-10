@@ -4,7 +4,7 @@ Date: 2026-10-31. Owner decision.
 
 Superseded in part by `0026-delete-the-merge-gate.md` (2026-11-10): the auto-merge path is gone; the app facts stand.
 
-Holds under the redesign (2026-11-02). The key moves to `~/.ug/host/github-app.pem` (`../SPEC.md`, "gh-broker and the merge gate"). The onboarding list is now in `../SPEC.md`.
+Holds under the redesign (2026-11-02). The key moves to `~/.ug/host/github-app.pem` (`../SPEC.md`, "gh-broker"). The onboarding list is now in `../SPEC.md`.
 
 GitHub suspended the bot account that the gh-broker acted as. The cause is unknown. Until now, the gh-broker's token belonged to that bot (`ONBOARDING.md`, check 4, before this change), and the owner's approval of the head was a merge path of the gate (`docs/adr/0006-reviewer-roles-gate.md`). Earlier on 2026-10-31, the first version of this ADR moved the gh-broker to a fine-grained token of the owner's own account. The owner then chose a GitHub App instead.
 

@@ -4,7 +4,7 @@ Status: Accepted (owner, 2026-11-10). Supersedes the decision of `0006-reviewer-
 
 ## Context
 
-The merge gate was self-attested. `startServer` passed socket input to `handleRequest` with no check of the peer, so `handleReview` took a verdict of any role from any caller: one session could write all three `pass` verdicts and merge its own PR. An agent run on 2026-11-10 proved it: a throwaway test against the real server code with a fake `gh` made the gh-broker call `gh pr merge` (agent run, 2026-11-10). `0021-github-holds-the-wall-on-main.md` item 2 had already named this hole on 2026-11-09 and left the gate standing as a quality helper. In practice the gate merged nothing: no reviewer skill wrote verdicts. The gate was about a fifth of the broker code (429 deleted lines of 2297 in `host/gh-broker/` before the change, agent run, `git diff --numstat`, 2026-11-10) and two whole test files.
+The merge gate was self-attested. `startServer` passed socket input to `handleRequest` with no check of the peer, so `handleReview` took a verdict of any role from any caller: one session could write all three `pass` verdicts and merge its own PR. An agent run on 2026-11-10 proved it: a throwaway test against the real server code with a fake `gh` made the gh-broker call `gh pr merge` (agent run, 2026-11-10). `0021-github-holds-the-wall-on-main.md` item 2 had already named this hole on 2026-11-09 and left the gate standing as a quality helper. In practice the gate merged nothing: no reviewer skill wrote verdicts. The gate was about a fifth of the broker code (429 deleted lines of 2295 in `host/gh-broker/` before the change, agent run, `git diff --shortstat`, 2026-11-10) and two whole test files.
 
 ## Decision
 
