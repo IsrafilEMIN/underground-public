@@ -1,6 +1,6 @@
 # Loopback: the auth broker's port closed to the agent, the rest accepted by name
 
-Date: 2026-11-10. Status: built, not run on the owner's mac. Owner decisions of 2026-11-10, in the session that built it: build the firewall line against a fake auth broker, and it must not cripple the agent; accept by name that the agent reaches every listener of the owner on loopback.
+Date: 2026-11-10. Status: built; both lines ran on the owner's mac on port 8765 on 2026-11-10 (Evidence, the last two items). Owner decisions of 2026-11-10, in the session that built it: build the firewall line against a fake auth broker, and it must not cripple the agent; accept by name that the agent reaches every listener of the owner on loopback.
 
 ## Context
 
@@ -24,6 +24,8 @@ All runs on the owner's mac, 2026-11-10. The owner loaded each rule file with `s
 - pf was already on: `pfctl -s References` listed `pfd` (2 days) and `socketfilterfw` (4 days).
 - `printf 'block return in quick proto tcp from any to any port 8765 user ugagent\n' | /sbin/pfctl -n -v -f -`, as `ugagent`, printed `block return in quick proto tcp from any to any port = 8765 user = 502` and exit 0.
 - A sandbox profile line refuses a bind on one port and leaves the others free. Owner run, 2026-11-10, with `sandbox-exec -p '(version 1)(allow default)(deny network-bind (local ip "*:18766"))'`: `python3 -m http.server 18766 --bind 127.0.0.1` and the same with `--bind ::1` each ended in `PermissionError: [Errno 1] Operation not permitted` at `self.socket.bind`, and port `18767` printed `Serving HTTP on 127.0.0.1 port 18767`.
+- The pin line on the real port, after the owner's setup and a restart of the mac. Agent run in a pinned session, 2026-11-10: a bind to port `8765` on `::1`, `127.0.0.1`, `0.0.0.0`, and `::` each failed with `PermissionError errno 1 Operation not permitted`; a bind and listen on port `8766` on `::1` and on `127.0.0.1` worked. In that session `curl http://127.0.0.1:8765/v1/healthz` and `http://127.0.0.1:18765/v1/healthz` printed `200`, so the real broker and the usage broker ran. The installed `/Library/Underground/pin.sb` held `(deny network-bind (local ip "*:8765"))`.
+- The firewall line on the real port, outside the pin. Owner run, 2026-11-10: with `sudo -u ugagent python3 -m http.server 8765 --bind ::1 --directory /var/empty` as the listener, `curl -m 3 'http://[::1]:8765/'` printed `Failed to connect to ::1 port 8765 after 0 ms: Couldn't connect to server`, and `sudo pfctl -a com.apple/underground -vsr` printed `block return in quick proto tcp from any to any port = 8765 user = 502` with `Packets: 1`. The owner did not paste the listener's own output; the packet count shows that the packet reached a socket of user 502 [inference].
 
 ## Decision
 
@@ -43,7 +45,7 @@ Neither line cripples the agent: the agent has no use for port 8765, and omp's o
 
 ## Not covered
 
-- The probe on the real port has not run. After the owner's setup: a pinned session must fail to listen on `[::1]:8765`, and a listener on that address started outside the pin must refuse a connection.
+- Not run: that the auth gateway sends the broker bearer to whoever listens on the port (Context, harm 1). Both lines stop the listener, so the claim stays an inference.
 - The firewall line alone has gaps: at boot it can load after the clone refresh starts, and if another program flushes the anchor or turns pf off, the line is gone for up to 30 s. The pin line closes both while the agent stays in the pin.
 - `sandbox-exec` applies the profile when a process starts. An agent process that runs when setup installs the new pin keeps the old one and can still bind port 8765 until it exits; omp's daemon brokers outlive sessions and keep their old rules (`0004-no-local-binding.md`, amendment "daemon brokers after a rules change"). Until then only the firewall line covers them. The owner ends every process of `ugagent` after the setup that installs this, or restarts the mac.
 - A fake listener on the usage broker's port or on the gateway's port gets nothing that the agent lacks: sessions send it the gateway bearer, which the agent can read (`0018-login-user.md`, decision 5) [inference].
