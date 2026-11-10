@@ -356,7 +356,7 @@ function prCreate(): Promise<Reply> {
 
 async function setUp(github: GithubTokens): Promise<void> {
   config = {
-    ...defaultConfig(),
+    ...defaultConfig("/unused/gh"),
     socketPath: join(root, "run", "gh-broker.sock"),
     reposRoot: join(root, "bare"),
     reviewsDir: join(root, "reviews"),

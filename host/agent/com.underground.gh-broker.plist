@@ -4,23 +4,32 @@
 <dict>
   <key>Label</key>
   <string>com.underground.gh-broker</string>
+  <key>UserName</key>
+  <string>@GH_BROKER_USER@</string>
   <key>ProgramArguments</key>
   <array>
-    <string>@NODE@</string>
-    <string>@DATA@/services/host/gh-broker/server.ts</string>
+    <string>@OMP@</string>
+    <string>@ROOT@/code/gh-broker/server.ts</string>
+    <string>@GH@</string>
   </array>
+  <key>WorkingDirectory</key>
+  <string>@GH_BROKER_HOME@</string>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
   <true/>
   <key>StandardOutPath</key>
-  <string>@DATA@/gh-broker/gh-broker.log</string>
+  <string>@GH_BROKER_HOME@/logs/gh-broker.log</string>
   <key>StandardErrorPath</key>
-  <string>@DATA@/gh-broker/gh-broker.log</string>
+  <string>@GH_BROKER_HOME@/logs/gh-broker.log</string>
   <key>EnvironmentVariables</key>
   <dict>
+    <key>HOME</key>
+    <string>@GH_BROKER_HOME@</string>
     <key>PATH</key>
-    <string>/opt/homebrew/bin:/usr/bin:/bin</string>
+    <string>/usr/bin:/bin</string>
+    <key>BUN_BE_BUN</key>
+    <string>1</string>
   </dict>
   <key>SoftResourceLimits</key>
   <dict>

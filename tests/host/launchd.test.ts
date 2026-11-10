@@ -11,7 +11,7 @@ const DIR = join(import.meta.dirname, "../../host/launchd");
 const LIB = join(import.meta.dirname, "../../host/lib/ug.bash");
 const AGENT_DIR = join(import.meta.dirname, "../../host/agent");
 const FILLED = new Set(["@DATA@", ...(await factTokens())]);
-const DAEMON_FILLED = new Set(["@OMP@", "@GATEWAY@", "@ENGINE@", ...(await factTokens())]);
+const DAEMON_FILLED = new Set(["@OMP@", "@GH@", "@GATEWAY@", "@ENGINE@", ...(await factTokens())]);
 const ROWS = await services();
 const DAEMONS = ROWS.filter((row) => row.user === "auth_user").map((row) => row.label);
 
@@ -46,11 +46,52 @@ test("every owner launchd template uses only the placeholders that setup fills, 
   }
 });
 
-test("the gh-broker, the backup, and the watch run setup's copy as the owner, never the checkout", async () => {
+test("the backup and the watch run setup's copy as the owner, never the checkout", async () => {
   const args = async (label: string) => programArguments(await readFile(join(DIR, `${label}.plist`), "utf8"));
-  assert.deepEqual(await args("com.underground.gh-broker"), ["@NODE@", "@DATA@/services/host/gh-broker/server.ts"]);
   assert.deepEqual(await args("com.underground.backup"), ["/bin/bash", "@DATA@/services/host/bin/ug-backup"]);
   assert.deepEqual(await args("com.underground.watch"), ["/bin/bash", "@DATA@/services/host/bin/ug-watch"]);
+});
+
+test("the gh-broker runs as its own user from root-owned code, on the pinned omp and the pinned gh, with nothing of the owner's", async () => {
+  const text = await readFile(join(AGENT_DIR, "com.underground.gh-broker.plist"), "utf8");
+  assert.deepEqual(programArguments(text), ["@OMP@", "@ROOT@/code/gh-broker/server.ts", "@GH@"]);
+  assert.match(text, /<key>UserName<\/key>\s*<string>@GH_BROKER_USER@<\/string>/);
+  assert.match(text, /<key>HOME<\/key>\s*<string>@GH_BROKER_HOME@<\/string>/);
+  assert.match(text, /<key>PATH<\/key>\s*<string>\/usr\/bin:\/bin<\/string>/);
+  assert.doesNotMatch(text, /\/Users\/|@HOME@|@DATA@|@NODE@|\/opt\/homebrew/);
+  for (const placeholder of text.match(/@[A-Z_]+@/g) ?? []) assert.ok(DAEMON_FILLED.has(placeholder), placeholder);
+  const row = ROWS.find((r) => r.label === "com.underground.gh-broker");
+  assert.deepEqual([row?.scope, row?.user], ["daemon", "gh_broker_user"]);
+});
+
+test("a job that runs as the owner or root and reads what the agent makes names a threat row that covers it", async () => {
+  const threats = await readFile(join(import.meta.dirname, "../../docs/THREAT-MODEL.md"), "utf8");
+  for (const row of ROWS) {
+    const [kind, id] = row.agentInput.split(" ");
+    assert.ok(["none", "socket", "port", "files"].includes(kind), `${row.label}: ${row.agentInput}`);
+    if ((row.user === "owner" || row.user === "root") && kind !== "none") {
+      assert.match(id ?? "", /^U\d+$/, `${row.label} runs as ${row.user} and reads ${kind} of the agent`);
+      const line = threats.split("\n").find((l) => l.startsWith(`|${id}|`));
+      assert.ok(line?.includes(row.label), `${row.label}: threat row ${id} must exist and name the job`);
+    }
+  }
+});
+
+test("setup refuses a job of the owner or root that reads agent input without a threat row, and lets a job of its own user read it", () => {
+  const allowed = (user: string, input: string) =>
+    spawnSync("bash", ["-c", `source ${LIB}; ug_service_allowed com.underground.x "$1" "$2"`, "_", user, input], { encoding: "utf8" });
+  for (const [user, input, status] of [
+    ["owner", "socket", 1],
+    ["root", "port", 1],
+    ["owner", "none", 0],
+    ["owner", "files U40", 0],
+    ["gh_broker_user", "socket", 0],
+    ["gh_broker_user", "everything", 1],
+    ["auth_user", "", 1],
+  ] as const) {
+    assert.equal(allowed(user, input).status, status, `${user} ${input}`);
+  }
+  assert.match(allowed("owner", "socket").stdout, /runs as owner and reads socket that the agent makes/);
 });
 
 test("the login services run as the login user from root-owned code, with no profile or config dir that the owner's omp could share", async () => {

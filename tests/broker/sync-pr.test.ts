@@ -97,7 +97,7 @@ async function client(cwd: string, env: Record<string, string>, ...args: string[
 beforeEach(async () => {
   root = await tempDir(join(process.env.XDG_STATE_HOME ?? tmpdir(), "ug-b2b-"));
   config = {
-    ...defaultConfig(),
+    ...defaultConfig("/unused/gh"),
     socketPath: join(root, "run", "gh-broker.sock"),
     reposRoot: join(root, "bare"),
     reviewsDir: join(root, "reviews"),

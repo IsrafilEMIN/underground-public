@@ -47,7 +47,7 @@ async function github(runs: Record<string, unknown>[], deployments: unknown[] = 
 beforeEach(async () => {
   root = await tempDir(join(tmpdir(), "ug-b14-"));
   config = {
-    ...defaultConfig(),
+    ...defaultConfig("/unused/gh"),
     socketPath: join(root, "run", "gh-broker.sock"),
     reposRoot: join(root, "bare"),
     reviewsDir: join(root, "reviews"),

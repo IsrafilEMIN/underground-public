@@ -164,17 +164,17 @@ ask KEY_DOWNLOAD "Path of the downloaded key (Enter takes the newest download):"
 mkdir -p "$CONFIG_DIR"
 chmod 700 "$CONFIG_DIR"
 if [[ -e $APP_PEM ]]; then
-  confirm "$APP_PEM exists. Replace it?" || { warn "stopped; the old key stays"; exit 1; }
+  confirm "$APP_PEM waits for setup to move it. Replace it?" || { warn "stopped; the waiting key stays"; exit 1; }
 fi
 (umask 077 && cp "$KEY_DOWNLOAD" "$APP_PEM.tmp")
 chmod 600 "$APP_PEM.tmp"
 mv -f "$APP_PEM.tmp" "$APP_PEM"
-printf '  %s✓ wrote%s the private key → %s (mode 600)\n' "$GREEN" "$RESET" "$APP_PEM"
+printf '  %s✓ wrote%s the private key → %s (mode 600); setup moves it into %s, which you cannot read\n' "$GREEN" "$RESET" "$APP_PEM" "$(ug_fact gh_broker_home)"
 if confirm "Move the downloaded copy $KEY_DOWNLOAD to the Trash?"; then
   mv -- "$KEY_DOWNLOAD" "$HOME/.Trash/"
   SKIPPED+=("Empty the Trash: it holds a copy of the app private key")
 else
-  SKIPPED+=("Delete the downloaded key $KEY_DOWNLOAD; the gh-broker reads only $APP_PEM")
+  SKIPPED+=("Delete the downloaded key $KEY_DOWNLOAD; the gh-broker reads only its own copy")
 fi
 
 stage "Install the app on the repos that agents work in"
@@ -204,7 +204,7 @@ confirm "Run setup now?" || { SKIPPED+=("Run: $SCRIPT_CHECKOUT/host/bin/ug-setup
 "$SCRIPT_CHECKOUT/host/bin/ug-setup"
 GH_BROKER_SOCKET=$(ug_fact root)/$(ug_fact gh_broker_socket)
 if [[ ! -S $GH_BROKER_SOCKET ]]; then
-  SKIPPED+=("The gh-broker socket $GH_BROKER_SOCKET is missing; check the launchd job com.underground.gh-broker, then type omp in $CHECKOUT")
+  SKIPPED+=("The gh-broker socket $GH_BROKER_SOCKET is missing; check it with: sudo launchctl print system/com.underground.gh-broker, and read: sudo cat $(ug_fact gh_broker_home)/logs/gh-broker.log; then type omp in $CHECKOUT")
   finish
   exit 1
 fi

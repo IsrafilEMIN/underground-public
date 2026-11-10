@@ -10,6 +10,8 @@ src=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)
 # shellcheck source=host/lib/ug.bash disable=SC1091
 source "$src/host/lib/ug.bash"
 data=$HOME/$(ug_fact owner_data)
+broker_status=${UG_GH_BROKER_STATUS:-$(ug_fact root)/$(ug_fact gh_broker_status)}
+broker_log=$(ug_service_expand "$(ug_service_field gh-broker log)")
 watch=$data/watch
 status=$watch/status
 ping_file=$watch/ping
@@ -29,20 +31,25 @@ job_problem() {
 }
 
 problems() {
-  local now at failed label name scope user template health log inputs url target shown
+  local now at failed label name scope user template health log inputs agent_input url target shown want
   now=$(date +%s)
-  at=$(record_value "$data/gh-broker/status" at)
+  at=$(record_value "$broker_status" at)
   if [[ ! $at =~ ^[0-9]+$ ]] || (( now - 10#$at > broker_stale )); then
-    printf 'gh-broker: its refresh loop wrote no status in the last %s s; see %s\n' "$broker_stale" "$data/gh-broker/gh-broker.log"
+    printf 'gh-broker: its refresh loop wrote no status in the last %s s; see sudo cat %s\n' "$broker_stale" "$broker_log"
   else
-    failed=$(record_value "$data/gh-broker/status" failed)
-    [[ -z $failed ]] || printf 'gh-broker: the last refresh failed for %s; see %s\n' "$failed" "$data/gh-broker/gh-broker.log"
+    failed=$(record_value "$broker_status" failed)
+    [[ -z $failed ]] || printf 'gh-broker: the last refresh failed for %s; see sudo cat %s\n' "$failed" "$broker_log"
   fi
   at=$(cat "$data/backup/last" 2>/dev/null)
   if [[ ! $at =~ ^[0-9]+$ ]] || (( now - 10#$at > backup_stale )); then
     printf 'backup: no good backup in the last 36 hours; see %s\n' "$data/backup/backup.log"
   fi
-  while IFS='|' read -r label name scope user template health log inputs; do
+  while IFS='|' read -r label name scope user template health log inputs agent_input; do
+    if [[ $scope == daemon ]]; then
+      want=root
+      [[ $user == root ]] || want=$(ug_fact "$user")
+      ug_service_runs_as "$label" "$want" >/dev/null || printf '%s: launchd does not run it as %s\n' "$name" "$want"
+    fi
     case ${health%% *} in
       http)
         if [[ $health == *@GATEWAY@* && -z $(record_value "$data/addresses" gateway) ]]; then
