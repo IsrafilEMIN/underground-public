@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { chmod, cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -73,6 +74,68 @@ test("ug-auth key hands the pasted key to the login user's broker upload through
   assert.match(r.stdout, new RegExp(`^OMP_KEY ${key} http://127.0.0.1:8765$`, "m"));
   assert.doesNotMatch(r.stderr, new RegExp(key), "the key must not be in any argument");
   for (const bad of [["key"], ["key", "anthropic"], ["key", "ANTHROPIC_API_KEY", "x"]]) assert.equal(run(home, ...bad).status, 64, bad.join(" "));
+});
+
+test("ug-auth list shows each credential with its key redacted, and revoke turns off one id through the broker", async (t) => {
+  const home = await fakeHome();
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const key = "sk-ant-api03-0123456789abcdefghijklmnopqrstuvwxyz0123456789ABCD";
+  const bearer = "broker-bearer-0123456789";
+  const credentials = [
+    { id: 3, provider: "anthropic", credential: { type: "oauth", refresh: "x", access: "oauth-access-secret", expires: 1, email: "owner@example.com" }, identityKey: "email:owner@example.com", rotatesInMs: null },
+    { id: 7, provider: "anthropic", credential: { type: "api_key", key }, identityKey: null, rotatesInMs: null },
+  ];
+  const seen: string[] = [];
+  const server = createServer((req, res) => {
+    let body = "";
+    req.on("data", (chunk) => (body += chunk));
+    req.on("end", () => {
+      seen.push(`${req.method} ${req.url} ${req.headers.authorization} ${body}`);
+      const known = req.url === "/v1/snapshot" || req.url === "/v1/credential/7/disable";
+      res.writeHead(known ? 200 : 404, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(req.url === "/v1/snapshot" ? { generation: 1, credentials } : { ok: known }));
+    });
+  });
+  const listening = Promise.withResolvers<void>();
+  server.listen(0, "127.0.0.1", listening.resolve);
+  await listening.promise;
+  t.after(() => server.close());
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+  await mkdir(join(home, "ugauth/.omp"), { recursive: true });
+  await writeFile(join(home, "ugauth/.omp/auth-broker.token"), `${bearer}\n`);
+  await writeFile(
+    join(home, "fakebin/sudo"),
+    `#!/bin/sh\necho "SUDO_ARGS $*" >&2\nshift 3\nfor a; do case $a in HOME=*) a=HOME=${join(home, "ugauth")} ;; OMP_AUTH_BROKER_URL=*) a=OMP_AUTH_BROKER_URL=http://127.0.0.1:${address.port} ;; esac; set -- "$@" "$a"; shift; done\nexec "$@"\n`,
+  );
+  const ugAuth = (...args: string[]) => {
+    const { promise, resolve } = Promise.withResolvers<{ status: number | null; stdout: string; stderr: string }>();
+    const child = spawn(join(home, ".local/bin/ug-auth"), args, { env: { HOME: home, PATH: `${join(home, "fakebin")}:/usr/bin:/bin` } });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => (stdout += chunk));
+    child.stderr.on("data", (chunk) => (stderr += chunk));
+    child.on("close", (status) => resolve({ status, stdout, stderr }));
+    return promise;
+  };
+
+  const list = await ugAuth("list");
+  assert.equal(list.status, 0, list.stderr);
+  assert.deepEqual(list.stdout.trim().split("\n").slice(1), ["3\tanthropic\toauth\towner@example.com", "7\tanthropic\tapi_key\tsk-ant-api03...ABCD"]);
+
+  const revoke = await ugAuth("revoke", "7");
+  assert.equal(revoke.status, 0, revoke.stderr);
+  assert.match(revoke.stdout, /^7\tanthropic\tapi_key\tsk-ant-api03\.\.\.ABCD$/m);
+  assert.deepEqual(seen.filter((line) => line.startsWith("POST")), [`POST /v1/credential/7/disable Bearer ${bearer} {"cause":"logged out by user"}`]);
+
+  const missing = await ugAuth("revoke", "9");
+  assert.equal(missing.status, 1, missing.stdout);
+  assert.equal(seen.filter((line) => line.startsWith("POST")).length, 1, "an unknown id must not reach the disable route");
+
+  for (const r of [list, revoke, missing]) {
+    for (const secret of [key, bearer, "oauth-access-secret"]) assert.ok(!`${r.stdout}${r.stderr}`.includes(secret), `${secret} was printed or passed as an argument`);
+  }
+  for (const bad of [["list", "x"], ["revoke"], ["revoke", "7x"], ["revoke", "7", "8"]]) assert.equal(run(home, ...bad).status, 64, bad.join(" "));
 });
 
 test("ug-auth refuses anything that is not an auth command, so it never starts a session with every login", async (t) => {

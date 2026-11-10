@@ -2,13 +2,15 @@
 set -euo pipefail
 
 usage() {
-  printf 'usage: ug-auth auth-broker|auth-gateway <args>\n       ug-auth key <NAME>_API_KEY\n' >&2
+  printf 'usage: ug-auth auth-broker|auth-gateway <args>\n       ug-auth key <NAME>_API_KEY\n       ug-auth list\n       ug-auth revoke <id>\n' >&2
   exit 64
 }
 
 case ${1:-} in
   auth-broker | auth-gateway) ;;
   key) [[ $# -eq 2 && $2 =~ ^[A-Z][A-Z0-9_]*_API_KEY$ ]] || usage ;;
+  list) [[ $# -eq 1 ]] || usage ;;
+  revoke) [[ $# -eq 2 && $2 =~ ^[0-9]+$ ]] || usage ;;
   *) usage ;;
 esac
 
@@ -26,7 +28,34 @@ omp="${UG_ROOT:-/Library/Underground}/omp/$pin/omp"
 broker=()
 [[ $1 != auth-gateway ]] || broker=(OMP_AUTH_BROKER_URL=http://127.0.0.1:8765)
 
+read -r -d '' credentials <<'EOF' || true
+set -eu
+t=$(tr -d '[:space:]' <"$HOME/.omp/auth-broker.token")
+call() { printf 'header = "Authorization: Bearer %s"\n' "$t" | curl -K - -fsS --max-time 10 "$@"; }
+snap=$(call "$OMP_AUTH_BROKER_URL/v1/snapshot") || { echo "ug-auth: the auth broker did not answer at $OMP_AUTH_BROKER_URL" >&2; exit 1; }
+rows=$(printf '%s' "$snap" | jq -r --arg id "${UG_ID-}" '
+  def redact: length as $n | ([12, ($n / 4 | floor)] | min) as $h | ([4, ($n / 8 | floor)] | min) as $t
+    | .[:$h] + "..." + (if $t > 0 then .[-$t:] else "" end);
+  .credentials[] | select($id == "" or (.id | tostring) == $id)
+  | [.id, .provider, .credential.type,
+     (if .credential.type == "api_key" then (.credential.key | redact) else (.credential.email // .identityKey // "-") end)]
+  | @tsv')
+if [ -z "${UG_ID-}" ]; then
+  printf 'id\tprovider\ttype\taccount or key\n'
+  [ -z "$rows" ] || printf '%s\n' "$rows"
+  exit 0
+fi
+[ -n "$rows" ] || { echo "ug-auth: no active credential has id $UG_ID; see: ug-auth list" >&2; exit 1; }
+call -X POST -H 'Content-Type: application/json' -d '{"cause":"logged out by user"}' "$OMP_AUTH_BROKER_URL/v1/credential/$UG_ID/disable" >/dev/null ||
+  { echo "ug-auth: the auth broker did not turn off credential $UG_ID" >&2; exit 1; }
+printf 'turned off in the auth broker:\n%s\n' "$rows"
+echo 'the secret is still valid at the provider; revoke it there to make it useless'
+EOF
+
 cd /
+if [[ $1 == list || $1 == revoke ]]; then
+  exec sudo -u ugauth -H /usr/bin/env -i HOME=/Users/ugauth PATH=/usr/bin:/bin OMP_AUTH_BROKER_URL=http://127.0.0.1:8765 ${2:+"UG_ID=$2"} /bin/sh -c "$credentials"
+fi
 if [[ $1 == key ]]; then
   exec sudo -u ugauth -H /usr/bin/env -i HOME=/Users/ugauth PATH=/usr/bin:/bin OMP_AUTH_BROKER_URL=http://127.0.0.1:8765 UG_KEY_NAME="$2" \
     /bin/sh -c 'printf "paste %s, then enter (not shown): " "$UG_KEY_NAME" >&2
