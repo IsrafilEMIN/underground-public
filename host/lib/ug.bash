@@ -224,7 +224,8 @@ def rule(t): [.rules[]? | select(.type == t)][0];
   (if rule("non_fast_forward") then empty else "it does not block force pushes" end),
   (if rule("deletion") then empty else "it does not restrict deletions" end),
   ((rule("required_status_checks").parameters.required_status_checks // []) as $checks
-    | if ($checks | length) > 0 and ($checks | all(.integration_id == 15368)) then empty else "it requires no status check from GitHub Actions" end),
+    | (("checks", "tests") as $job | if ($checks | any(.context == $job and .integration_id == 15368)) then empty else "it does not require the check \($job) from GitHub Actions" end),
+      (if ($checks | all(.integration_id == 15368)) then empty else "it requires a status check from an app other than GitHub Actions" end)),
   (if .bypass_actors == null then "its bypass list is not readable with your login"
     else (.bypass_actors[] | select(((.actor_type == "RepositoryRole" and .actor_id == 5) or .actor_type == "OrganizationAdmin") | not) | "its bypass list holds \(.actor_type) \(.actor_id)") end)
 ] | join("; ")
