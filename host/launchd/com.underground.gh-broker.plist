@@ -6,7 +6,7 @@
   <string>com.underground.gh-broker</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/opt/homebrew/bin/node</string>
+    <string>@NODE@</string>
     <string>@DATA@/services/host/gh-broker/server.ts</string>
   </array>
   <key>RunAtLoad</key>

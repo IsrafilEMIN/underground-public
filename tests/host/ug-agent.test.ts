@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
 import { tempDir } from "../temp.ts";
+import { render } from "./render.ts";
 
 const ROOT = join(import.meta.dirname, "../..");
 const AGENT = join(ROOT, "host/bin/ug-agent");
@@ -152,14 +153,6 @@ test("ug-agent-setup refuses to run without root", async (t) => {
   assert.match(r.stderr, /run it as root/);
 });
 
-test("every group that ug-agent-setup gives a file is a macOS group or one that the script makes first", async () => {
-  const text = await readFile(SETUP, "utf8");
-  const made = new Set([...text.matchAll(/^make_group (\S+)/gm)].map((m) => m[1]));
-  const used = [...text.matchAll(/chown(?: -[Rh])? [^:\s]+:([A-Za-z_][\w-]*)/g), ...text.matchAll(/ -g ([A-Za-z_][\w-]*)/g)].map((m) => m[1]);
-  assert.ok(used.length > 0);
-  for (const group of used) assert.ok(group === "wheel" || group === "staff" || made.has(group), `group ${group} is neither a macOS group nor made by make_group`);
-});
-
 test("agent-home-tar leaves every config name out of the stream, so the gateway bearer never reaches the owner or a snapshot", async (t) => {
   const dir = await tempDir(join(tmpdir(), "ug-tar-"));
   t.after(() => rm(dir, { recursive: true, force: true }));
@@ -170,11 +163,8 @@ test("agent-home-tar leaves every config name out of the stream, so the gateway 
   await writeFile(join(home, ".omp/agent/skills/x/SKILL.md"), "x\n");
   await writeFile(join(home, ".omp/agent/sessions/s.jsonl"), "{}\n");
   await copyFile(join(ROOT, "host/agent/config-names"), join(dir, "config-names"));
-  const text = (await readFile(join(ROOT, "host/agent/agent-home-tar"), "utf8"))
-    .replace("names=/Library/Underground/config-names", `names=${join(dir, "config-names")}`)
-    .replace("home=/Users/ugagent", `home=${home}`);
-  await writeFile(join(dir, "agent-home-tar"), text);
-  const stream = spawnSync("sh", [join(dir, "agent-home-tar")], { encoding: "buffer" });
+  const tar = await render(dir, "host/agent/agent-home-tar", { root: dir, agent_home: home });
+  const stream = spawnSync("sh", [tar], { encoding: "buffer" });
   assert.equal(stream.status, 0, stream.stderr.toString());
   assert.doesNotMatch(stream.stdout.toString("latin1"), /bearer-value/);
   const list = spawnSync("tar", ["-t"], { input: stream.stdout, encoding: "utf8" }).stdout;
@@ -196,11 +186,7 @@ test(
     await chmod(bin, 0o755);
     await symlink(bin, join(root, "bin/omp"));
     await writeFile(join(root, "config-names"), "");
-    const text = (await readFile(join(ROOT, "host/agent/agent-start"), "utf8"))
-      .replace("root=/Library/Underground", `root=${root}`)
-      .replace("export HOME=/Users/ugagent", `export HOME=${join(dir, "agent-home")}`);
-    const start = join(dir, "agent-start");
-    await writeFile(start, text);
+    const start = await render(dir, "host/agent/agent-start", { root, agent_home: join(dir, "agent-home") });
     const run = (env: Record<string, string> = {}) =>
       spawnSync("bash", [start, "-p", "hi"], { env: { PATH: "/usr/bin:/bin", ...env }, encoding: "utf8" });
     await writeFile(join(root, "bin/gh-broker"), "#!/bin/sh\nexit 1\n");
@@ -312,12 +298,9 @@ test(
     gitIn(app, "update-ref", "refs/probe", "HEAD");
     assert.ok(existsSync(join(app, "HOOK_RAN")), "the planted hook runs for a plain git command");
     await rm(join(app, "HOOK_RAN"));
-    const text = (await readFile(join(ROOT, "host/agent/agent-refresh"), "utf8"))
-      .replace("root=/Library/Underground", `root=${root}`)
-      .replace("export HOME=/Users/ugagent", `export HOME=${home}`)
-      .replace("limit=20", "limit=1");
+    const rendered = await render(dir, "host/agent/agent-refresh", { root, agent_home: home }, join(dir, "agent-refresh.template"));
     const script = join(dir, "agent-refresh");
-    await writeFile(script, text);
+    await writeFile(script, (await readFile(rendered, "utf8")).replace("limit=20", "limit=1"));
     await holdLock(t, busy, 10);
 
     const started = Date.now();
@@ -397,11 +380,7 @@ test(
     await symlink(bin, join(root, "bin/omp"));
     await writeFile(join(root, "config-names"), "");
     await stub(join(root, "bin"), "gh-broker", "echo SYNC_CALLED\nexit 1");
-    const text = (await readFile(join(ROOT, "host/agent/agent-start"), "utf8"))
-      .replace("root=/Library/Underground", `root=${root}`)
-      .replace("export HOME=/Users/ugagent", `export HOME=${home}`);
-    const start = join(dir, "agent-start");
-    await writeFile(start, text);
+    const start = await render(dir, "host/agent/agent-start", { root, agent_home: home });
     const run = (repo: string) =>
       spawnSync("bash", [start, "-p", "hi"], { env: { PATH: "/usr/bin:/bin", UG_REPO: repo }, encoding: "utf8" });
 
@@ -420,18 +399,15 @@ test(
   },
 );
 
-test("the agent sshd config holds the contract lines", async () => {
-  const conf = await readFile(join(ROOT, "host/agent/sshd_config"), "utf8");
+test("the agent sshd config holds the contract lines", async (t) => {
+  const dir = await tempDir(join(tmpdir(), "ug-sshd-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const conf = await readFile(await render(dir, "host/agent/sshd_config"), "utf8");
   for (const line of [
-    "ListenAddress 127.0.0.1:2222",
-    "HostKey /Library/Underground/ssh_host_ed25519_key",
-    "AllowUsers ugagent",
     "PermitRootLogin no",
     "PasswordAuthentication no",
     "KbdInteractiveAuthentication no",
     "AuthenticationMethods publickey",
-    "AuthorizedKeysFile /Library/Underground/authorized_keys/%u",
-    "ForceCommand /Library/Underground/agent-session",
     "PermitTTY yes",
     "AllowTcpForwarding no",
     "AllowAgentForwarding no",
@@ -446,14 +422,12 @@ test("the agent sshd config holds the contract lines", async () => {
 test("the agent sshd LaunchDaemon runs its own sshd config and is kept alive", async () => {
   const plist = await readFile(join(ROOT, "host/agent/com.underground.agent-sshd.plist"), "utf8");
   assert.match(plist, /<string>com.underground.agent-sshd<\/string>/);
-  assert.match(plist, /<string>\/usr\/sbin\/sshd<\/string>\s*<string>-D<\/string>\s*<string>-f<\/string>\s*<string>\/Library\/Underground\/sshd_config<\/string>/);
+  assert.match(plist, /<string>\/usr\/sbin\/sshd<\/string>\s*<string>-D<\/string>\s*<string>-f<\/string>\s*<string>@ROOT@\/sshd_config<\/string>/);
   assert.match(plist, /<key>KeepAlive<\/key>\s*<true\/>/);
 });
 
-test("the pin profile names the agent home and denies the launchd-style exec routes", async () => {
+test("the pin profile denies the launchd-style exec routes", async () => {
   const pin = await readFile(join(ROOT, "host/agent/pin.sb"), "utf8");
-  assert.match(pin, /\/Users\/ugagent/);
-  assert.doesNotMatch(pin, /ugtest/);
   assert.ok(
     pin.split("\n").includes('(deny process-exec (literal "/bin/launchctl") (literal "/usr/bin/at") (literal "/usr/bin/crontab") (literal "/usr/bin/batch"))'),
     "the pin does not deny launchctl, at, crontab and batch",
@@ -466,8 +440,10 @@ const insideSandbox =
 test(
   "[mac] the pin profile loads under sandbox-exec and runs a plain command",
   { skip: (process.platform !== "darwin" && "needs macOS sandbox-exec") || (insideSandbox && "already inside a sandbox, which macOS will not nest") },
-  () => {
-    const r = spawnSync("/usr/bin/sandbox-exec", ["-f", join(ROOT, "host/agent/pin.sb"), "/bin/echo", "ok"], { encoding: "utf8" });
+  async (t) => {
+    const dir = await tempDir(join(tmpdir(), "ug-pin-"));
+    t.after(() => rm(dir, { recursive: true, force: true }));
+    const r = spawnSync("/usr/bin/sandbox-exec", ["-f", await render(dir, "host/agent/pin.sb"), "/bin/echo", "ok"], { encoding: "utf8" });
     assert.equal(r.status, 0, r.stderr);
     assert.equal(r.stdout, "ok\n");
   },

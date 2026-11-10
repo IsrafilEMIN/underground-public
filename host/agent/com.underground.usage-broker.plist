@@ -5,26 +5,26 @@
   <key>Label</key>
   <string>com.underground.usage-broker</string>
   <key>UserName</key>
-  <string>ugauth</string>
+  <string>@AUTH_USER@</string>
   <key>ProgramArguments</key>
   <array>
     <string>@OMP@</string>
-    <string>/Library/Underground/usage-broker/usage-broker.ts</string>
+    <string>@ROOT@/usage-broker/usage-broker.ts</string>
   </array>
   <key>WorkingDirectory</key>
-  <string>/Users/ugauth</string>
+  <string>@AUTH_HOME@</string>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
   <true/>
   <key>StandardOutPath</key>
-  <string>/Users/ugauth/logs/usage-broker.log</string>
+  <string>@AUTH_HOME@/logs/usage-broker.log</string>
   <key>StandardErrorPath</key>
-  <string>/Users/ugauth/logs/usage-broker.log</string>
+  <string>@AUTH_HOME@/logs/usage-broker.log</string>
   <key>EnvironmentVariables</key>
   <dict>
     <key>HOME</key>
-    <string>/Users/ugauth</string>
+    <string>@AUTH_HOME@</string>
     <key>PATH</key>
     <string>/usr/bin:/bin</string>
     <key>BUN_BE_BUN</key>

@@ -2,10 +2,10 @@
 set -eo pipefail
 
 TMPDIR=$(getconf DARWIN_USER_TEMP_DIR)
-export HOME=/Users/ugagent TMPDIR PATH=/Library/Underground/bin:/usr/bin:/bin:/usr/sbin:/sbin
-export OMP_AUTH_BROKER_URL=http://127.0.0.1:18765 OMP_AUTH_BROKER_TOKEN=usage-only
+export HOME=@AGENT_HOME@ TMPDIR PATH=@ROOT@/bin:/usr/bin:/bin:/usr/sbin:/sbin
+export OMP_AUTH_BROKER_URL=http://127.0.0.1:@USAGE_BROKER_PORT@ OMP_AUTH_BROKER_TOKEN=usage-only
 
-root=/Library/Underground
+root=@ROOT@
 agent=$HOME/.omp/agent
 
 die() {

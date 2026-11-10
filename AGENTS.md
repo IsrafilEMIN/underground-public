@@ -58,7 +58,7 @@ On underground itself, GitHub refuses every merge to `main` without the owner's 
 
 ## Evidence
 
-Mark each claim in a doc, a commit message, a PR body, or a review reason with a source: `file:line`, command output, or a doc URL with the read date. Otherwise mark it `[inference]`. In a chat reply, name a source only for a claim the owner may want to check, and say plainly when a claim is a guess.
+Mark each claim in a doc, a commit message, a PR body, or a review reason with a source: a file of this repo with the name that holds the fact (`` (`ug_trusted_daemon`, `host/lib/ug.bash`) ``; for a doc, its section), command output, or a doc URL with the read date. Do not cite a line number of a file in this repo: a name survives an edit, and a line number does not. A file outside this repo keeps its line, with its version or read date. `scripts/check-doc-citations.mjs` checks the docs: no line of a repo file, and each `` `name`, `file` `` pair names a word that is in the file. Otherwise mark the claim `[inference]`. In a chat reply, name a source only for a claim the owner may want to check, and say plainly when a claim is a guess.
 
 Give host commands one per line, without `#` comments.
 

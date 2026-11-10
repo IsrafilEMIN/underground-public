@@ -5,16 +5,16 @@
   <key>Label</key>
   <string>com.underground.agent-refresh</string>
   <key>UserName</key>
-  <string>ugagent</string>
+  <string>@AGENT_USER@</string>
   <key>ProgramArguments</key>
   <array>
     <string>/usr/bin/sandbox-exec</string>
     <string>-f</string>
-    <string>/Library/Underground/pin.sb</string>
-    <string>/Library/Underground/agent-refresh</string>
+    <string>@ROOT@/pin.sb</string>
+    <string>@ROOT@/agent-refresh</string>
   </array>
   <key>WorkingDirectory</key>
-  <string>/Users/ugagent</string>
+  <string>@AGENT_HOME@</string>
   <key>StartInterval</key>
   <integer>30</integer>
   <key>RunAtLoad</key>

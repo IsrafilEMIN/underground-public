@@ -13,6 +13,7 @@ async function copyAt(root: string): Promise<string> {
   await mkdir(join(root, "host/lib"), { recursive: true });
   await copyFile(SETUP, join(root, "host/bin/ug-setup"));
   await copyFile(join(import.meta.dirname, "../../host/lib/ug.bash"), join(root, "host/lib/ug.bash"));
+  await copyFile(join(import.meta.dirname, "../../host/facts"), join(root, "host/facts"));
   return join(root, "host/bin/ug-setup");
 }
 

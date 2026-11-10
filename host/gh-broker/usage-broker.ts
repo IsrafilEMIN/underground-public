@@ -4,9 +4,9 @@ import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { parseAddresses } from "./addresses.ts";
+import { readHostFacts } from "./facts.ts";
 
 export const USAGE_BROKER_HOST = "127.0.0.1";
-export const USAGE_BROKER_PORT = 18765;
 const GENERATION = 1;
 const ETAG = `"${GENERATION}"`;
 const MAX_WAIT_MS = 60_000;
@@ -22,7 +22,7 @@ export type UsageReply = { status: number; etag?: string; body?: string };
 
 export function defaultConfig(): UsageBrokerConfig {
   return {
-    addressesFile: "/Library/Underground/addresses",
+    addressesFile: join(readHostFacts().root, "addresses"),
     gatewayTokenFile: join(homedir(), ".omp/auth-gateway.token"),
     fetchImpl: fetch,
   };
@@ -89,7 +89,8 @@ export function createUsageBroker(config: UsageBrokerConfig): Server {
 }
 
 if (import.meta.main) {
-  createUsageBroker(defaultConfig()).listen(USAGE_BROKER_PORT, USAGE_BROKER_HOST, () => {
-    process.stdout.write(`usage-broker: listening on ${USAGE_BROKER_HOST}:${USAGE_BROKER_PORT}\n`);
+  const port = readHostFacts().usageBrokerPort;
+  createUsageBroker(defaultConfig()).listen(port, USAGE_BROKER_HOST, () => {
+    process.stdout.write(`usage-broker: listening on ${USAGE_BROKER_HOST}:${port}\n`);
   });
 }

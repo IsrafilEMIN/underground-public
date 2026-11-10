@@ -22,10 +22,10 @@ const INSTALLATION_TOKEN_TEXT = /ghs_[A-Za-z0-9_.-]+/g;
 const BASIC_USER = "x-access-token:";
 const BASIC_TEXT = new RegExp(`${Buffer.from(BASIC_USER).toString("base64")}[A-Za-z0-9+/=]+`, "g");
 
-export function appFiles(home: string): AppFiles {
+export function appFiles(dataDir: string): AppFiles {
   return {
-    configFile: join(home, ".local/share/underground/github-app.json"),
-    keyFile: join(home, ".local/share/underground/github-app.pem"),
+    configFile: join(dataDir, "github-app.json"),
+    keyFile: join(dataDir, "github-app.pem"),
   };
 }
 

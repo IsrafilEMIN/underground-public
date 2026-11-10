@@ -4,7 +4,7 @@ Date: 2026-11-02. Owner decision. Supersedes `0002-role-homes.md`, `0009-one-omp
 
 ## Context
 
-The first design drew the line between the agent and the owner as a list of paths inside the owner's home. omp assumes that it owns its home, so each normal omp action crossed that line, and each crossing needed a patch: the split omp root and the policy pins (`0002-role-homes.md`), `PI_CONFIG_DIR` and the one-by-one `XDG_*` and `CARGO_HOME` moves (`host/bin/omp:386` to `:399`), `skillLinkRoots` (`host/sandbox/srt-settings.template.json:2`), the subagent rules hook and the moved reviewer stores (`0009-one-omp-root.md`), and `drop_secret_env` (`0008-preflight.md`). A deny list fails open when a new omp version loads code from a new path (`0002-role-homes.md`, cost). Role separation added per-role homes, sessions, state, and stores.
+The first design drew the line between the agent and the owner as a list of paths inside the owner's home. omp assumes that it owns its home, so each normal omp action crossed that line, and each crossing needed a patch: the split omp root and the policy pins (`0002-role-homes.md`), `PI_CONFIG_DIR` and the one-by-one `XDG_*` and `CARGO_HOME` moves (in `host/bin/omp`, removed), `skillLinkRoots` (in `host/sandbox/srt-settings.template.json`, removed), the subagent rules hook and the moved reviewer stores (`0009-one-omp-root.md`), and `drop_secret_env` (`0008-preflight.md`). A deny list fails open when a new omp version loads code from a new path (`0002-role-homes.md`, cost). Role separation added per-role homes, sessions, state, and stores.
 
 ## Decision
 
@@ -23,7 +23,7 @@ Role separation protects the review, and the review protects only the merge. A r
 
 ## Rejected
 
-- One arena with one omp profile per role (`omp --profile <role>`). omp separates a profile's config, auth, sessions, and caches (omp `docs/config-usage.md:76` to `:82`, read 2026-11-02), but it does not enforce it: every profile lives in one `~/.omp` that one user writes [inference]. Keybindings, `~/.claude`, `~/.codex`, `~/.gemini`, the root files of `~/.omp`, and non-omp caches are shared across profiles (`config-usage.md:84`, `:88`). Each needs its own srt rule, so the path list comes back.
+- One arena with one omp profile per role (`omp --profile <role>`). omp separates a profile's config, auth, sessions, and caches (omp `docs/config-usage.md`, lines 76 to 82, read 2026-11-02), but it does not enforce it: every profile lives in one `~/.omp` that one user writes [inference]. Keybindings, `~/.claude`, `~/.codex`, `~/.gemini`, the root files of `~/.omp`, and non-omp caches are shared across profiles (omp `docs/config-usage.md`, lines 84 and 88). Each needs its own srt rule, so the path list comes back.
 - One home per role. It is safe by structure, but one trust level makes it unneeded.
 - The agent in the owner's checkout. A host `git`, direnv, or editor would run agent-written `.git` hooks, `.git/config`, `.envrc`, or tasks (U4). Avoiding that needs a deny list of every file that a host tool runs, which fails open.
 - A VM or a container. It gives reset, its own localhost, and its own user. But the brokers, the gateway, the egress allowlist, the merge gate, and the config copy stay the same, and it adds an image, repo sync, an egress proxy, Linux only, more memory, and slower starts. srt is light. The arena can move into a VM later; the rest stays.

@@ -47,7 +47,7 @@ The owner's own Git checkout of a repo, in the owner's zone. Setup runs from und
 _Avoid_: repo folder, main checkout, primary checkout
 
 **Arena clone** (removed, #90):
-The agent's clone of one repo in the removed arena, `~/.ug/home/work/<owner>/<repo>` (commit 54a418a1). The agent user clones the repo into `/Users/ugagent/work/<owner>/<repo>` (`host/agent/agent-start:62`).
+The agent's clone of one repo in the removed arena, `~/.ug/home/work/<owner>/<repo>` (commit 54a418a1). The agent user clones the repo into `/Users/ugagent/work/<owner>/<repo>` (`clone`, `host/agent/agent-start`).
 _Avoid_: task clone, copy, mirror
 
 **Agent worktree**:
@@ -55,15 +55,15 @@ A Git worktree that a session makes for itself from its clone, on its own `wt/<t
 _Avoid_: ticket worktree, workspace
 
 **Omp root**:
-omp's default root, `~/.omp`. For the agent user it is `/Users/ugagent/.omp`, and `host/agent/agent-start:36-47` copies the config names from `/Library/Underground/config` into `~/.omp/agent` at each start. omp runs on it unchanged, on its default profile.
+omp's default root, `~/.omp`. For the agent user it is `/Users/ugagent/.omp`, and `config-names` in `host/agent/agent-start` copies the config names from `/Library/Underground/config` into `~/.omp/agent` at each start. omp runs on it unchanged, on its default profile.
 _Avoid_: role home, profile, owner part
 
 **Config repo**:
-The owner's private repo of agent configs, `~/Developer/Projects/agent-config` (moved from `~/Developer/agent-config`, owner in chat, 2026-11-08), in the owner's zone, named in `~/.local/share/underground/config-repo`: `AGENTS.md`, skills, hooks, `config.yml`, `models.yml` with the gateway markers, and other settings, laid out like omp's `~/.omp/agent`. It holds what the agent does inside the walls; underground holds the walls. It holds no secret: `ug-agent-setup` refuses to stage a link, a special file, or a token in it (`vet_item`, `host/bin/ug-agent-setup:196-203`). The owner's local folder is the source of truth; GitHub keeps a private backup. The pointer `~/.local/share/underground/config-repo` is hand-written (`host/bin/ug-agent-setup:207`). Setup copies the config repo's last commit into `/Library/Underground/config` (`stage_config`, `host/bin/ug-agent-setup:205-274`). A commit reaches sessions only after `host/bin/ug-setup` runs. Each start copies it into the agent user's `~/.omp/agent` (`host/agent/agent-start:36-47`), so a change that the agent makes to its config lasts until the next start.
+The owner's private repo of agent configs, `~/Developer/Projects/agent-config` (moved from `~/Developer/agent-config`, owner in chat, 2026-11-08), in the owner's zone, named in `~/.local/share/underground/config-repo`: `AGENTS.md`, skills, hooks, `config.yml`, `models.yml` with the gateway markers, and other settings, laid out like omp's `~/.omp/agent`. It holds what the agent does inside the walls; underground holds the walls. It holds no secret: `ug-agent-setup` refuses to stage a link, a special file, or a token in it (`vet_item`, `host/bin/ug-agent-setup`). The owner's local folder is the source of truth; GitHub keeps a private backup. The pointer `~/.local/share/underground/config-repo` is hand-written (`config-repo`, `host/bin/ug-agent-setup`). Setup copies the config repo's last commit into `/Library/Underground/config` (`stage_config`, `host/bin/ug-agent-setup`). A commit reaches sessions only after `host/bin/ug-setup` runs. Each start copies it into the agent user's `~/.omp/agent` (`config-names`, `host/agent/agent-start`), so a change that the agent makes to its config lasts until the next start.
 _Avoid_: dotfiles, role config
 
 **Skill repo**:
-An owner's repo of skills kept apart from the config repo, named one path per line in the config repo's `skill-repos` file, at its last commit. Setup takes only paths inside the owner's home, after it resolves links. Like the config repo, setup reads its last commit, keeps each folder with a `SKILL.md` at its top or under `skills/`, refuses a link, a special file, or a token in it, and adds those folders to the config's `skills/`. A name that the config repo or an earlier skill repo already has stops setup (`stage_config`, `host/bin/ug-agent-setup:205-274`). The list chooses which of the owner's repos root setup reads, so the owner reviews any PR on the config repo that changes it.
+An owner's repo of skills kept apart from the config repo, named one path per line in the config repo's `skill-repos` file, at its last commit. Setup takes only paths inside the owner's home, after it resolves links. Like the config repo, setup reads its last commit, keeps each folder with a `SKILL.md` at its top or under `skills/`, refuses a link, a special file, or a token in it, and adds those folders to the config's `skills/`. A name that the config repo or an earlier skill repo already has stops setup (`stage_config`, `host/bin/ug-agent-setup`). The list chooses which of the owner's repos root setup reads, so the owner reviews any PR on the config repo that changes it.
 _Avoid_: skill pack, plugin
 
 **Box** (removed, 2026-11-08):
@@ -71,7 +71,7 @@ The agent's own machine as built on 2026-11-07: one long-running Apple `containe
 _Avoid_: sandbox, arena, VM per session
 
 **Door** (removed, 2026-11-08):
-A unix socket that the host owned and mounted into the box: the egress door and the gh-broker door. The box is removed; the gh-broker socket is `/Library/Underground/run/gh-broker.sock` (`host/gh-broker/server.ts:73`) (`docs/adr/0013-agent-box.md`).
+A unix socket that the host owned and mounted into the box: the egress door and the gh-broker door. The box is removed; the gh-broker socket is `/Library/Underground/run/gh-broker.sock` (`socketPath`, `host/gh-broker/server.ts`) (`docs/adr/0013-agent-box.md`).
 _Avoid_: hole, port, tunnel
 
 **Egress guard** (removed, 2026-11-08):
@@ -85,7 +85,7 @@ _Avoid_: reset, wipe, reinstall
 ### Running omp
 
 **Wrapper** (removed, #90):
-The `omp` command of the srt design, which commit 54a418a1 removed. The agent's `omp` is now `~/.local/bin/omp`, a link to `ug-agent` in `~/.local/share/underground/agent/bin/ug-agent` (`host/bin/ug-agent-setup:353`).
+The `omp` command of the srt design, which commit 54a418a1 removed. The agent's `omp` is now `~/.local/bin/omp`, a link to `ug-agent` in `~/.local/share/underground/agent/bin/ug-agent` (`agent_dir`, `host/bin/ug-agent-setup`).
 _Avoid_: launcher, omp-srt
 
 **Clean environment** (removed, #90):
@@ -121,13 +121,13 @@ A way into or out of the agent's sessions: code out, model calls, `/usage`, web 
 _Avoid_: hole, exception, bypass
 
 **Network allowlist** (removed):
-The list of network sites that sessions could reach, in `host/network-allowlist`. The file is gone (removed in step 4, `docs/adr/0016-agent-user.md:75`), and there is no network wall now, by owner decision (`docs/THREAT-MODEL.md:37`).
+The list of network sites that sessions could reach, in `host/network-allowlist`. The file is gone (removed in step 4 of `docs/adr/0016-agent-user.md`), and there is no network wall now, by owner decision (`docs/THREAT-MODEL.md`, row U3).
 _Avoid_: domain list, egress list
 
 ### GitHub and the merge
 
 **gh-broker**:
-The host service that does GitHub operations for the sessions (launchd `com.underground.gh-broker`). It holds the only GitHub credential that agents use. One socket, `/Library/Underground/run/gh-broker.sock` (`host/gh-broker/server.ts:73`), serves every session, and the agent user reaches it through `/Library/Underground/bin/gh-broker`. The gh-broker has no roles and no list of repos: it serves each repo where the gh-broker app is installed (`docs/SPEC.md`, B7).
+The host service that does GitHub operations for the sessions (launchd `com.underground.gh-broker`). It holds the only GitHub credential that agents use. One socket, `/Library/Underground/run/gh-broker.sock` (`socketPath`, `host/gh-broker/server.ts`), serves every session, and the agent user reaches it through `/Library/Underground/bin/gh-broker`. The gh-broker has no roles and no list of repos: it serves each repo where the gh-broker app is installed (`docs/SPEC.md`, B7).
 _Avoid_: broker (alone), agent-gh, proxy
 
 **Reviewer role**:
@@ -189,7 +189,7 @@ The shared token that lets a session use the auth gateway. It authorizes every s
 _Avoid_: client token, API key, gateway key
 
 **Gateway provider**:
-A provider in a session's `models.yml`, with `transport: pi-native`, `baseUrl` the auth gateway, and `apiKey` the gateway bearer. Setup fills `@GATEWAY@` and `@GATEWAY_TOKEN@` into the staged `models.yml` (`host/bin/ug-agent-setup:263`). Each model setting of a session names a model of a gateway provider.
+A provider in a session's `models.yml`, with `transport: pi-native`, `baseUrl` the auth gateway, and `apiKey` the gateway bearer. Setup fills `@GATEWAY@` and `@GATEWAY_TOKEN@` into the staged `models.yml` (`@GATEWAY_TOKEN@`, `host/bin/ug-agent-setup`). Each model setting of a session names a model of a gateway provider.
 _Avoid_: proxy provider
 
 **Inference engine**:
