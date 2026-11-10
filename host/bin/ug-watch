@@ -31,7 +31,7 @@ job_problem() {
 }
 
 problems() {
-  local now at failed label name scope user template health log inputs agent_input url target shown want runs sock
+  local now at failed label name scope user template health log inputs agent_input follows url target shown want runs sock
   now=$(date +%s)
   at=$(record_value "$broker_status" at)
   if [[ ! $at =~ ^[0-9]+$ ]] || (( now - 10#$at > broker_stale )); then
@@ -46,10 +46,9 @@ problems() {
   if [[ ! $at =~ ^[0-9]+$ ]] || (( now - 10#$at > backup_stale )); then
     printf 'backup: no good backup in the last 36 hours; see %s\n' "$data/backup/backup.log"
   fi
-  while IFS='|' read -r label name scope user template health log inputs agent_input; do
+  while IFS='|' read -r label name scope user template health log inputs agent_input follows; do
     if [[ $scope == daemon ]]; then
-      want=root
-      [[ $user == root ]] || want=$(ug_fact "$user")
+      want=$(ug_service_login "$user")
       runs=$(ug_service_runs_as "$label" "$want") || printf '%s: %s\n' "$name" "$runs"
     fi
     case ${health%% *} in

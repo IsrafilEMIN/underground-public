@@ -132,18 +132,19 @@ Setup reads and writes in this home and in the login user's home only with that 
 
 ## Service table
 
-`host/services` lists each launchd job, one per line, with 9 fields split by `|`: label, name, scope, user, template, health, log, inputs, and agent input. Setup, the watch, `ug-agent`, and the tests read it (`ug_services` and `ug_service_field`, `host/lib/ug.bash`). Setup installs a copy beside each installed `ug.bash`. A new job needs one line and a plist template.
+`host/services` lists each launchd job, one per line, with 10 fields split by `|`: label, name, scope, user, template, health, log, inputs, agent input, and follows. Setup, the watch, `ug-agent`, and the tests read it (`ug_services` and `ug_service_field`, `host/lib/ug.bash`). Both setups turn the health field into a check with one function, which refuses a kind that the job's scope cannot use (`ug_service_probe`, `host/lib/ug.bash`), and setup and the watch map the user field to a login with one function (`ug_service_login`). Setup installs a copy beside each installed `ug.bash`. A new job needs one line and a plist template.
 
 | field | what it holds |
 |---|---|
 | label | The launchd label. |
 | name | The short name in setup lines and watch alerts. |
 | scope | `agent`: `ug-setup` loads it as your LaunchAgent. `daemon`: `ug-agent-setup` loads it as a root LaunchDaemon. |
-| user | `owner`, `root`, or a key of `host/facts`. |
+| user | `owner`, `root`, or a key of `host/facts`. A daemon runs as `root` or as the value of that key. |
 | template | The plist template, from the repo root. |
-| health | How the job shows that it works: `http <url>`, `socket <path>` (the job answers its own check, and the watch reads that answer), `port <host:port>`, `launchd` (loaded, and its last exit code), `pf` (checked like `launchd`, because the watch is not root), or `none`. |
+| health | How the job shows that it works: `http <url>`, `socket <path>` (the job answers its own check, and the watch reads that answer), `port <host:port>`, `launchd` (loaded, and its last exit code), `pf <port>` (the firewall refuses the agent user as the listener on that port; the watch is not root, so it checks this job like `launchd`), or `none`. An owner job can use `http`, `port`, `launchd`, or `none`; a daemon can use each kind except `none`. |
 | log | The job's log, or empty. |
 | inputs | The files whose change restarts the job. `@KEY@` is a value of `host/facts`; `@DATA@` is your data folder; `@GATEWAY@` is the `gateway=` line of `addresses`; `@OMP_SHA@` is the hash file of the pinned omp; a leading `?` keeps a file only when it exists. |
 | agent input | What the job reads that the agent makes: `none`, `socket`, `port`, or `files`. A job of `owner` or `root` that reads agent input adds the id of the threat row that covers it, such as `files U40`; otherwise setup stops before it changes anything (`ug_services_allowed`, `host/lib/ug.bash`; `docs/adr/0025-agent-input-runs-with-least-rights.md`). |
+| follows | Empty, or the label of a daemon on a line above. When root setup restarts that daemon, it restarts this one too. Only a daemon can follow. |
 
-Four jobs keep one named case in a script, because no field can hold it: the watch reads the gh-broker's record, its socket answer included; the watch reads the backup's age; setup restarts the auth gateway when the auth broker restarted; and the firewall job: the watch is not root, so it reads the job's loaded state and last exit code, while checking the firewall itself needs root (`ug_pf_refuses_listener`, `host/lib/ug.bash`).
+The watch keeps two named cases, because no field can hold them: it reads the gh-broker's record, its socket answer included, and the backup's age.

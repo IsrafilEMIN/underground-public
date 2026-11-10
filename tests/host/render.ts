@@ -23,6 +23,7 @@ export type ServiceRow = {
   log: string;
   inputs: string;
   agentInput: string;
+  follows: string;
 };
 
 export async function services(): Promise<ServiceRow[]> {
@@ -32,8 +33,8 @@ export async function services(): Promise<ServiceRow[]> {
     .filter((line) => line.trim() !== "" && !line.startsWith("#"))
     .map((line) => {
       const f = line.split("|");
-      assert.equal(f.length, 9, `host/services row needs 9 fields: ${line}`);
-      return { label: f[0], name: f[1], scope: f[2], user: f[3], template: f[4], health: f[5], log: f[6], inputs: f[7], agentInput: f[8] };
+      assert.equal(f.length, 10, `host/services row needs 10 fields: ${line}`);
+      return { label: f[0], name: f[1], scope: f[2], user: f[3], template: f[4], health: f[5], log: f[6], inputs: f[7], agentInput: f[8], follows: f[9] };
     });
 }
 
