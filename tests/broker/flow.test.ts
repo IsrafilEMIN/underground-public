@@ -190,7 +190,7 @@ beforeEach(async () => {
   const agents = join(root, "data/gh-broker");
   const owner = join(root, "data");
   config = {
-    ...defaultConfig(),
+    ...defaultConfig("/unused/gh"),
     socketPath: join(root, "run", "gh-broker.sock"),
     reposRoot: join(agents, "repos"),
     reviewsDir: join(agents, "reviews"),

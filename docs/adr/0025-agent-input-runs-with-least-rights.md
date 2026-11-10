@@ -1,0 +1,25 @@
+# 0025. Agent input runs with least rights
+
+Status: Accepted (owner, 2026-11-10). Built, not yet run on the owner's mac.
+
+## Context
+
+- The gh-broker ran as the owner, as a LaunchAgent on Homebrew's node (`launchctl print gui/501/com.underground.gh-broker`, owner run, 2026-11-10). It reads the agent's requests on its socket and runs git on bundles that the agent builds (`handlePush`, `host/gh-broker/server.ts`). A parser bug in git, gh, or the runtime would run agent code as the owner: the owner's home, the owner's `gh` login, and the owner's ssh agent, which the job inherited through `SSH_AUTH_SOCK` (same output).
+- The job ran Homebrew's node, git, and gh, which the owner owns, so any program of the owner could change the code that held the app key. Setup refuses that for a daemon (`ug_trusted_daemon`, `host/lib/ug.bash`), but it did not check the owner's LaunchAgents.
+- The cause is wider than the gh-broker: no rule said which user may run a job that reads what the agent makes. Other readers with more rights than the agent: the owner's terminal (U39), the backup's root tar (U40), and the agent sshd (U41) (`docs/THREAT-MODEL.md`).
+
+## Decision
+
+1. **The rule.** No process with more rights than the agent, as the owner or root, parses bytes that the agent made. A job that reads agent input runs as a user that holds only what the job needs. A job that cannot follow the rule names the threat row that covers it, open or accepted (owner, 2026-11-10).
+2. **The service table says it.** A ninth column of `host/services` names the agent input of each job: `none`, `socket`, `port`, or `files`, and a threat row id after it when the job runs as the owner or root. Both setups refuse the table before they change anything when a row breaks the rule (`ug_services_allowed`, `host/lib/ug.bash`). A host test checks that each named threat row exists and names the job (`tests/host/launchd.test.ts`). Setup and the watch check that launchd runs each daemon as the user that its row names (`ug_service_runs_as`, `host/lib/ug.bash`; `host/bin/ug-watch`).
+3. **A gh-broker user.** The gh-broker runs as `gh_broker_user` (`host/facts`), a hidden standard user with no shell, made by the same code as the agent user and the login user (`make_user`, `host/bin/ug-agent-setup`). Its home, mode 700, holds the app key, the mirrors, the push and review records, and the log. It is not the login user: one bug in the gh-broker would then reach every model login and API key, and the gh-broker needs none of them (owner, 2026-11-10). It is in the omp group, to run the pinned omp, and not in the agent group, so it cannot read the gateway bearer.
+4. **Code that the owner cannot change.** The gh-broker is a LaunchDaemon that runs the root-owned code copy on the pinned omp with `BUN_BE_BUN=1`, as the usage broker does (`host/agent/com.underground.gh-broker.plist`). git is `/usr/bin/git`. gh is pinned in `VERSIONS` by version and SHA-256. `ug-setup` downloads it and checks the zip and the binary, and root installs it root-owned in the install root (`stage_gh`, `host/bin/ug-setup`; `gh_bin`, `host/bin/ug-agent-setup`). Its path is a program argument, so the trust check covers it. The `PATH` is `/usr/bin:/bin`.
+5. **What moves.** Root moves the app key and config out of the owner's data folder into the gh-broker home and deletes the owner's copies, and moves the mirrors and records once (`github-app.pem` and `old_broker`, `host/bin/ug-agent-setup`). The owner's protected paths list is copied into the root code folder at each setup, so a change takes effect at the next setup, not at once (`protected-paths`, `host/bin/ug-agent-setup`). The gh-broker owns `run/`, with the agent group and mode 711. The socket stays mode 660 with the agent group. The refresh status moves to `run/gh-broker.status`, mode 644, so the owner's watch reads it (`gh_broker_status`, `host/facts`).
+
+## Not covered
+
+- The owner's terminal (U39), the backup's root tar (U40), and the agent sshd (U41) are open. The rule names them; it does not fix them.
+- A row that gives a wrong agent input passes every check.
+- The owner through sudo reaches everything, as for the login user (`0018-login-user.md`).
+- The owner reads the gh-broker log only with sudo.
+- Not run on the owner's mac: the user, the move of the key and records, and the daemon. The broker tests passed under the pinned omp's bun, except the ones that start the client with the test runner's own binary (agent run, 2026-11-10).

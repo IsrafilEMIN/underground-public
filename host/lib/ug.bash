@@ -46,17 +46,17 @@ ug_fact() {
 ug_services_file=${BASH_SOURCE[0]%/*}/../services
 
 ug_services() {
-  local want=${1:-} label name scope user template health log inputs
-  while IFS='|' read -r label name scope user template health log inputs || [[ -n $label ]]; do
+  local want=${1:-} label name scope user template health log inputs agent_input
+  while IFS='|' read -r label name scope user template health log inputs agent_input || [[ -n $label ]]; do
     [[ -n $label && $label != \#* ]] || continue
     [[ -z $want || $scope == "$want" ]] || continue
-    printf '%s|%s|%s|%s|%s|%s|%s|%s\n' "$label" "$name" "$scope" "$user" "$template" "$health" "$log" "$inputs"
+    printf '%s|%s|%s|%s|%s|%s|%s|%s|%s\n' "$label" "$name" "$scope" "$user" "$template" "$health" "$log" "$inputs" "$agent_input"
   done <"$ug_services_file"
 }
 
 ug_service_field() {
-  local want=$1 field=$2 label name scope user template health log inputs
-  while IFS='|' read -r label name scope user template health log inputs || [[ -n $label ]]; do
+  local want=$1 field=$2 label name scope user template health log inputs agent_input
+  while IFS='|' read -r label name scope user template health log inputs agent_input || [[ -n $label ]]; do
     [[ -n $label && $label != \#* ]] || continue
     [[ $label == "$want" || $name == "$want" ]] || continue
     case $field in
@@ -68,12 +68,39 @@ ug_service_field() {
       health) printf '%s\n' "$health" ;;
       log) printf '%s\n' "$log" ;;
       inputs) printf '%s\n' "$inputs" ;;
+      agent_input) printf '%s\n' "$agent_input" ;;
       *) printf 'ug_service_field: no field %s\n' "$field" >&2; return 1 ;;
     esac
     return 0
   done <"$ug_services_file"
   printf 'ug_service_field: %s has no job %s\n' "$ug_services_file" "$want" >&2
   return 1
+}
+
+ug_service_allowed() {
+  local label=$1 user=$2 agent_input=$3
+  [[ $agent_input =~ ^(none|socket|port|files)( U[0-9]+)?$ ]] ||
+    { printf '%s: the service table gives it the agent input "%s"; write none, socket, port, or files, and a threat row id after it when the job runs as owner or root\n' "$label" "$agent_input"; return 1; }
+  [[ $user == owner || $user == root ]] || return 0
+  [[ $agent_input == none || $agent_input == *" U"* ]] && return 0
+  printf '%s runs as %s and reads %s that the agent makes; run it as a user that holds only what it needs, or name the threat row that accepts it\n' "$label" "$user" "$agent_input"
+  return 1
+}
+
+ug_services_allowed() {
+  local label name scope user template health log inputs agent_input bad=0
+  while IFS='|' read -r label name scope user template health log inputs agent_input; do
+    ug_service_allowed "$label" "$user" "$agent_input" || bad=1
+  done < <(ug_services)
+  return "$bad"
+}
+
+ug_service_runs_as() {
+  local label=$1 want=$2 out have
+  out=$(launchctl print "system/$label" 2>/dev/null) || { printf 'launchd has no job system/%s\n' "$label"; return 1; }
+  have=$(sed -n 's/^[[:space:]]*username = //p' <<<"$out" | head -n 1)
+  have=${have:-root}
+  [[ $have == "$want" ]] || { printf 'launchd runs %s as %s, not %s\n' "$label" "$have" "$want"; return 1; }
 }
 
 ug_service_data() { printf '%s\n' "${UG_DATA:-$HOME/$(ug_fact owner_data)}"; }

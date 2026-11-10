@@ -130,7 +130,7 @@ function scopedTokens(): { tokens: GithubTokens; scopes: TokenScope[] } {
 beforeEach(async () => {
   root = await tempDir(join(tmpdir(), "ug-b5-"));
   config = {
-    ...defaultConfig(),
+    ...defaultConfig("/unused/gh"),
     socketPath: join(root, "run", "gh-broker.sock"),
     reposRoot: join(root, "bare"),
     reviewsDir: join(root, "reviews"),

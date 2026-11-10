@@ -29,6 +29,8 @@ agent_home=$(ug_fact agent_home)
 agent_group=$(ug_fact agent_group)
 auth_user=$(ug_fact auth_user)
 auth_home=$(ug_fact auth_home)
+broker_user=$(ug_fact gh_broker_user)
+broker_home=$(ug_fact gh_broker_home)
 omp_group=$(ug_fact omp_group)
 agent_port=$(ug_fact agent_sshd_port)
 socket=$root/$(ug_fact gh_broker_socket)
@@ -41,6 +43,11 @@ omp_pin=$(ug_pin "$src/VERSIONS" omp)
 omp_sha=$(ug_pin "$src/VERSIONS" omp_sha256)
 [[ $omp_pin =~ ^[0-9A-Za-z.+-]+$ ]] || ug_die ug-agent-setup "VERSIONS has no omp pin"
 [[ $omp_sha =~ ^[0-9a-f]{64}$ ]] || ug_die ug-agent-setup "VERSIONS has no omp_sha256 pin"
+gh_pin=$(ug_pin "$src/VERSIONS" gh)
+gh_sha=$(ug_pin "$src/VERSIONS" gh_sha256)
+[[ $gh_pin =~ ^[0-9A-Za-z.+-]+$ ]] || ug_die ug-agent-setup "VERSIONS has no gh pin"
+[[ $gh_sha =~ ^[0-9a-f]{64}$ ]] || ug_die ug-agent-setup "VERSIONS has no gh_sha256 pin"
+ug_services_allowed || ug_die ug-agent-setup "host/services breaks the rule that no job with more rights than the agent reads what the agent makes (docs/adr/0025-agent-input-runs-with-least-rights.md); nothing changed"
 
 cleanup=()
 trap '[[ ${#cleanup[@]} -eq 0 ]] || rm -rf "${cleanup[@]}"' EXIT
@@ -85,6 +92,7 @@ agent_is_new=1
 if [[ -e $agent_home || -L $agent_home ]] || dscl . -read "/Users/$agent_user" UniqueID >/dev/null 2>&1; then agent_is_new=0; fi
 make_user "$agent_user" "Underground agent" /bin/sh "$agent_home"
 make_user "$auth_user" "Underground logins" /usr/bin/false "$auth_home"
+make_user "$broker_user" "Underground GitHub broker" /usr/bin/false "$broker_home"
 
 make_group() {
   local group=$1 real=$2 name
@@ -99,7 +107,7 @@ make_group() {
   ug_say ok "group $group" "$*, not $owner"
 }
 
-make_group "$omp_group" "Underground omp" "$agent_user" "$auth_user"
+make_group "$omp_group" "Underground omp" "$agent_user" "$auth_user" "$broker_user"
 make_group "$agent_group" "Underground agent config" "$agent_user"
 
 if [[ " $(dscl . -read /Groups/com.apple.access_ssh GroupMembership 2>/dev/null) " != *" $agent_user "* ]]; then
@@ -143,6 +151,25 @@ for old in "$root"/omp/*; do
 done
 ug_say ok "$root/omp" "omp $omp_pin installed, old versions removed"
 
+gh_dir=$root/gh/$gh_pin
+gh_bin=$gh_dir/gh
+gh_staged=$data/gh/$gh_pin/gh
+install -d -m 755 -o root -g wheel "$root/gh" "$gh_dir"
+if [[ ! -f $gh_bin || -L $gh_bin || $(ug_sha256 "$gh_bin") != "$gh_sha" ]]; then
+  [[ -f $gh_staged && ! -L $gh_staged ]] || ug_die ug-agent-setup "no gh $gh_pin in $gh_staged; run host/bin/ug-setup, which downloads it"
+  gh_tmp=$(mktemp "$gh_dir/.gh.XXXXXX")
+  cleanup+=("$gh_tmp")
+  cat "$gh_staged" >"$gh_tmp"
+  [[ $(ug_sha256 "$gh_tmp") == "$gh_sha" ]] || ug_die ug-agent-setup "the downloaded gh does not have the pinned SHA-256; nothing changed"
+  chown root:wheel "$gh_tmp"
+  chmod 555 "$gh_tmp"
+  mv -f "$gh_tmp" "$gh_bin"
+fi
+for old in "$root"/gh/*; do
+  [[ $old == "$gh_dir" ]] || rm -rf "$old"
+done
+ug_say ok "$root/gh" "gh $gh_pin installed for the gh-broker, old versions removed"
+
 rendered_dir=$(mktemp -d)
 cleanup+=("$rendered_dir")
 
@@ -152,7 +179,34 @@ render() {
   out=$(ug_render "$rendered_dir/${template##*/}" "$src/$template" "$template" "$@") || ug_die ug-agent-setup "$out"
 }
 
-install -d -m 710 -o "$owner" -g "$agent_group" "$root/run"
+install -d -m 711 -o "$broker_user" -g "$agent_group" "$root/run"
+
+old_broker=$data/gh-broker
+for name in logs repos pushes reviews tmp; do
+  install -d -m 700 -o "$broker_user" -g staff "$broker_home/$name"
+done
+if [[ -d $old_broker && ! -L $old_broker ]]; then
+  for name in repos pushes reviews; do
+    [[ -d $old_broker/$name && ! -L $old_broker/$name ]] || continue
+    [[ -z $(find "$broker_home/$name" -mindepth 1 -maxdepth 1 2>/dev/null) ]] ||
+      ug_die ug-agent-setup "both $old_broker/$name and $broker_home/$name hold records; keep the current one, delete the other, then run setup again"
+    rmdir "$broker_home/$name"
+    mv "$old_broker/$name" "$broker_home/$name"
+    chown -R "$broker_user:staff" "$broker_home/$name"
+    chmod 700 "$broker_home/$name"
+  done
+  rm -rf "$old_broker"
+  ug_say changed gh-broker "moved its mirrors and records from $old_broker to $broker_home"
+fi
+for name in github-app.json github-app.pem; do
+  [[ -e $data/$name || -L $data/$name ]] || continue
+  [[ -f $data/$name && ! -L $data/$name ]] || ug_die ug-agent-setup "$data/$name is not a file; run scripts/gh-broker-app-wizard.sh again"
+  install -m 600 -o "$broker_user" -g staff "$data/$name" "$broker_home/$name"
+  rm -f "$data/$name"
+  ug_say changed gh-broker "moved $name from $data into $broker_home, which you cannot read"
+done
+[[ -f $broker_home/github-app.json && -f $broker_home/github-app.pem ]] ||
+  ug_say ok gh-broker "no app key in $broker_home yet; run scripts/gh-broker-app-wizard.sh, then host/bin/ug-setup"
 
 if [[ ! -f $root/ssh_host_ed25519_key ]]; then
   ssh-keygen -q -t ed25519 -N '' -f "$root/ssh_host_ed25519_key"
@@ -190,7 +244,15 @@ done
 /usr/bin/sandbox-exec -f "$rendered_dir/pin.sb" /usr/bin/true || ug_die ug-agent-setup "host/agent/pin.sb does not load under sandbox-exec; the installed code is unchanged"
 pfctl -n -f "$rendered_dir/agent-pf.conf" >/dev/null 2>&1 || ug_die ug-agent-setup "pfctl rejects host/agent/agent-pf.conf; the installed code is unchanged"
 rm -rf "$code.new" "$code.old"
-install -d -m 755 -o root -g wheel "$code.new" "$code.new/bin" "$code.new/gh-broker" "$code.new/authorized_keys"
+install -d -m 755 -o root -g wheel "$code.new" "$code.new/bin" "$code.new/gh-broker" "$code.new/authorized_keys" "$code.new/protected-paths"
+protected=$data/protected-paths
+if [[ -e $protected || -L $protected ]]; then
+  [[ -d $protected && ! -L $protected ]] || ug_die ug-agent-setup "$protected is not a folder"
+  odd=$(find "$protected" -mindepth 1 \( -type l -o ! -type f ! -type d \) -print 2>/dev/null | head -1) || true
+  [[ -z $odd ]] || ug_die ug-agent-setup "$protected has a link or a special file, which root does not copy: $odd"
+  cp -R "$protected/." "$code.new/protected-paths/"
+  chmod -R u=rwX,go=rX "$code.new/protected-paths"
+fi
 ln -s "$omp_bin" "$code.new/bin/omp"
 printf '#!/bin/sh\nBUN_BE_BUN=1 UG_GH_BROKER_SOCKET=%s exec %s %s "$@"\n' "$socket" "$omp_bin" "$code/gh-broker/client.ts" >"$code.new/bin/gh-broker"
 install -m 555 -o root -g wheel "$rendered_dir/agent-home-tar" "$code.new/bin/agent-home-tar"
@@ -206,7 +268,7 @@ chmod 444 "$code.new/authorized_keys/$agent_user"
 [[ ! -e $code ]] || mv "$code" "$code.old"
 mv "$code.new" "$code"
 rm -rf "$code.old"
-ug_say ok "$code" "built fresh from $src and swapped in: facts, pin.sb, pf.conf, pf-load, agent-session, agent-start, agent-refresh, sshd_config, config-names, addresses, authorized_keys, bin/, gh-broker/"
+ug_say ok "$code" "built fresh from $src and swapped in: facts, pin.sb, pf.conf, pf-load, agent-session, agent-start, agent-refresh, sshd_config, config-names, addresses, authorized_keys, protected-paths, bin/, gh-broker/"
 
 host_key=$(cut -d ' ' -f 1,2 "$root/ssh_host_ed25519_key.pub")
 printf '[127.0.0.1]:%s %s\n' "$agent_port" "$host_key" >"$known_hosts.tmp"
@@ -307,12 +369,12 @@ stage_config
 /usr/sbin/sshd -t -f "$code/sshd_config" || ug_die ug-agent-setup "sshd rejects $code/sshd_config; nothing was loaded"
 
 start_services() {
-  local label name scope user template health log tokens kind target rendered out fp resolved subject logins logline broker_out="" file
+  local label name scope user template health log tokens agent_input kind target rendered out fp resolved subject logline broker_out="" file want
   local -a inputs answers
   install -d -m 700 -o root -g wheel "$root/state"
   export UG_DATA="$data" UG_OMP_SHA="$omp_bin.sha256"
-  while IFS='|' read -r label name scope user template health log tokens; do
-    render "$template" -e "s|@OMP@|$omp_bin|g" -e "s|@GATEWAY@|$gateway|g" -e "s|@ENGINE@|$engine|g"
+  while IFS='|' read -r label name scope user template health log tokens agent_input; do
+    render "$template" -e "s|@OMP@|$omp_bin|g" -e "s|@GH@|$gh_bin|g" -e "s|@GATEWAY@|$gateway|g" -e "s|@ENGINE@|$engine|g"
     rendered=$rendered_dir/${template##*/}
     out=$(ug_trusted_daemon "$rendered") || ug_die ug-agent-setup "a wall is open in the service $label: $out, so a user with fewer rights could change what it runs"
     health=$(ug_service_expand "$health") || ug_die ug-agent-setup "cannot expand the health of $label"
@@ -321,6 +383,7 @@ start_services() {
     case $kind in
       http) answers=(ug_http_answers "$target") ;;
       port) answers=(ug_port_answers "${target%:*}" "${target##*:}") ;;
+      socket) answers=(ug_socket_answers "$target") ;;
       launchd) answers=(launchctl print "system/$label") ;;
       pf) answers=(ug_pf_refuses_listener "$(id -u "$agent_user")" "$(ug_fact auth_broker_port)") ;;
       *) ug_die ug-agent-setup "the service table gives $label the health kind $kind, which a daemon cannot use" ;;
@@ -340,9 +403,11 @@ start_services() {
     subject="service $label"
     [[ $name != "agent pf" ]] || subject="firewall: $agent_user cannot be the listener on the auth broker's port $(ug_fact auth_broker_port)"
     ug_say "$(ug_service_kind "$out")" "$subject" "$out"
+    want=root
+    [[ $user == root ]] || want=$(ug_fact "$user")
+    out=$(ug_service_runs_as "$label" "$want") || ug_die ug-agent-setup "$out; the service table says $user"
   done < <(ug_services daemon)
-  logins=$(ug_services daemon | awk -F'|' '$4 == "auth_user" { printf "%s%s", sep, $1; sep = ", " }')
-  ug_say ok "login services" "$logins run as $auth_user from /Library/LaunchDaemons"
+  ug_say ok "daemons" "each runs as the user in host/services: the logins as $auth_user, the gh-broker as $broker_user"
 }
 start_services
 
@@ -369,7 +434,7 @@ ug_say ok backup "$code/bin/agent-home-tar, and sudo for $owner to run it (/etc/
 for item in "$root"/* "$root"/.[!.]*; do
   [[ -e $item || -L $item ]] || continue
   case ${item##*/} in
-    omp | code | config | state | run | ssh_host_ed25519_key | ssh_host_ed25519_key.pub) ;;
+    omp | gh | code | config | state | run | ssh_host_ed25519_key | ssh_host_ed25519_key.pub) ;;
     *)
       rm -rf "$item"
       ug_say changed "$item" "deleted; this version of underground does not install it"

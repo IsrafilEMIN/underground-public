@@ -1,5 +1,4 @@
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
 import { chmod, lstat, mkdir, mkdtemp, readFile, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import type { Server, Socket } from "node:net";
@@ -61,7 +60,7 @@ export type ServerConfig = {
 };
 
 const HOME = homedir();
-const CHILD_PATH = "/opt/homebrew/bin:/usr/bin:/bin";
+const CHILD_PATH = "/usr/bin:/bin";
 const EMPTY_GH_CONFIG = "/var/empty";
 const GITHUB = "https://github.com/";
 const PR_STATUS_FIELDS = "number,state,headRefName,headRefOid,baseRefName,mergeable,mergeStateStatus,statusCheckRollup,url";
@@ -71,28 +70,21 @@ const REFRESH_FOR_MS = 7 * 24 * 60 * 60 * 1000;
 const CHECK_TIMEOUT_MS = 20 * 1000;
 const NEVER_CANCEL = new AbortController().signal;
 
-function defaultGitPath(): string {
-  for (const candidate of ["/opt/homebrew/bin/git", "/usr/bin/git"]) {
-    if (existsSync(candidate)) return candidate;
-  }
-  return "/usr/bin/git";
-}
-
-export function defaultConfig(): ServerConfig {
+export function defaultConfig(ghPath: string): ServerConfig {
+  if (!ghPath.startsWith("/")) throw new Error(`the gh path ${JSON.stringify(ghPath)} is not absolute; run server.ts <path of the pinned gh>`);
   const facts = readHostFacts();
-  const host = join(HOME, facts.ownerData);
   return {
     socketPath: facts.ghBrokerSocket,
-    reposRoot: join(host, "gh-broker/repos"),
-    reviewsDir: join(host, "gh-broker/reviews"),
-    pushesDir: join(host, "gh-broker/pushes"),
-    protectedDir: join(host, "protected-paths"),
-    ghPath: "/opt/homebrew/bin/gh",
-    gitPath: defaultGitPath(),
-    github: createAppTokens({ files: appFiles(host) }),
+    reposRoot: join(HOME, "repos"),
+    reviewsDir: join(HOME, "reviews"),
+    pushesDir: join(HOME, "pushes"),
+    protectedDir: join(facts.root, "code/protected-paths"),
+    ghPath,
+    gitPath: "/usr/bin/git",
+    github: createAppTokens({ files: appFiles(HOME) }),
     home: HOME,
-    tempRoot: join(host, "gh-broker/tmp"),
-    statusFile: join(host, "gh-broker/status"),
+    tempRoot: join(HOME, "tmp"),
+    statusFile: facts.ghBrokerStatus,
   };
 }
 
@@ -368,7 +360,7 @@ async function refreshRepo(config: ServerConfig, repo: string, signal: AbortSign
 async function writeRefreshStatus(config: ServerConfig, at: number, failed: string[]): Promise<void> {
   const temp = `${config.statusFile}.tmp`;
   try {
-    await writeFile(temp, `at=${Math.floor(at / 1000)}\nfailed=${failed.join(" ")}\n`, { mode: 0o600 });
+    await writeFile(temp, `at=${Math.floor(at / 1000)}\nfailed=${failed.join(" ")}\n`, { mode: 0o644 });
     await rename(temp, config.statusFile);
   } catch (error) {
     process.stderr.write(`${new Date().toISOString()} cannot write the refresh status ${config.statusFile}: ${error instanceof Error ? error.message : String(error)}\n`);
@@ -840,7 +832,7 @@ export async function stopServer(broker: GhBroker): Promise<void> {
 }
 
 if (import.meta.main) {
-  const broker = await startServer(defaultConfig());
+  const broker = await startServer(defaultConfig(process.argv[2] ?? ""));
   const stop = (): void => {
     void stopServer(broker);
     process.exit(0);

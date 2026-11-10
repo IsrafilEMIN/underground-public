@@ -25,7 +25,10 @@ if [ "$n" -gt 0 ]; then echo $((n - 1)) >"$HOME/nc-fails"; exit 1; fi
 const FAKE_LAUNCHCTL = `#!/bin/sh
 case "$2" in
 *com.underground.backup) if [ -e "$HOME/backup-failed" ]; then printf '\\tlast exit code = 1: Operation not permitted\\n'; else printf '\\tlast exit code = 0\\n'; fi ;;
-*com.underground.agent-refresh) printf '\\tlast exit code = (never exited)\\n' ;;
+*com.underground.agent-refresh) printf '\\tusername = ugagent\\n\\tlast exit code = (never exited)\\n' ;;
+*com.underground.gh-broker) if [ -e "$HOME/broker-as-owner" ]; then printf '\\tusername = kutluk\\n'; else printf '\\tusername = ugbroker\\n'; fi ;;
+*com.underground.auth-broker|*com.underground.auth-gateway|*com.underground.usage-broker) printf '\\tusername = ugauth\\n' ;;
+*com.underground.agent-sshd|*com.underground.agent-pf) printf '\\tstate = running\\n' ;;
 *) exit 113 ;;
 esac
 `;
@@ -52,9 +55,9 @@ async function fakeHome(t: { after: (fn: () => unknown) => void }, { ping = true
   return { home, data, bin };
 }
 
-function run(o: { home: string; bin: string }) {
+function run(o: { home: string; bin: string; data: string }) {
   return spawnSync("bash", [JOB], {
-    env: { HOME: o.home, PATH: `${o.bin}:/usr/bin:/bin`, UG_WATCH_RETRY_SECONDS: "0" },
+    env: { HOME: o.home, PATH: `${o.bin}:/usr/bin:/bin`, UG_WATCH_RETRY_SECONDS: "0", UG_GH_BROKER_STATUS: join(o.data, "gh-broker/status") },
     encoding: "utf8",
   });
 }
@@ -104,6 +107,13 @@ test("ug-watch names the repos whose last gh-broker refresh failed", async (t) =
   await writeFile(join(o.data, "gh-broker/status"), `at=${Math.floor(Date.now() / 1000)}\nfailed=o/a o/b\n`);
   run(o);
   assert.match(await status(o), /^gh-broker: the last refresh failed for o\/a o\/b;/m);
+});
+
+test("ug-watch reports a daemon that launchd runs as a user other than the one the service table names", async (t) => {
+  const o = await fakeHome(t);
+  await writeFile(join(o.home, "broker-as-owner"), "");
+  run(o);
+  assert.match(await status(o), /^gh-broker: launchd does not run it as ugbroker$/m);
 });
 
 test("ug-watch drops a problem that is gone on the second look, as when the mac has just woken", async (t) => {

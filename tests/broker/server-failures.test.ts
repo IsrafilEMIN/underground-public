@@ -22,7 +22,7 @@ const BRANCH = "agent/x";
 const CI_HEAD = "a".repeat(40);
 const AUTHOR: Session = { role: "author" };
 const REVIEWER: Session = { role: "code-review" };
-const REAL_GIT = defaultConfig().gitPath;
+const REAL_GIT = defaultConfig("/unused/gh").gitPath;
 const GIT_ENV = { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" };
 const UNREADABLE_DEFAULT_BRANCHES = [
   '{"defaultBranchRef":{"name":"-main"}}',
@@ -211,7 +211,7 @@ beforeEach(async () => {
   root = await tempDir(join(tmpdir(), "ug-srvfail-"));
   remote = join(root, "remote.git");
   config = {
-    ...defaultConfig(),
+    ...defaultConfig("/unused/gh"),
     socketPath: join(root, "run", "gh-broker.sock"),
     reposRoot: join(root, "bare"),
     reviewsDir: join(root, "reviews"),
