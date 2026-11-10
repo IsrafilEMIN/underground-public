@@ -106,7 +106,7 @@ ug_service_runs_as() {
       [[ -n $have ]] || { printf 'cannot read the user of %s (pid %s)\n' "$label" "$pid"; return 1; }
     else
       plist=$daemons/$label.plist
-      [[ -r $plist ]] || { printf 'cannot read the user of %s: no user name, no pid, and no readable %s\n' "$label" "$plist"; return 1; }
+      [[ -r $plist ]] && plutil -lint -s "$plist" >/dev/null 2>&1 || { printf 'cannot read the user of %s: no user name, no pid, and no readable %s\n' "$label" "$plist"; return 1; }
       have=$(plutil -extract UserName raw -o - "$plist" 2>/dev/null) || have=root
     fi
   fi

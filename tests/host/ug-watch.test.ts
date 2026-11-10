@@ -168,6 +168,14 @@ test("ug-watch reports a stopped daemon with no plist to read its user from", as
   assert.match(await status(o), /^agent pf: cannot read the user of com\.underground\.agent-pf: no user name, no pid, and no readable /m);
 });
 
+test("ug-watch reports a stopped daemon whose plist is cut short, instead of reading it as root", async (t) => {
+  const o = await fakeHome(t);
+  await writeFile(join(o.home, "pf-stopped"), "");
+  await writeFile(join(o.daemons, "com.underground.agent-pf.plist"), '<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0">\n<dict>\n<key>Label</key>\n');
+  run(o);
+  assert.match(await status(o), /^agent pf: cannot read the user of com\.underground\.agent-pf: no user name, no pid, and no readable /m);
+});
+
 test("ug-watch reads a stopped root daemon's user from its plist, which names no user", async (t) => {
   const o = await fakeHome(t);
   await writeFile(join(o.home, "pf-stopped"), "");
