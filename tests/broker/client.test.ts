@@ -8,6 +8,8 @@ import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
 import { promisify } from "node:util";
 import { send } from "../../host/gh-broker/client.ts";
+import { BUNDLE_LACKS_BASE, validateRequest } from "../../host/gh-broker/protocol.ts";
+import type { PushRequest } from "../../host/gh-broker/protocol.ts";
 import { BRANCH, GIT_ENV, REPO, commit, git, initRepo } from "./fixture.ts";
 import { tempDir } from "../temp.ts";
 
@@ -74,6 +76,32 @@ afterEach(async () => {
 });
 
 const SHA = "a".repeat(40);
+
+function pushRequest(input: unknown): PushRequest {
+  const checked = validateRequest(input);
+  assert.ok(checked.ok && checked.value.verb === "push", JSON.stringify(checked));
+  return checked.value;
+}
+
+function prerequisites(request: PushRequest): string[] {
+  const header = Buffer.from(request.bundle_b64, "base64").toString("latin1").split("\n\n")[0] ?? "";
+  return header.split("\n").filter((line) => line.startsWith("-"));
+}
+
+test("push sends only the commits past origin, and the full branch after the gh-broker says it lacks that base", async () => {
+  const base = git(work, "rev-parse", "HEAD");
+  git(work, "update-ref", "refs/remotes/origin/main", base);
+  const head = await commit(work, "a.txt", BRANCH);
+  await broker(JSON.stringify({ exit: 2, refused: BUNDLE_LACKS_BASE }), JSON.stringify({ exit: 0, stdout: "pushed\n", stderr: "" }));
+
+  const run = await brokerAt(work, "push", REPO, BRANCH);
+  assert.equal(run.code, 0, JSON.stringify(run));
+  const [thin, full] = requests.map(pushRequest);
+  assert.equal(requests.length, 2);
+  assert.deepEqual(prerequisites(thin).map((line) => line.slice(1, 41)), [base]);
+  assert.deepEqual(prerequisites(full), []);
+  assert.deepEqual([thin.sha, full.sha], [head, head]);
+});
 
 const USAGE_CASES: { name: string; argv: string[]; reason: string }[] = [
   { name: "no verb", argv: [], reason: "missing verb" },
