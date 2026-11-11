@@ -1,5 +1,5 @@
-omp=18.18.1
-omp_sha256=ce80099f10c5ea4367523767230cb5b920f30cc139b9cf8758c1cc4b2f1f9409
+omp=18.18.8
+omp_sha256=8de03d5f3ef3b37470cacc12539a547ace0152da562ee74a43099ec963a129eb
 omp_release=https://github.com/can1357/oh-my-pi/releases/download
 restic=0.19.1
 restic_sha256=06582569ff2f10e1935a6f12187c76db02f0bae99e6e54098f2cdc374766d768
