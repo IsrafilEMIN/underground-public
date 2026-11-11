@@ -24,12 +24,11 @@ re='^[A-Za-z0-9._=:/@+-]+$'
 status=$UG/watch/status
 at=$(sed -n 's/^at=//p' "$status" 2>/dev/null) || at=''
 if [[ ! $at =~ ^[0-9]+$ ]] || (( $(date +%s) - 10#$at > 15 * 60 )); then
-  echo "ug-agent: warning: the watch has not checked the services in the last 15 minutes; see $UG/watch/watch.log" >&2
+  warnings="the watch has not checked the services in the last 15 minutes; see $UG/watch/watch.log"
 else
-  while IFS= read -r line; do
-    [[ $line == at=* ]] || echo "ug-agent: warning: $line" >&2
-  done <"$status"
+  warnings=$(sed '/^at=/d' "$status" 2>/dev/null) || warnings=''
 fi
+export UG_WARNINGS=$warnings
 
 for arg in "$@"; do
   [[ $arg =~ $re ]] || ug_die ug-agent "refused argument $arg: only letters, digits and . _ = : / @ + - are allowed"
@@ -51,4 +50,4 @@ fi
 ug_port_answers 127.0.0.1 "$port" >/dev/null 2>&1 ||
   ug_die ug-agent "the agent sshd on 127.0.0.1:$port does not answer. Check it with: sudo launchctl print system/$(ug_service_field "agent sshd" label). Run host/bin/ug-setup to load it again."
 
-exec ssh -tt -p "$port" -i "$key" -o IdentitiesOnly=yes -o UserKnownHostsFile="$known_hosts" -o StrictHostKeyChecking=yes -o LogLevel=ERROR -o SendEnv=UG_REPO "$agent@127.0.0.1" -- "$@"
+exec ssh -tt -p "$port" -i "$key" -o IdentitiesOnly=yes -o UserKnownHostsFile="$known_hosts" -o StrictHostKeyChecking=yes -o LogLevel=ERROR -o SendEnv=UG_REPO -o SendEnv=UG_WARNINGS "$agent@127.0.0.1" -- "$@"

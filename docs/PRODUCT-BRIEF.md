@@ -48,7 +48,7 @@ Before each decision, the agent and the owner ask: does this bring us closer to 
 |Reach GitHub without holding a credential.|One host service on a unix socket holds the only GitHub credential an agent uses (`host/gh-broker/`). It runs as the gh-broker user (`docs/adr/0025-agent-input-runs-with-least-rights.md`). The gh-broker, auto merge, and a merge queue are open, in redesign (owner decision, 2026-11-10).|
 |Call models without holding a login.|The auth broker and the auth gateway, run by the login user (`docs/adr/0005-model-auth-gateway.md`, `docs/adr/0018-login-user.md`).|
 |Usage numbers.|The usage broker (`host/gh-broker/usage-broker.ts`).|
-|Learn at once when something it depends on is broken.|The status lines the launcher prints (`status`, `host/bin/ug-agent`) and the watch (`docs/adr/0023-failures-reach-the-owner.md`).|
+|Learn at once when something it depends on is broken.|The status lines the launcher passes to the session (`UG_WARNINGS`, `host/bin/ug-agent`) and the watch (`docs/adr/0023-failures-reach-the-owner.md`).|
 
 ## The mechanisms
 
@@ -66,7 +66,7 @@ Before each decision, the agent and the owner ask: does this bring us closer to 
 
 **Backup** (`docs/adr/0016-agent-user.md`, "Step 4 (2026-11-08): the switch"). Once a day a restic snapshot of the agent's home goes to a repo on the owner's other machine, which the agent cannot reach. Every snapshot stays. Handles H4. Accepted: harm to work written since the last run. The agent's home path (`agent_home`, `host/facts`) stays the same in every design, for now (owner decision, 2026-11-10). omp saves full paths in its sessions and history (`rewriteSessionText` and `rewriteHistory`, `host/agent/migrate-paths.ts`), so a snapshot restores cleanly only to the path it came from. The one move so far, from the box's home, needs `host/agent/migrate-paths.ts`.
 
-**Failures reach the owner** (`docs/adr/0023-failures-reach-the-owner.md`). Each job leaves a record that only its own user or root can write. The watch reads the records, asks the services, writes a status the launcher prints, and pings a check outside the mac that alerts when the pings stop. Handles H3.
+**Failures reach the owner** (`docs/adr/0023-failures-reach-the-owner.md`). Each job leaves a record that only its own user or root can write. The watch reads the records, asks the services, writes a status that the launcher passes to the session, and pings a check outside the mac that alerts when the pings stop. Handles H3.
 
 **State over lists** (`docs/adr/0024-state-over-incident-lists.md`). A control rots while it still looks good when it trusts a saved list or value instead of the state. These controls read the state, so a change in reality shows at once: GitHub says whether a token is dead; setup checks the real pf anchor, the real ruleset, and the real rights of each file a service runs; setup builds its code folder fresh and removes what this version does not make.
 
