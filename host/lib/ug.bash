@@ -92,6 +92,7 @@ ug_read_as() {
   ug_as "$1" /bin/cat -- "$2"
 }
 
+# shellcheck disable=SC2016
 ug_write_as() {
   ug_as "$1" /bin/sh -c 'umask 077 && /bin/cat >"$1" && /bin/chmod 600 "$1"' sh "$2"
 }
