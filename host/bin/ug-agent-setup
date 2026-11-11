@@ -10,6 +10,8 @@ staged=${1:-}
 src=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)
 # shellcheck source=host/lib/ug.bash disable=SC1091
 source "$src/host/lib/ug.bash"
+# shellcheck source=host/lib/stage.bash disable=SC1091
+source "$src/host/lib/stage.bash"
 
 trap 'ug_stopped $? $LINENO "$BASH_COMMAND" ug-agent-setup host/bin/ug-agent-setup ", so the agent user may be set up only in part" ", which repeats every step"' ERR
 
@@ -277,17 +279,8 @@ install -m 600 -o "$owner" -g staff "$known_hosts.tmp" "$known_hosts"
 rm -f "$known_hosts.tmp"
 ug_say ok "known_hosts for 127.0.0.1:$agent_port" "$known_hosts"
 
-vet_item() {
-  local item=$1 base=$2 what=$3 secrets=$4 odd leak
-  odd=$(find "$item" \( -type l -o ! -type f ! -type d \) -print 2>/dev/null | head -1) || true
-  [[ -z $odd ]] || ug_die ug-agent-setup "$what has a link or a special file, which the agent must not get: ${odd#"$base/"}"
-  leak=$(grep -r -l -a -E -f "$src/host/secret-patterns" "$item" 2>/dev/null | head -1) || true
-  [[ -n $leak || ! -s $secrets ]] || leak=$(grep -r -l -a -F -f "$secrets" "$item" 2>/dev/null | head -1) || true
-  [[ -z $leak ]] || ug_die ug-agent-setup "$what file ${leak#"$base/"} holds a token or a key; the agent reads every config file, so take it out"
-}
-
 stage_config() {
-  local cfg gateway gateway_token stage name item secrets value token_file repo base n found
+  local cfg gateway gateway_token stage name item secrets value token_file
   cfg=$(sed -n '1p' "$data/config-repo" 2>/dev/null) || true
   [[ -n $cfg ]] || ug_die ug-agent-setup "no config repo: $data/config-repo names none"
   cfg=${cfg/#\~/$owner_home}
@@ -309,39 +302,16 @@ stage_config() {
   while IFS= read -r name; do
     item=$stage/repo/$name
     [[ -e $item || -L $item ]] || continue
-    vet_item "$item" "$stage/repo" "the config repo" "$secrets"
+    vet_item "$item" "$stage/repo" "the config repo" "$secrets" "$src/host/secret-patterns"
     [[ $name != models.yaml ]] || ug_die ug-agent-setup "the config repo has models.yaml; name it models.yml"
     cp -R "$item" "$stage/out/$name"
   done <"$src/host/agent/config-names"
-  n=0
-  if [[ -e $stage/repo/skill-repos || -L $stage/repo/skill-repos ]]; then
-    [[ -f $stage/repo/skill-repos && ! -L $stage/repo/skill-repos ]] || ug_die ug-agent-setup "skill-repos in the config repo must be a file, not a link or a folder"
-    while IFS= read -r repo || [[ -n $repo ]]; do
-      [[ -n $repo ]] || continue
-      repo=${repo/#\~/$owner_home}
-      [[ -d $repo && ! -L $repo ]] || ug_die ug-agent-setup "the skill repo $repo in the config repo's skill-repos is not a folder"
-      repo=$(cd "$repo" && pwd -P) || ug_die ug-agent-setup "cannot open the skill repo $repo"
-      [[ $repo == "$owner_home"/* ]] || ug_die ug-agent-setup "the skill repo $repo is not inside $owner_home; setup reads skill repos only from your home"
-      n=$((n + 1))
-      base=$stage/skill-repo-$n
-      mkdir "$base"
-      git -c "safe.directory=$repo" -C "$repo" archive --format=tar HEAD | tar -x -C "$base" || ug_die ug-agent-setup "cannot read the last commit of the skill repo $repo"
-      [[ ! -L $base/skills ]] || ug_die ug-agent-setup "the skill repo $repo has skills as a link, which the agent must not get"
-      [[ ! -d $base/skills ]] || base=$base/skills
-      found=0
-      for item in "$base"/*/; do
-        item=${item%/}
-        [[ -f $item/SKILL.md || -L $item ]] || continue
-        name=${item##*/}
-        vet_item "$item" "$base" "the skill repo $repo" "$secrets"
-        [[ ! -e $stage/out/skills/$name ]] || ug_die ug-agent-setup "the skill $name of the skill repo $repo is also in the config repo or an earlier skill repo; rename one"
-        mkdir -p "$stage/out/skills"
-        cp -R "$item" "$stage/out/skills/$name"
-        found=$((found + 1))
-      done
-      [[ $found -gt 0 ]] || ug_die ug-agent-setup "the last commit of the skill repo $repo has no <name>/SKILL.md at its top or under skills/"
-      ug_say ok "skill repo $repo" "$found skills"
-    done <"$stage/repo/skill-repos"
+  [[ ! -e $stage/repo/skill-repos && ! -L $stage/repo/skill-repos ]] ||
+    ug_die ug-agent-setup "the config repo has skill-repos, which setup no longer reads; rename it plugin-repos"
+  if [[ -e $stage/repo/plugin-repos || -L $stage/repo/plugin-repos ]]; then
+    [[ -f $stage/repo/plugin-repos && ! -L $stage/repo/plugin-repos ]] ||
+      ug_die ug-agent-setup "plugin-repos in the config repo must be a file, not a link or a folder"
+    stage_plugins "$stage/repo/plugin-repos" "$stage/out" "$owner_home" "$secrets" "$src/host/secret-patterns"
   fi
   [[ -f $stage/out/models.yml ]] || ug_die ug-agent-setup "the last commit of the config repo $cfg has no models.yml"
   sed -i.bak -e "s/@GATEWAY@/$gateway/g" -e "s/@GATEWAY_TOKEN@/$gateway_token/g" "$stage/out/models.yml"
