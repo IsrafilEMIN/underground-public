@@ -15,6 +15,9 @@ const FAILING: Array<[string, number[]]> = [
   ['agent_home=$(ug_fact agent_home)\nssh=$agent_home/.ssh\nstat "$ssh"', [2, 3]],
   ['auth_home=$(ug_fact auth_home)\nug_die tool "$auth_home/.omp/token is missing"', [2]],
   ['cat "$(ug_fact auth_home)/x"', [1]],
+  ['auth_home=$(ug_fact auth_home)\nug_as "$auth_user" /usr/bin/wc -c <"$auth_home/.omp/token"', [2]],
+  ['auth_home=$(ug_fact auth_home)\n[[ -e $auth_home/x ]] && ug_as "$auth_user" /usr/bin/true', [2]],
+  ['auth_home=$(ug_fact auth_home)\ncat "$auth_home/x" | sudo -u "$auth_user" /usr/bin/tee /dev/null', [2]],
 ];
 
 const PASSING = [
@@ -22,6 +25,7 @@ const PASSING = [
   'auth_home=$(ug_fact auth_home)\nsudo -u "$auth_user" install -d "$auth_home/.omp"',
   'auth_home=$(ug_fact auth_home)\nsudo -n -u x ls "$auth_home/a"',
   'auth_home=$(ug_fact auth_home)\nls "$auth_home"',
+  'auth_home=$(ug_fact auth_home)\nopenssl rand -hex 32 | ug_write_as "$auth_user" "$auth_home/.omp/token"',
   'agent_home=$(ug_fact agent_home)\nmake_user "$u" "$agent_home"',
   'owner_home=/Users/$owner\ncat "$owner_home/x"',
 ];

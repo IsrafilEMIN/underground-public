@@ -37,12 +37,16 @@ function findings(text) {
       grew = true;
     }
   }
-  const homeUse = new RegExp(`${varUse(homeVars)}"?/|${factSlash}|@(?:${uppers})@/`);
-  const belowUse = new RegExp(varUse(belowVars));
+  const below = `${varUse(homeVars)}"?/|${factSlash}|@(?:${uppers})@/|${varUse(belowVars)}`;
+  const belowUse = new RegExp(below);
+  const redirect = new RegExp(`[<>]\\s*"?(?:${below})`);
   return lines.flatMap((line, index) => {
-    if (drop.test(line)) return [];
-    const defines = found[index].some((item) => belowVars.has(item.name));
-    return defines || homeUse.test(line) || belowUse.test(line) ? [index + 1] : [];
+    if (found[index].some((item) => belowVars.has(item.name))) return [index + 1];
+    const open = line.split(/\|\||&&|[|;]/).some((part) => {
+      const at = part.search(drop);
+      return at < 0 ? belowUse.test(part) : belowUse.test(part.slice(0, at)) || redirect.test(part.slice(at));
+    });
+    return open ? [index + 1] : [];
   });
 }
 
