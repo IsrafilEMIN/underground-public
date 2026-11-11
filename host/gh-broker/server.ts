@@ -5,6 +5,7 @@ import type { Server, Socket } from "node:net";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import {
+  BUNDLE_LACKS_BASE,
   MAX_CI_LOG_BYTES,
   MAX_REQUEST_BYTES,
   failedPullRequestRuns,
@@ -30,7 +31,7 @@ import type {
 import { appFiles, basicAuth, createAppTokens, redactTokens } from "./github-app.ts";
 import { readHostFacts } from "./facts.ts";
 import type { GithubTokens, TokenScope } from "./github-app.ts";
-import { dropPushRecord, listPushRecords, writePushRecord } from "./push-record.ts";
+import { dropPushRecord, listPushRecords, readPushRecord, writePushRecord } from "./push-record.ts";
 import type { PushedBranch } from "./push-record.ts";
 
 export type ServerConfig = {
@@ -286,14 +287,20 @@ type BranchEnd =
   | { kind: "moved"; branch: string; merged: string; sha: string }
   | { kind: "failed"; branch: string; detail: string };
 
+async function remoteBranchHead(config: ServerConfig, bare: string, repo: string, ref: string, signal: AbortSignal): Promise<{ sha: string | undefined } | ChildResult> {
+  const listed = await gitRemote(config, bare, repo, "read", (url) => ["ls-remote", url, ref], signal, "contents-read");
+  if (listed.exit !== 0) return listed;
+  const line = listed.rawStdout.split("\n").find((entry) => entry.endsWith(`\t${ref}`));
+  return { sha: line?.slice(0, line.indexOf("\t")) };
+}
+
 async function endMergedBranch(config: ServerConfig, bare: string, base: string, pushed: PushedBranch, signal: AbortSignal): Promise<BranchEnd | undefined> {
   const inMain = await git(config, bare, ["merge-base", "--is-ancestor", pushed.sha, `refs/heads/${base}`], signal);
   if (inMain.exit !== 0) return undefined;
   const ref = `refs/heads/${pushed.branch}`;
-  const listed = await gitRemote(config, bare, pushed.repo, "read", (url) => ["ls-remote", url, ref], signal, "contents-read");
-  if (listed.exit !== 0) return { kind: "failed", branch: pushed.branch, detail: listed.stderr };
-  const line = listed.rawStdout.split("\n").find((entry) => entry.endsWith(`\t${ref}`));
-  const remote = line?.slice(0, line.indexOf("\t"));
+  const head = await remoteBranchHead(config, bare, pushed.repo, ref, signal);
+  if ("exit" in head) return { kind: "failed", branch: pushed.branch, detail: head.stderr };
+  const remote = head.sha;
   if (remote !== undefined && remote !== pushed.sha) return { kind: "moved", branch: pushed.branch, merged: pushed.sha, sha: remote };
   let end: BranchEnd = { kind: "gone", branch: pushed.branch };
   if (remote !== undefined) {
@@ -477,6 +484,27 @@ async function handleSyncPr(config: ServerConfig, repo: string, number: number, 
   );
 }
 
+async function pushLease(config: ServerConfig, bare: string, req: PushRequest, leaseRef: string, signal: AbortSignal): Promise<{ expect: string } | Reply> {
+  const ref = `refs/heads/${req.branch}`;
+  const head = await remoteBranchHead(config, bare, req.repo, ref, signal);
+  if ("exit" in head) return forward(head);
+  const remote = head.sha;
+  if (remote === undefined) return { expect: "" };
+  if (!isSha(remote)) return refused(`cannot read the head of ${req.branch} on GitHub`);
+  const record = await readPushRecord(config.pushesDir, { repo: req.repo, branch: req.branch });
+  if (record.kind === "pushed" && record.sha === remote) return { expect: remote };
+  const fetch = await gitRemote(config, bare, req.repo, "read", (url) => ["fetch", "--quiet", "--no-tags", "--no-write-fetch-head", url, `+${ref}:${leaseRef}`], signal, "contents-read");
+  if (fetch.exit !== 0) return forward(fetch);
+  const fetched = await git(config, bare, ["rev-parse", "--verify", "--quiet", `${leaseRef}^{commit}`], signal);
+  if (fetched.exit !== 0 || fetched.rawStdout.trim() !== remote) return refused(`branch ${req.branch} moved on GitHub during the push; push again`);
+  const holds = await git(config, bare, ["merge-base", "--is-ancestor", remote, req.sha], signal);
+  if (holds.exit === 0) return { expect: remote };
+  if (holds.exit !== 1) return forward(holds);
+  return refused(
+    `branch ${req.branch} on GitHub is at ${remote}, a commit that the gh-broker did not push and that this push does not hold; get it with gh-broker sync ${req.repo} --pr <n>, rebase onto it, and push again`,
+  );
+}
+
 async function handlePush(config: ServerConfig, req: PushRequest, signal: AbortSignal): Promise<Reply> {
   const bundle = Buffer.from(req.bundle_b64, "base64");
   if (bundle.length === 0) return refused("empty bundle");
@@ -487,16 +515,19 @@ async function handlePush(config: ServerConfig, req: PushRequest, signal: AbortS
   return inRepoQueue(config, req.repo, async () =>
     inTempDir(config, async (tempDir) => {
       const tempRef = `refs/gh-broker/push/${basename(tempDir)}`;
+      const leaseRef = `refs/gh-broker/lease/${basename(tempDir)}`;
       try {
         const bundlePath = join(tempDir, "push.bundle");
         await writeFile(bundlePath, bundle, { mode: 0o600 });
         const initFailure = await ensureBareRepo(config, bare, signal);
         if (initFailure !== undefined) return initFailure;
         const fetch = await git(config, bare, ["fetch", "--quiet", "--no-tags", "--no-write-fetch-head", bundlePath, `+refs/heads/${req.branch}:${tempRef}`], signal);
-        if (fetch.exit !== 0) return forward(fetch);
+        if (fetch.exit !== 0) return fetch.stderr.includes("lacks these prerequisite commits") ? refused(BUNDLE_LACKS_BASE) : forward(fetch);
         const parsed = await git(config, bare, ["rev-parse", "--verify", "--quiet", `${tempRef}^{commit}`], signal);
         if (parsed.exit !== 0 || parsed.rawStdout.trim() !== req.sha) return refused("bundle ref does not match sha");
-        const push = await gitRemote(config, bare, req.repo, "write", (url) => ["push", "--porcelain", "--force", url, `${req.sha}:refs/heads/${req.branch}`], signal);
+        const lease = await pushLease(config, bare, req, leaseRef, signal);
+        if (!("expect" in lease)) return lease;
+        const push = await gitRemote(config, bare, req.repo, "write", (url) => ["push", "--porcelain", `--force-with-lease=refs/heads/${req.branch}:${lease.expect}`, url, `${req.sha}:refs/heads/${req.branch}`], signal);
         if (push.exit !== 0) return forward(push);
         try {
           await writePushRecord(config.pushesDir, { repo: req.repo, branch: req.branch }, req.sha);
@@ -507,6 +538,7 @@ async function handlePush(config: ServerConfig, req: PushRequest, signal: AbortS
         return forward(push);
       } finally {
         await git(config, bare, ["update-ref", "-d", tempRef], NEVER_CANCEL);
+        await git(config, bare, ["update-ref", "-d", leaseRef], NEVER_CANCEL);
       }
     }),
   );

@@ -7,6 +7,7 @@ const MAX_BODY_CHARS = 65536;
 const MAX_PR_NUMBER = 2147483647;
 export const MAX_CI_LOG_BYTES = 64 * 1024;
 export const MAX_SYNC_HAVES = 16;
+export const BUNDLE_LACKS_BASE = "the bundle needs commits that the gh-broker's copy lacks";
 
 export type SyncRequest = { verb: "sync"; repo: string; pr?: number; have?: string[]; cached?: true };
 export type PushRequest = { verb: "push"; repo: string; branch: string; sha: string; bundle_b64: string };

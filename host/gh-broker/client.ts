@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import {
+  BUNDLE_LACKS_BASE,
   isAgentBranch,
   isDefaultBranchName,
   isSha,
@@ -38,16 +39,25 @@ const execFileAsync = promisify(execFile);
 
 class UsageError extends Error {}
 
-async function localBranch(branch: string): Promise<{ sha: string; bundle_b64: string }> {
+async function bundle(refs: string[]): Promise<string> {
+  const { stdout } = await execFileAsync("git", ["bundle", "create", "-", ...refs], { encoding: "buffer", maxBuffer: Infinity });
+  return stdout.toString("base64");
+}
+
+async function localBranch(branch: string, thin: boolean): Promise<{ sha: string; bundle_b64: string }> {
   const ref = `refs/heads/${branch}`;
   const { stdout: shaOut } = await execFileAsync("git", ["rev-parse", "--verify", `${ref}^{commit}`], {
     encoding: "utf8",
   });
-  const { stdout: bundle } = await execFileAsync("git", ["bundle", "create", "-", ref], {
-    encoding: "buffer",
-    maxBuffer: Infinity,
-  });
-  return { sha: shaOut.trim(), bundle_b64: bundle.toString("base64") };
+  const bases = thin ? (await originHeads()).map((head) => `^${head}`) : [];
+  let bundle_b64: string;
+  try {
+    bundle_b64 = await bundle([ref, ...bases]);
+  } catch (error) {
+    if (bases.length === 0) throw error;
+    bundle_b64 = await bundle([ref]);
+  }
+  return { sha: shaOut.trim(), bundle_b64 };
 }
 
 async function runGit(args: string[], cwd: string): Promise<{ ok: true; stdout: string } | { ok: false; stderr: string }> {
@@ -95,7 +105,7 @@ export async function buildRequest(argv: string[]): Promise<Request> {
       needArgCount(args, 2, 2);
       const repo = needRepo(args[0]);
       const branch = needBranch(args[1]);
-      return { verb, repo, branch, ...(await localBranch(branch)) };
+      return { verb, repo, branch, ...(await localBranch(branch, true)) };
     }
     case "pr-create":
       needArgCount(args, 4, 4);
@@ -250,6 +260,15 @@ export async function main(argv: string[], socketPath: string | undefined = proc
   } catch (error) {
     process.stderr.write(`gh-broker: cannot reach gh-broker: ${error instanceof Error ? error.message : String(error)}\n`);
     return EXIT_UNAVAILABLE;
+  }
+  if (request.verb === "push" && "refused" in reply && reply.refused === BUNDLE_LACKS_BASE) {
+    try {
+      request = { ...request, ...(await localBranch(request.branch, false)) };
+      reply = await send(socketPath, request);
+    } catch (error) {
+      process.stderr.write(`gh-broker: cannot send the full branch: ${error instanceof Error ? error.message : String(error)}\n`);
+      return 1;
+    }
   }
   if ("refused" in reply) {
     process.stderr.write(`refused: ${reply.refused}\n`);
