@@ -57,7 +57,7 @@ gh_release=$(pin gh_release '^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]
 for name in omp ug-auth; do
   [[ ! -e $bin_dir/$name || -L $bin_dir/$name ]] || ug_die ug-setup "$bin_dir/$name is a file, not setup's link; move it away, then run setup again"
 done
-ug_services_allowed || ug_die ug-setup "host/services breaks the rule that no job with more rights than the agent reads what the agent makes (docs/adr/0025-agent-input-runs-with-least-rights.md); nothing changed"
+ug_services_allowed || ug_die ug-setup "host/services breaks the rule that a job that reads what the agent makes holds only what it needs or names its threat row (docs/adr/0027-enforce-least-rights.md); nothing changed"
 
 cleanup=()
 trap '[[ ${#cleanup[@]} -eq 0 ]] || rm -rf "${cleanup[@]}"' EXIT

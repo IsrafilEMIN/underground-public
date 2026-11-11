@@ -47,7 +47,7 @@ gh_pin=$(ug_pin "$src/VERSIONS" gh)
 gh_sha=$(ug_pin "$src/VERSIONS" gh_sha256)
 [[ $gh_pin =~ ^[0-9A-Za-z.+-]+$ ]] || ug_die ug-agent-setup "VERSIONS has no gh pin"
 [[ $gh_sha =~ ^[0-9a-f]{64}$ ]] || ug_die ug-agent-setup "VERSIONS has no gh_sha256 pin"
-ug_services_allowed || ug_die ug-agent-setup "host/services breaks the rule that no job with more rights than the agent reads what the agent makes (docs/adr/0027-enforce-least-rights.md); nothing changed"
+ug_services_allowed || ug_die ug-agent-setup "host/services breaks the rule that a job that reads what the agent makes holds only what it needs or names its threat row (docs/adr/0027-enforce-least-rights.md); nothing changed"
 
 cleanup=()
 trap '[[ ${#cleanup[@]} -eq 0 ]] || rm -rf "${cleanup[@]}"' EXIT
