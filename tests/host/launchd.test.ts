@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { chmod, mkdir, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -64,12 +65,12 @@ test("the gh-broker runs as its own user from root-owned code, on the pinned omp
   assert.deepEqual([row?.scope, row?.user], ["daemon", "gh_broker_user"]);
 });
 
-test("a job that runs as the owner or root and reads what the agent makes names a threat row that covers it", async () => {
+test("a job that is not the agent's and reads what the agent makes names a threat row that covers it", async () => {
   const threats = await readFile(join(import.meta.dirname, "../../docs/THREAT-MODEL.md"), "utf8");
   for (const row of ROWS) {
     const [kind, id] = row.agentInput.split(" ");
     assert.ok(["none", "socket", "port", "files"].includes(kind), `${row.label}: ${row.agentInput}`);
-    if ((row.user === "owner" || row.user === "root") && kind !== "none") {
+    if (row.user !== "agent_user" && kind !== "none") {
       assert.match(id ?? "", /^U\d+$/, `${row.label} runs as ${row.user} and reads ${kind} of the agent`);
       const line = threats.split("\n").find((l) => l.startsWith(`|${id}|`));
       assert.ok(line?.includes(row.label), `${row.label}: threat row ${id} must exist and name the job`);
@@ -77,21 +78,128 @@ test("a job that runs as the owner or root and reads what the agent makes names 
   }
 });
 
-test("setup refuses a job of the owner or root that reads agent input without a threat row, and lets a job of its own user read it", () => {
-  const allowed = (user: string, input: string) =>
-    spawnSync("bash", ["-c", `source ${LIB}; ug_service_allowed com.underground.x "$1" "$2"`, "_", user, input], { encoding: "utf8" });
+function allowed(user: string, input: string, inputs = "", log = "") {
+  return spawnSync("bash", ["-c", `source ${LIB}; ug_service_allowed com.underground.x "$1" "$2" "$3" "$4"`, "_", user, input, inputs, log], { encoding: "utf8" });
+}
+
+test("setup refuses a job of a user other than the agent that reads agent input without a threat row, and lets a job of its own user read it", () => {
   for (const [user, input, status] of [
     ["owner", "socket", 1],
     ["root", "port", 1],
     ["owner", "none", 0],
     ["owner", "files U40", 0],
-    ["gh_broker_user", "socket", 0],
-    ["gh_broker_user", "everything", 1],
+    ["gh_broker_user", "socket", 1],
+    ["gh_broker_user", "socket U38", 0],
+    ["gh_broker_user", "everything U38", 1],
     ["auth_user", "", 1],
   ] as const) {
     assert.equal(allowed(user, input).status, status, `${user} ${input}`);
   }
   assert.match(allowed("owner", "socket").stdout, /runs as owner and reads socket that the agent makes/);
+});
+
+test("a job reads only the home of its own user, and no glob reaches a home", () => {
+  assert.equal(allowed("gh_broker_user", "socket U38", "@GH_BROKER_HOME@/github-app.json").status, 0);
+  assert.equal(allowed("gh_broker_user", "socket U38", "@AUTH_HOME@/.omp/auth-broker.token").status, 1);
+  assert.equal(allowed("auth_user", "port U7", "", "@AGENT_HOME@/logs/auth.log").status, 1);
+  assert.equal(allowed("gh_broker_user", "socket U38", "?@GH_BROKER_HOME@/x?y").status, 1);
+  assert.equal(allowed("agent_user", "files", "@AGENT_HOME@/x").status, 0);
+});
+
+const FAKE_SUDO = `#!/bin/sh
+[ "$1 $2 $4" = "-n -u -H" ] || { echo "fake sudo: unexpected $*" >&2; exit 64; }
+login=$3
+shift 4
+printf '%s %s\\n' "$login" "$*" >>"$FAKE/calls"
+if grep -qxF "$login" "$FAKE/nosudo" 2>/dev/null; then exit 1; fi
+case $1 in
+  /usr/bin/true) exit 0 ;;
+  /bin/ls | /bin/cat) grep -qxF "$login $*" "$FAKE/open" 2>/dev/null && exec "$@"; exit 1 ;;
+  *) exec "$@" ;;
+esac
+`;
+
+async function fakeHost(t: { after: (fn: () => Promise<void>) => void }) {
+  const dir = await tempDir(join(tmpdir(), "ug-walls-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  for (const name of ["bin", "owner", "u1", "u2", "u3", "root/config"]) await mkdir(join(dir, name), { recursive: true });
+  await writeFile(join(dir, "root/config/models.yml"), "bearer\n");
+  await writeFile(
+    join(dir, "facts"),
+    `root=${dir}/root\nagent_user=one\nagent_home=${dir}/u1\nauth_user=two\nauth_home=${dir}/u2\ngh_broker_user=three\ngh_broker_home=${dir}/u3\n`,
+  );
+  await writeFile(join(dir, "bin/sudo"), FAKE_SUDO);
+  await chmod(join(dir, "bin/sudo"), 0o755);
+  const run = (script: string, ...args: string[]) =>
+    spawnSync("bash", ["-c", `source ${LIB}; ug_facts_file=$FAKE/facts; ${script}`, "_", ...args], {
+      encoding: "utf8",
+      env: { ...process.env, FAKE: dir, PATH: `${join(dir, "bin")}:/usr/bin:/bin` },
+    });
+  const calls = async () => (await readFile(join(dir, "calls"), "utf8").catch(() => "")).split("\n").filter(Boolean);
+  return { dir, run, calls };
+}
+
+test("ug_as runs a command directly for the caller's own login and through sudo -n -u for another", async (t) => {
+  const host = await fakeHost(t);
+  const own = host.run('ug_as "$(id -un)" /bin/echo own');
+  assert.equal(own.stdout, "own\n");
+  assert.deepEqual(await host.calls(), []);
+  const other = host.run("ug_as two /bin/echo other");
+  assert.equal(other.stdout, "other\n");
+  assert.deepEqual(await host.calls(), ["two /bin/echo other"]);
+});
+
+test("the restart hash is the hash of the plist and the inputs, and the inputs are read as the job's user", async (t) => {
+  const host = await fakeHost(t);
+  await writeFile(join(host.dir, "job.plist"), "plist\n");
+  await writeFile(join(host.dir, "u2/token"), "token\n");
+  await writeFile(join(host.dir, "u2/config"), "config\n");
+  await writeFile(join(host.dir, "open"), `two /bin/cat -- ${host.dir}/u2/token\ntwo /bin/cat -- ${host.dir}/u2/config\n`);
+  const r = host.run('ug_fingerprint two "$FAKE/job.plist" "$FAKE/u2/token" "$FAKE/u2/config"');
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stdout.trim(), createHash("sha256").update("plist\ntoken\nconfig\n").digest("hex"));
+  assert.deepEqual(await host.calls(), [`two /bin/cat -- ${host.dir}/u2/token`, `two /bin/cat -- ${host.dir}/u2/config`]);
+  await writeFile(join(host.dir, "nosudo"), "two\n");
+  assert.notEqual(host.run('ug_fingerprint two "$FAKE/job.plist" "$FAKE/u2/token"').status, 0, "an input that cannot be read must not give a hash");
+});
+
+test("the walls between users hold only when each lower user is refused every other home and the bearer", async (t) => {
+  const host = await fakeHost(t);
+  const walls = () => host.run('ug_user_walls "$FAKE/owner"');
+
+  const closed = walls();
+  assert.equal(closed.status, 0, closed.stdout + closed.stderr);
+  assert.equal(closed.stdout, "");
+  const asked = await host.calls();
+  for (const login of ["one", "two", "three"]) assert.ok(asked.includes(`${login} /bin/ls ${host.dir}/owner`), `${login} was not tried on the owner's home`);
+  assert.ok(asked.includes(`three /bin/ls ${host.dir}/u2`));
+  assert.ok(!asked.includes(`two /bin/ls ${host.dir}/u2`), "a user's own home is not a wall");
+
+  await writeFile(join(host.dir, "open"), `three /bin/ls ${host.dir}/u2\n`);
+  const listed = walls();
+  assert.equal(listed.status, 1);
+  assert.equal(listed.stdout, `three can list ${host.dir}/u2, a home that is not its own\n`);
+
+  await writeFile(join(host.dir, "open"), `two /bin/cat -- ${host.dir}/root/config/models.yml\n`);
+  const bearer = walls();
+  assert.equal(bearer.status, 1);
+  assert.match(bearer.stdout, /^two can read the gateway bearer in /);
+
+  await writeFile(join(host.dir, "open"), `one /bin/cat -- ${host.dir}/root/config/models.yml\n`);
+  assert.equal(walls().status, 0, "the agent user holds the gateway bearer by design");
+});
+
+test("a lower user that sudo cannot run as leaves its walls open, not proven", async (t) => {
+  const host = await fakeHost(t);
+  await writeFile(join(host.dir, "nosudo"), "three\n");
+  const r = host.run('ug_user_walls "$FAKE/owner"');
+  assert.equal(r.status, 1);
+  assert.equal(r.stdout, "three: sudo does not run as this user, so its walls are not proven\n");
+});
+
+test("the service table passes the least-rights rule as it stands", () => {
+  const r = spawnSync("bash", ["-c", `source ${LIB}; ug_services_allowed`], { encoding: "utf8" });
+  assert.equal(r.status, 0, r.stdout + r.stderr);
 });
 
 test("a job follows only a daemon on a line above it, so root setup has restarted that daemon before it reaches the job", () => {

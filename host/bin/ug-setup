@@ -57,7 +57,7 @@ gh_release=$(pin gh_release '^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]
 for name in omp ug-auth; do
   [[ ! -e $bin_dir/$name || -L $bin_dir/$name ]] || ug_die ug-setup "$bin_dir/$name is a file, not setup's link; move it away, then run setup again"
 done
-ug_services_allowed || ug_die ug-setup "host/services breaks the rule that no job with more rights than the agent reads what the agent makes (docs/adr/0025-agent-input-runs-with-least-rights.md); nothing changed"
+ug_services_allowed || ug_die ug-setup "host/services breaks the rule that a job that reads what the agent makes holds only what it needs or names its threat row (docs/adr/0027-enforce-least-rights.md); nothing changed"
 
 cleanup=()
 trap '[[ ${#cleanup[@]} -eq 0 ]] || rm -rf "${cleanup[@]}"' EXIT
@@ -234,10 +234,10 @@ start_services() {
     cleanup+=("$rendered")
     out=$(ug_render "$rendered" "$src/$template" "$template" -e "s|@DATA@|$data|g") || ug_die ug-setup "$out"
     ug_service_probe agent "$label" "$health" || ug_die ug-setup "setup cannot check $label; nothing changed for it"
-    resolved=$(ug_service_inputs "$tokens") || ug_die ug-setup "cannot expand the inputs of $label"
+    resolved=$(ug_service_inputs "$(id -un)" "$tokens") || ug_die ug-setup "cannot expand the inputs of $label"
     inputs=()
     while IFS= read -r file; do [[ -n $file ]] && inputs+=("$file"); done <<<"$resolved"
-    fp=$(ug_fingerprint "$rendered" ${inputs[@]+"${inputs[@]}"}) || ug_die ug-setup "cannot read the inputs of $label"
+    fp=$(ug_fingerprint "$(id -un)" "$rendered" ${inputs[@]+"${inputs[@]}"}) || ug_die ug-setup "cannot read the inputs of $label"
     out=$(ug_ensure_service "gui/$UID" "$label" "$rendered" "$agents_dir/$label.plist" "$data/state/$label.fingerprint" "$fp" "${ug_probe[@]}") ||
       ug_die ug-setup "$out; read $(ug_service_expand "$log")"
     ug_say "$(ug_service_kind "$out")" "$ug_probe_subject" "$out"

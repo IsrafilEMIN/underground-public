@@ -1,6 +1,6 @@
 # 0025. Agent input runs with least rights
 
-Status: Accepted (owner, 2026-11-10). Built, not yet run on the owner's mac.
+Status: Accepted (owner, 2026-11-10). Built, not yet run on the owner's mac. Amended by `docs/adr/0027-enforce-least-rights.md` (owner, 2026-11-11): the threat row id of "Decision", item 2, is needed for every job that is not the agent's, not only for a job of the owner or root, and the rule of item 1 is held by three checks.
 
 ## Context
 
