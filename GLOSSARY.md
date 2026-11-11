@@ -51,16 +51,16 @@ A Git worktree that a session makes from its clone, on its own `wt/<timestamp>` 
 _Avoid_: ticket worktree, workspace
 
 **Omp root**:
-omp's default root, `~/.omp`. For the agent user it is `.omp` in the agent home. At each start, `config-names` in `host/agent/agent-start` copies the config names from the root folder into `~/.omp/agent`. omp runs on it unchanged, on its default profile.
+omp's default root, `~/.omp`. For the agent user it is `.omp` in the agent home. At each start, `config-names` in `host/agent/agent-start` copies the config names from the root folder into `~/.omp/agent`, and deletes `~/.omp/plugins` and `~/.omp/marketplaces.json`, so a plugin install the agent makes lives only until the next start (`agent-start`, `host/agent/agent-start`). The staged plugin repos are the only plugin path; omp reads them in place, not from this root (`plugin_dirs`, `host/agent/agent-start`). omp runs on it unchanged, on its default profile.
 _Avoid_: role home, profile, owner part
 
 **Config repo**:
-The owner's private repo of agent configs, in the owner's home, named by the first line of `config-repo` in the data folder (`config-repo`, `host/bin/ug-agent-setup`). It holds skills, hooks, `AGENTS.md`, `config.yml`, `models.yml` with the gateway markers, and other settings, laid out like omp's `~/.omp/agent`. It holds what the agent does inside the walls; underground holds the walls. It holds no secret: `ug-agent-setup` refuses a link, a special file, or a token in it (`vet_item`, `host/bin/ug-agent-setup`). Setup stages its last commit into the root folder (`stage_config`, `host/bin/ug-agent-setup`). The owner's local folder is the source of truth. GitHub keeps a private backup.
+The owner's private repo of agent configs, in the owner's home, named by the first line of `config-repo` in the data folder (`config-repo`, `host/bin/ug-agent-setup`). It holds skills, hooks, `AGENTS.md`, `config.yml`, `models.yml` with the gateway markers, and other settings, laid out like omp's `~/.omp/agent`. It holds what the agent does inside the walls; underground holds the walls. It holds no secret: `ug-agent-setup` refuses a link, a special file, or a token in it (`vet_item`, `host/lib/stage.bash`). Setup stages its last commit into the root folder (`stage_config`, `host/bin/ug-agent-setup`). Its `plugin-repos` file names the plugin repos that setup stages into the same root folder. The owner's local folder is the source of truth. GitHub keeps a private backup.
 _Avoid_: dotfiles, role config
 
-**Skill repo**:
-An owner's repo of skills, kept apart from the config repo. The config repo's `skill-repos` file names one path per line, read at its last commit. Setup takes only paths inside the owner's home, after it resolves links. It keeps each folder with a `SKILL.md` at its top or under `skills/`, and refuses a link, a special file, or a token in it. A name that the config repo or an earlier skill repo already has stops setup (`stage_config`, `host/bin/ug-agent-setup`).
-_Avoid_: skill pack, plugin
+**Plugin repo**:
+An owner's repo that is an omp plugin, kept apart from the config repo. The config repo's `plugin-repos` file names one path per line, read at its last commit. Setup takes only paths inside the owner's home, after it resolves links, and refuses a link, a special file, or a token in the extracted tree (`vet_item`, `host/lib/stage.bash`). It reads the plugin name from `.claude-plugin/plugin.json`, or from a root `plugin.json`, and stages the whole repo at `plugins/<name>` of the root config folder (`stage_plugins`, `host/lib/stage.bash`). Each start loads the staged copy in place with one `--plugin-dir` per plugin (`plugin_dirs`, `host/agent/agent-start`), so a plugin update reaches the agent only by commit, then setup. A repeated plugin name, or a skill or agent name that the config repo or an earlier plugin repo already has, stops setup. `.claude-plugin/marketplace.json` is not read.
+_Avoid_: skill repo, marketplace plugin
 
 ### Running omp
 

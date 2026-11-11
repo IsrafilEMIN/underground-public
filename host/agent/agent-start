@@ -27,9 +27,16 @@ hash_pid=$!
 # A pipe, not >(...): the pin denies writes to /dev/fd. grep ignores SIGINT so that a Ctrl-C cannot close omp's stderr.
 start_omp() {
   unset GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0
-  { "$omp_bin" "$@" 2>&1 1>&3 3>&- | { trap '' INT; /usr/bin/grep --line-buffered -v -F 'dataFromCheckingString received error' >&2 || true; }; } 3>&1
+  { "$omp_bin" "${plugin_dirs[@]}" "$@" 2>&1 1>&3 3>&- | { trap '' INT; /usr/bin/grep --line-buffered -v -F 'dataFromCheckingString received error' >&2 || true; }; } 3>&1
   exit 0
 }
+
+plugin_dirs=()
+shopt -s nullglob
+for dir in "$root/config/plugins"/*/; do
+  plugin_dirs+=(--plugin-dir "${dir%/}")
+done
+shopt -u nullglob
 
 for dir in "$HOME/.omp" "$agent"; do
   if [[ -L $dir || ( -e $dir && ! -d $dir ) ]]; then rm -f "$dir"; fi
@@ -37,6 +44,7 @@ for dir in "$HOME/.omp" "$agent"; do
 done
 
 (
+  rm -rf -- "$HOME/.omp/plugins" "$HOME/.omp/marketplaces.json"
   names=()
   staged=()
   while IFS= read -r name; do

@@ -11,7 +11,7 @@ Setup first asks GitHub, with your `gh` login, whether `main` of the checkout's 
 ```text
 (1) YOU RUN host/bin/ug-setup
     config repo (last commit) ─┐
-    skill repos (last commit) ─┼──► root/config/    (models.yml gets the gateway and its bearer)
+    plugin repos (last commit) ┼──► root/config/    (models.yml gets the gateway and its bearer; plugins land in config/plugins/<name>)
     data folder: addresses ────┼──► root/code/addresses and the rendered service plists
     checkout: host/** ─────────┼──► owner_data/services/    (code that the services run)
     VERSIONS (version and SHA-256) ──► root/omp/<pin>/omp, root/gh/<pin>/gh
@@ -19,6 +19,7 @@ Setup first asks GitHub, with your `gh` login, whether `main` of the checkout's 
 
 (2) EACH SESSION STARTS (omp ─► ssh to the agent sshd port ─► agent-start, as the agent user)
     root/config/ ──copy──► agent_home/.omp/agent/
+    root/config/plugins/ ──read in place──► omp, one --plugin-dir per plugin
     gh-broker sync ─────► agent_home/work/<owner>/<repo>
 
 (3) ALL THE TIME (services in host/services)
@@ -39,7 +40,7 @@ No code makes these files. Setup or the service reads them as they are.
 | path | what it is for | if it is missing or wrong |
 |---|---|---|
 | `owner_data/config-repo` | One line: the path to your agent config repo (`config-repo`, `host/bin/ug-agent-setup`). A leading `~` means your home. | If it is missing, setup stops (`stage_config`, `host/bin/ug-agent-setup`). If it names a different repo that exists, setup stages that repo and gives no error. |
-| `skill-repos` in the config repo | One skill repo path on each line (`skill-repos`, `host/bin/ug-agent-setup`). | If a path is not a folder or is outside your home, setup stops (`skill-repos`, `host/bin/ug-agent-setup`). |
+| `plugin-repos` in the config repo | One plugin repo path on each line (`stage_plugins`, `host/lib/stage.bash`). A leading `~` means your home; blank lines are skipped. | If a path is not a folder, is a link, or is outside your home, setup stops (`stage_plugins`, `host/lib/stage.bash`). If the config repo still holds `skill-repos`, setup stops and tells you to rename it. |
 | `owner_data/backup/config` | The lines `repo=sftp:<user>@<host>:<path>`, `wake=` and `sleep=` (`backup_target_read`, `host/lib/backup-target.bash`). | Setup gives only a warning (`setup_backup`, `host/bin/ug-setup`). The nightly backup then fails, and only `backup/backup.log` records it. |
 
 | `owner_data/watch/ping` | One `https://` line: the ping address of a check on an outside service (`ping_file`, `host/bin/ug-watch`; `docs/adr/0023-failures-reach-the-owner.md`). It is a secret: anyone with it can send "ok". | Setup lists it as left to do (`prepare_services`, `host/bin/ug-setup`). The watch still runs, but nothing outside the mac alerts you, and each launch warns about it. |
@@ -68,7 +69,7 @@ Setup builds `code/` fresh from the checkout at each run, swaps it in, and at it
 
 | path | what it is for | who writes it | who reads it |
 |---|---|---|---|
-| `config/` | The staged agent config. `models.yml` holds the gateway address and its bearer. It is `root:ugagent`, so you cannot read it. | `stage_config`, `host/bin/ug-agent-setup` | `config-names`, `host/agent/agent-start`, at each start |
+| `config/` | The staged agent config. `models.yml` holds the gateway address and its bearer. `plugins/` holds one folder per staged plugin repo (`docs/adr/0028-plugin-repos.md`), read in place with `--plugin-dir`, never copied. It is `root:ugagent`, so you cannot read it. | `stage_config`, `host/bin/ug-agent-setup` | `config-names` and `plugin_dirs`, `host/agent/agent-start`, at each start |
 | `omp/<pin>/omp`, `omp.sha256` | The one pinned omp, owner and mode set by `ug_ensure_owner_mode` (`host/bin/ug-agent-setup`), group `omp_group` | `omp_bin`, `host/bin/ug-agent-setup` | `omp_bin`, `host/agent/agent-start` checks the hash at each start |
 | `code/facts`, `code/config-names`, `code/addresses` | The host facts, the names that the agent config owns in `agent_home/.omp/agent`, and a root-owned copy of your `addresses`. The usage broker runs as the login user and cannot read your home. | `code.new`, `host/bin/ug-agent-setup` | `config-names`, `host/agent/agent-start`, `host/agent/agent-home-tar`; `addressesFile`, `host/gh-broker/usage-broker.ts` |
 | `code/bin/omp`, `code/bin/gh-broker`, `code/gh-broker/*.ts` | The link to the pinned omp, the gh-broker client for the agent, and the usage broker code, which the pinned omp runs | `code.new`, `host/bin/ug-agent-setup` | `omp_bin` and `gh-broker`, `host/agent/agent-start`; `sync_clone`, `host/agent/agent-refresh`; the usage broker service |
@@ -104,7 +105,8 @@ Setup reads and writes in this home and in the login user's home only with that 
 
 | path | what it is for | who writes it |
 |---|---|---|
-| `.omp/agent/` | The agent's omp config. Each start replaces the `config-names` entries with the staged copy (`config-names`, `host/agent/agent-start`). | `agent-start`, then omp |
+| `.omp/agent/` | The agent's omp config. Each start replaces the `config-names` entries with the staged copy (`config-names`, `host/agent/agent-start`). Staged plugins are not copied here; omp reads them in place from `root/config/plugins/` (`plugin_dirs`, `host/agent/agent-start`). | `agent-start`, then omp |
+| `.omp/plugins`, `.omp/marketplaces.json` | What `omp plugin install` and a marketplace add would write. Nothing reads them at start: the staged copy in `root/config/plugins/` is the only plugin path. Each start deletes both (`agent-start`, `host/agent/agent-start`), so an install the agent makes lasts only until the next start. | the agent, if it installs one; `agent-start` deletes both at each start |
 | `work/<owner>/<repo>` | The agent's clone of each repo (`clone`, `host/agent/agent-start`). Each start touches `.git/ug-launched` (`ug-launched`, `host/agent/agent-start`). The refresh syncs only clones whose marker is less than 7 days old (`-mtime`, `host/agent/agent-refresh`). | `agent-start`, the refresh, and the agent |
 | `logs/agent-refresh.log` | The refresh log. The refresh empties it when it is over 1 MiB (`log` and `1048576`, `host/agent/agent-refresh`). | the refresh |
 | everything else | Sessions, caches, worktrees. The nightly backup saves it, without the config names (`--exclude`, `host/agent/agent-home-tar`). | the agent |

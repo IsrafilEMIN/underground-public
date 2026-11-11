@@ -474,6 +474,44 @@ test(
   },
 );
 
+test(
+  "[mac] agent-start passes one --plugin-dir per staged plugin to omp before the user args, and removes stale plugin state from the agent home",
+  { skip: process.platform !== "darwin" && "needs macOS getconf DARWIN_USER_TEMP_DIR" },
+  async (t) => {
+    const dir = await tempDir(join(tmpdir(), "ug-plugins-"));
+    t.after(() => rm(dir, { recursive: true, force: true }));
+    const root = join(dir, "root");
+    const code = join(root, "code");
+    const home = join(dir, "agent-home");
+    const bin = join(root, "omp/1.0/omp");
+    await mkdir(join(root, "omp/1.0"), { recursive: true });
+    await mkdir(join(code, "bin"), { recursive: true });
+    await writeFile(bin, '#!/bin/sh\necho "OMP_RAN $*"\n');
+    await chmod(bin, 0o755);
+    await writeFile(`${bin}.sha256`, `${createHash("sha256").update(await readFile(bin)).digest("hex")}\n`);
+    await symlink(bin, join(code, "bin/omp"));
+    await writeFile(join(code, "config-names"), "");
+    const start = await render(dir, "host/agent/agent-start", { root, agent_home: home });
+    const run = () => spawnSync("bash", [start, "-p", "hi"], { env: { PATH: "/usr/bin:/bin" }, encoding: "utf8" });
+
+    const bare = run();
+    assert.equal(bare.status, 0, bare.stderr);
+    assert.equal(bare.stdout.trim(), "OMP_RAN -p hi");
+
+    await mkdir(join(root, "config/plugins/arkan/skills/arkan-mode"), { recursive: true });
+    await mkdir(join(root, "config/plugins/other"), { recursive: true });
+    await mkdir(join(home, ".omp/plugins"), { recursive: true });
+    await writeFile(join(home, ".omp/plugins/x"), "stale\n");
+    await writeFile(join(home, ".omp/marketplaces.json"), "stale\n");
+    const staged = run();
+    assert.equal(staged.status, 0, staged.stderr);
+    assert.equal(staged.stdout.trim(), `OMP_RAN --plugin-dir ${join(root, "config/plugins/arkan")} --plugin-dir ${join(root, "config/plugins/other")} -p hi`);
+    assert.ok(!existsSync(join(home, ".omp/plugins/x")), "a stale plugin install must not survive into a session");
+    assert.ok(!existsSync(join(home, ".omp/plugins")), "the stale plugins folder is gone too");
+    assert.ok(!existsSync(join(home, ".omp/marketplaces.json")), "a leftover marketplace list must not survive into a session");
+  },
+);
+
 test("the agent sshd config holds the contract lines", async (t) => {
   const dir = await tempDir(join(tmpdir(), "ug-sshd-"));
   t.after(() => rm(dir, { recursive: true, force: true }));
