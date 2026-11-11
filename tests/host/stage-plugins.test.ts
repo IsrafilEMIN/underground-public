@@ -64,8 +64,8 @@ async function arkanRepo(path: string): Promise<void> {
     ".claude-plugin/plugin.json": '{ "name": "arkan" }',
     "skills/arkan-mode/SKILL.md": "# arkan-mode\n",
     "skills/tdd/SKILL.md": "# tdd\n",
-    "agents/arkan-agent.md": "# arkan agent\n",
-    "agents/comment-sicko.md": "# sicko agent\n",
+    "agents/arkan-agent.md": "---\nname: arkan-agent\ndescription: delegate\n---\n# arkan agent\n",
+    "agents/comment-sicko.md": "---\nname: comment-sicko\ndescription: comments\n---\n# sicko agent\n",
   });
 }
 
@@ -115,6 +115,16 @@ test("[mac] stage_plugins stops when a plugin agent name is already in the confi
   assert.notEqual(r.status, 0);
   assert.match(r.stderr, /the agent arkan-agent of the plugin repo .*\/arkan is also in the config repo or an earlier plugin; rename one/);
   assert.ok(!existsSync(join(f.out, "plugins/arkan")));
+});
+
+test("[mac] stage_plugins stops when an agent file's frontmatter name differs from its file name", { skip: macSkip }, async (t) => {
+  const f = await fixture(t);
+  const odd = join(f.home, "src/odd");
+  await repo(odd, { "plugin.json": '{ "name": "odd" }', "agents/helper.md": "---\nname: arkan-agent\ndescription: x\n---\n" });
+  const r = await f.stage([odd]);
+  assert.notEqual(r.status, 0);
+  assert.match(r.stderr, /the agent file helper\.md of the plugin repo .*\/odd has another name in its frontmatter/);
+  assert.ok(!existsSync(join(f.out, "plugins/odd")));
 });
 
 test("[mac] stage_plugins stops when one plugin name is named twice in plugin-repos", { skip: macSkip }, async (t) => {

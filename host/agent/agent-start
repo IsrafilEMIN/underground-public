@@ -31,7 +31,6 @@ start_omp() {
   exit 0
 }
 
-# omp reads the staged plugins in place from $root/config/plugins; nullglob is on only while the glob runs, so a missing or empty plugins folder adds nothing.
 plugin_dirs=()
 shopt -s nullglob
 for dir in "$root/config/plugins"/*/; do
@@ -45,7 +44,6 @@ for dir in "$HOME/.omp" "$agent"; do
 done
 
 (
-  # omp keeps plugin installs under $HOME, outside config-names, so a stale one must not survive into a session; the staged copy under $root/config/plugins is the only plugin path.
   rm -rf -- "$HOME/.omp/plugins" "$HOME/.omp/marketplaces.json"
   names=()
   staged=()
