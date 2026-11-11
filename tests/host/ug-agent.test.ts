@@ -79,23 +79,28 @@ test("ug-agent says the agent sshd does not answer, and runs no ssh, when nothin
   await assert.rejects(readFile(join(o.home, "ssh-ran")));
 });
 
-test("ug-agent warns at start with each problem the watch found, and when the watch has not run for 15 minutes", async (t) => {
+test("ug-agent passes the watch's problems to ssh in UG_WARNINGS, and the stale-watch line when the watch has not run for 15 minutes", async (t) => {
   const o = await owner(t);
   await stub(o.bin, "launchctl", "exit 1");
-  await stub(o.bin, "ssh", "exit 0");
+  const log = join(o.home, "ssh-warnings");
+  await stub(o.bin, "ssh", `printf '%s' "$UG_WARNINGS" > ${log}`);
   const watch = join(o.home, ".local/share/underground/watch");
   await mkdir(watch);
-  const missing = runAgent(o, ["ls"]);
-  assert.equal(missing.status, 0, missing.stderr);
-  assert.match(missing.stderr, /warning: the watch has not checked the services in the last 15 minutes/);
+  const stale = `the watch has not checked the services in the last 15 minutes; see ${watch}/watch.log`;
+  const launch = async () => {
+    const r = runAgent(o, ["ls"]);
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(r.stderr, "");
+    return readFile(log, "utf8");
+  };
+  assert.equal(await launch(), stale);
   const now = Math.floor(Date.now() / 1000);
   await writeFile(join(watch, "status"), `at=${now - 16 * 60}\n`);
-  assert.match(runAgent(o, ["ls"]).stderr, /the watch has not checked/);
+  assert.equal(await launch(), stale);
   await writeFile(join(watch, "status"), `at=${now}\nbackup: no good backup in the last 36 hours\nagent sshd: no answer on port 2222\n`);
-  const found = runAgent(o, ["ls"]);
-  assert.equal(found.stderr, "ug-agent: warning: backup: no good backup in the last 36 hours\nug-agent: warning: agent sshd: no answer on port 2222\n");
+  assert.equal(await launch(), "backup: no good backup in the last 36 hours\nagent sshd: no answer on port 2222");
   await writeFile(join(watch, "status"), `at=${now}\n`);
-  assert.equal(runAgent(o, ["ls"]).stderr, "");
+  assert.equal(await launch(), "");
 });
 
 const noSshd = !existsSync("/usr/sbin/sshd") && "needs /usr/sbin/sshd";
@@ -142,6 +147,7 @@ test("ug-agent logs in as ugagent on port 2222 with the owner key, and sends UG_
   assert.ok(argv.includes(`${o.home}/.local/share/underground/agent-ssh/id_ed25519`), argv.join(" "));
   assert.ok(argv.includes("StrictHostKeyChecking=yes"));
   assert.ok(argv.includes("SendEnv=UG_REPO"));
+  assert.ok(argv.includes("SendEnv=UG_WARNINGS"));
   assert.ok(argv.includes("UG_REPO=owner/app"), argv.join(" "));
   assert.deepEqual(argv.slice(-4, -1), ["omp", "-p", "hi"]);
 });
@@ -487,7 +493,7 @@ test("the agent sshd config holds the contract lines", async (t) => {
     "AllowAgentForwarding no",
     "X11Forwarding no",
     "PermitUserEnvironment no",
-    "AcceptEnv UG_REPO",
+    "AcceptEnv UG_REPO UG_WARNINGS",
   ]) {
     assert.ok(conf.split("\n").includes(line), `missing: ${line}`);
   }
