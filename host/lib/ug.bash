@@ -78,22 +78,94 @@ ug_service_field() {
   return 1
 }
 
+ug_as() {
+  local login=$1
+  shift
+  if [[ $login == "$(id -un)" ]]; then
+    "$@"
+  else
+    sudo -n -u "$login" -H "$@"
+  fi
+}
+
+ug_read_as() {
+  ug_as "$1" /bin/cat -- "$2"
+}
+
+ug_write_as() {
+  ug_as "$1" /bin/sh -c 'umask 077 && /bin/cat >"$1" && /bin/chmod 600 "$1"' sh "$2"
+}
+
 ug_service_allowed() {
-  local label=$1 user=$2 agent_input=$3
+  local label=$1 user=$2 agent_input=$3 inputs=$4 log=$5 own tok rest ph
+  local -a words
   [[ $agent_input =~ ^(none|socket|port|files)( U[0-9]+)?$ ]] ||
-    { printf '%s: the service table gives it the agent input "%s"; write none, socket, port, or files, and a threat row id after it when the job runs as owner or root\n' "$label" "$agent_input"; return 1; }
-  [[ $user == owner || $user == root ]] || return 0
-  [[ $agent_input == none || $agent_input == *" U"* ]] && return 0
-  printf '%s runs as %s and reads %s that the agent makes; run it as a user that holds only what it needs, or name the threat row that accepts it\n' "$label" "$user" "$agent_input"
-  return 1
+    { printf '%s: the service table gives it the agent input "%s"; write none, socket, port, or files, and a threat row id after it when the job runs as a user other than the agent\n' "$label" "$agent_input"; return 1; }
+  if [[ $user != agent_user && $agent_input != none && $agent_input != *" U"* ]]; then
+    printf '%s runs as %s and reads %s that the agent makes; run it as a user that holds only what it needs, or name the threat row that accepts it\n' "$label" "$user" "$agent_input"
+    return 1
+  fi
+  own=@$(tr '[:lower:]' '[:upper:]' <<<"${user%_user}_home")@
+  read -r -a words <<<"$inputs $log"
+  for tok in ${words[@]+"${words[@]}"}; do
+    tok=${tok#\?}
+    [[ $tok == *_HOME@* ]] || continue
+    if [[ $tok == *\** || $tok == *\?* || $tok == *\[* ]]; then
+      printf '%s names the home in %s with a glob; name the one file the job reads\n' "$label" "$tok"
+      return 1
+    fi
+    rest=$tok
+    while [[ $rest =~ (@[A-Z_]*_HOME@) ]]; do
+      ph=${BASH_REMATCH[1]}
+      if [[ $ph != "$own" ]]; then
+        printf '%s runs as %s and names %s, which is not the home of %s; a job reads only the home of its own user\n' "$label" "$user" "$ph" "$user"
+        return 1
+      fi
+      rest=${rest#*"$ph"}
+    done
+  done
 }
 
 ug_services_allowed() {
   local label name scope user template health log inputs agent_input follows bad=0
   while IFS='|' read -r label name scope user template health log inputs agent_input follows; do
-    ug_service_allowed "$label" "$user" "$agent_input" || bad=1
+    ug_service_allowed "$label" "$user" "$agent_input" "$inputs" "$log" || bad=1
   done < <(ug_services)
   return "$bad"
+}
+
+ug_user_walls() {
+  local owner_home=$1 root agent_login key keys login other target home open=0
+  local -a targets
+  root=$(ug_fact root) || return 1
+  agent_login=$(ug_fact agent_user) || return 1
+  keys=$(sed -n 's/^\([a-z_]*\)_user=.*/\1/p' "$ug_facts_file")
+  for key in $keys; do
+    login=$(ug_fact "${key}_user") || return 1
+    if ! ug_as "$login" /usr/bin/true >/dev/null 2>&1; then
+      printf '%s: sudo does not run as this user, so its walls are not proven\n' "$login"
+      open=1
+      continue
+    fi
+    targets=("$owner_home")
+    for other in $keys; do
+      if [[ $other != "$key" ]]; then
+        home=$(ug_fact "${other}_home") || return 1
+        targets+=("$home")
+      fi
+    done
+    for target in "${targets[@]}"; do
+      if ug_as "$login" /bin/ls "$target" >/dev/null 2>&1; then
+        printf '%s can list %s, a home that is not its own\n' "$login" "$target"
+        open=1
+      fi
+    done
+    if [[ $login != "$agent_login" ]] && ug_read_as "$login" "$root/config/models.yml" >/dev/null 2>&1; then
+      printf '%s can read the gateway bearer in %s/config/models.yml\n' "$login" "$root"
+      open=1
+    fi
+  done
+  return "$open"
 }
 
 ug_service_login() {
@@ -170,7 +242,7 @@ ug_service_expand() {
 }
 
 ug_service_inputs() {
-  local tokens=$1 tok opt m
+  local login=$1 tokens=$2 tok opt m
   local -a matches keep
   for tok in $tokens; do
     opt=0
@@ -184,7 +256,9 @@ ug_service_inputs() {
       (( opt )) || matches=( "$tok" )
     elif (( opt )); then
       keep=()
-      for m in "${matches[@]}"; do [[ -e $m ]] && keep+=("$m"); done
+      for m in "${matches[@]}"; do
+        if ug_as "$login" /bin/test -e "$m"; then keep+=("$m"); fi
+      done
       matches=( ${keep[@]+"${keep[@]}"} )
     fi
     (( ${#matches[@]} > 0 )) && printf '%s\n' "${matches[@]}"
@@ -349,8 +423,9 @@ ug_sshd_denies_agent() {
 }
 
 ug_fingerprint() {
-  local out
-  out=$(set -o pipefail; cat -- "$@" | openssl dgst -sha256 -r) || return 1
+  local login=$1 plist=$2 out f
+  shift 2
+  out=$(set -o pipefail; { cat -- "$plist" && for f in "$@"; do ug_read_as "$login" "$f" || exit 1; done; } | openssl dgst -sha256 -r) || return 1
   printf '%s\n' "${out%% *}"
 }
 

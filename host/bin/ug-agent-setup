@@ -47,13 +47,10 @@ gh_pin=$(ug_pin "$src/VERSIONS" gh)
 gh_sha=$(ug_pin "$src/VERSIONS" gh_sha256)
 [[ $gh_pin =~ ^[0-9A-Za-z.+-]+$ ]] || ug_die ug-agent-setup "VERSIONS has no gh pin"
 [[ $gh_sha =~ ^[0-9a-f]{64}$ ]] || ug_die ug-agent-setup "VERSIONS has no gh_sha256 pin"
-ug_services_allowed || ug_die ug-agent-setup "host/services breaks the rule that no job with more rights than the agent reads what the agent makes (docs/adr/0025-agent-input-runs-with-least-rights.md); nothing changed"
+ug_services_allowed || ug_die ug-agent-setup "host/services breaks the rule that no job with more rights than the agent reads what the agent makes (docs/adr/0027-enforce-least-rights.md); nothing changed"
 
 cleanup=()
 trap '[[ ${#cleanup[@]} -eq 0 ]] || rm -rf "${cleanup[@]}"' EXIT
-
-read_as() { sudo -u "$1" /bin/cat -- "$2"; }
-write_as() { sudo -u "$1" /bin/sh -c 'umask 077 && /bin/cat >"$1" && /bin/chmod 600 "$1"' sh "$2"; }
 
 chmod 700 "$owner_home"
 [[ -n $(find "$owner_home" -maxdepth 0 -perm 700 2>/dev/null) ]] || ug_die ug-agent-setup "$owner_home is not mode 700 and would not stay so; nothing else is set up"
@@ -67,7 +64,7 @@ next_uid() {
 }
 
 make_user() {
-  local name=$1 real=$2 shell=$3 home=$4 uid pw out
+  local name=$1 real=$2 shell=$3 home=$4 ssh_new=${5:-0} uid pw out
   if dscl . -read "/Users/$name" UniqueID >/dev/null 2>&1; then
     ug_say same "user $name" "exists"
   else
@@ -88,13 +85,17 @@ make_user() {
   [[ " $(dscl . -read /Groups/admin GroupMembership 2>/dev/null) " != *" $name "* ]] ||
     ug_die ug-agent-setup "$name is in the group admin; remove it: sudo dseditgroup -o edit -d $name -t user admin"
   install -d -m 700 -o "$name" -g staff "$home"
+  if [[ $ssh_new == 1 ]]; then
+    install -d -m 755 -o root -g wheel "$home/.ssh"
+    install -m 444 -o root -g wheel /dev/null "$home/.ssh/authorized_keys"
+    ug_say changed "the .ssh of $name" "root-owned, empty authorized_keys"
+  fi
   ug_say ok "user $name" "standard, hidden, $shell, home $home mode 700"
 }
 
-agent_ssh=$agent_home/.ssh
 agent_is_new=1
 if [[ -e $agent_home || -L $agent_home ]] || dscl . -read "/Users/$agent_user" UniqueID >/dev/null 2>&1; then agent_is_new=0; fi
-make_user "$agent_user" "Underground agent" /bin/sh "$agent_home"
+make_user "$agent_user" "Underground agent" /bin/sh "$agent_home" "$agent_is_new"
 make_user "$auth_user" "Underground logins" /usr/bin/false "$auth_home"
 make_user "$broker_user" "Underground GitHub broker" /usr/bin/false "$broker_home"
 
@@ -121,14 +122,12 @@ else
   ug_say same "group com.apple.access_ssh" "$agent_user in place"
 fi
 
-if [[ $agent_is_new == 1 ]]; then
-  install -d -m 755 -o root -g wheel "$agent_ssh"
-  install -m 444 -o root -g wheel /dev/null "$agent_ssh/authorized_keys"
-  ug_say changed "$agent_ssh" "root-owned, empty authorized_keys"
-elif [[ ! -L $agent_ssh && $(stat -f '%Su %Lp' "$agent_ssh" 2>/dev/null) == "root 755" ]]; then
-  ug_say same "$agent_ssh" "root-owned"
-else
-  ug_say ok "$agent_ssh" "not the root-owned folder that setup made; setup writes nothing in the agent's home after it makes the user, and the system sshd still denies $agent_user"
+if [[ $agent_is_new == 0 ]]; then
+  if [[ $(ug_as "$agent_user" /usr/bin/stat -f '%HT %Su %Lp' "$agent_home/.ssh" 2>/dev/null) == "Directory root 755" ]]; then
+    ug_say same "the .ssh of $agent_user" "root-owned"
+  else
+    ug_say ok "the .ssh of $agent_user" "not the root-owned folder that setup made; setup writes nothing in the agent's home after it makes the user, and the system sshd still denies $agent_user"
+  fi
 fi
 
 omp_dir=$root/omp/$omp_pin
@@ -188,20 +187,20 @@ install -d -m 711 -o root -g wheel "$root/logs"
 
 old_broker=$data/gh-broker
 for name in repos pushes reviews tmp; do
-  sudo -u "$broker_user" install -d -m 700 "$broker_home/$name"
+  ug_as "$broker_user" install -d -m 700 "$broker_home/$name"
 done
 if [[ -d $old_broker && ! -L $old_broker ]]; then
   for name in repos pushes reviews; do
     [[ -d $old_broker/$name && ! -L $old_broker/$name ]] || continue
-    [[ -z $(find "$broker_home/$name" -mindepth 1 -maxdepth 1 2>/dev/null) ]] ||
-      ug_die ug-agent-setup "both $old_broker/$name and $broker_home/$name hold records; keep the current one, delete the other, then run setup again"
-    copy=$(sudo -u "$broker_user" mktemp -d "$broker_home/.copy.XXXXXX")
-    sudo -u "$owner" /usr/bin/tar -C "$old_broker/$name" -cf - . | sudo -u "$broker_user" /usr/bin/tar -C "$copy" -xf - -o || {
-      sudo -u "$broker_user" rm -rf "$copy"
-      ug_die ug-agent-setup "cannot copy $old_broker/$name into $broker_home/$name; nothing was moved"
+    [[ -z $(ug_as "$broker_user" /usr/bin/find "$broker_home/$name" -mindepth 1 -maxdepth 1 2>/dev/null) ]] ||
+      ug_die ug-agent-setup "both $old_broker/$name and the $name folder of $broker_user hold records; keep the current one, delete the other, then run setup again"
+    copy=$(ug_as "$broker_user" mktemp -d "$broker_home/.copy.XXXXXX")
+    ug_as "$owner" /usr/bin/tar -C "$old_broker/$name" -cf - . | ug_as "$broker_user" /usr/bin/tar -C "$copy" -xf - -o || {
+      ug_as "$broker_user" rm -rf "$copy"
+      ug_die ug-agent-setup "cannot copy $old_broker/$name into the $name folder of $broker_user; nothing was moved"
     }
-    sudo -u "$broker_user" rmdir "$broker_home/$name"
-    sudo -u "$broker_user" mv "$copy" "$broker_home/$name"
+    ug_as "$broker_user" rmdir "$broker_home/$name"
+    ug_as "$broker_user" mv "$copy" "$broker_home/$name"
   done
   rm -rf "$old_broker"
   ug_say changed gh-broker "copied its mirrors and records from $old_broker into $broker_home with your rights, then deleted $old_broker"
@@ -210,12 +209,13 @@ for name in github-app.json github-app.pem; do
   [[ -e $data/$name || -L $data/$name ]] || continue
   [[ -f $data/$name && ! -L $data/$name && $(stat -f '%l %Su' "$data/$name") == "1 $owner" ]] ||
     ug_die ug-agent-setup "$data/$name is not a plain file of $owner with one link; run scripts/gh-broker-app-wizard.sh again"
-  write_as "$broker_user" "$broker_home/$name" <"$data/$name"
+  ug_write_as "$broker_user" "$broker_home/$name" <"$data/$name"
   rm -f "$data/$name"
   ug_say changed gh-broker "moved $name from $data into $broker_home, which you cannot read"
 done
-[[ -f $broker_home/github-app.json && -f $broker_home/github-app.pem ]] ||
+if ! ug_as "$broker_user" /bin/test -f "$broker_home/github-app.json" || ! ug_as "$broker_user" /bin/test -f "$broker_home/github-app.pem"; then
   ug_say ok gh-broker "no app key in $broker_home yet; run scripts/gh-broker-app-wizard.sh, then host/bin/ug-setup"
+fi
 
 if [[ ! -f $root/ssh_host_ed25519_key ]]; then
   ssh-keygen -q -t ed25519 -N '' -f "$root/ssh_host_ed25519_key"
@@ -294,16 +294,16 @@ stage_config() {
   [[ -d $cfg && ! -L $cfg ]] || ug_die ug-agent-setup "the config repo $cfg is not a folder"
   gateway=$(sed -n 's/^gateway=//p' "$data/addresses" 2>/dev/null) || true
   [[ $gateway =~ $ip_port ]] || ug_die ug-agent-setup "the addresses file $data/addresses has no gateway=<ip>:<port> line"
-  gateway_token=$(read_as "$auth_user" "$auth_home/.omp/auth-gateway.token" 2>/dev/null | tr -d '[:space:]') || gateway_token=""
-  [[ $gateway_token =~ ^[A-Za-z0-9._~+=-]{12,}$ ]] || ug_die ug-agent-setup "$auth_home/.omp/auth-gateway.token is missing or has characters the config cannot hold"
+  gateway_token=$(ug_read_as "$auth_user" "$auth_home/.omp/auth-gateway.token" 2>/dev/null | tr -d '[:space:]') || gateway_token=""
+  [[ $gateway_token =~ ^[A-Za-z0-9._~+=-]{12,}$ ]] || ug_die ug-agent-setup "the gateway bearer of $auth_user (.omp/auth-gateway.token in its home) is missing or has characters the config cannot hold"
   stage=$(mktemp -d) || ug_die ug-agent-setup "cannot make a temp folder for the config"
   cleanup+=("$stage")
   mkdir "$stage/repo" "$stage/out"
   git -c "safe.directory=$cfg" -C "$cfg" archive --format=tar HEAD | tar -x -C "$stage/repo" || ug_die ug-agent-setup "cannot read the last commit of the config repo $cfg"
   secrets=$stage/secrets
   : >"$secrets"
-  for token_file in "$auth_home/.omp/auth-broker.token" "$auth_home/.omp/auth-gateway.token"; do
-    value=$(read_as "$auth_user" "$token_file" 2>/dev/null | tr -d '[:space:]') || value=""
+  for token_file in .omp/auth-broker.token .omp/auth-gateway.token; do
+    value=$(ug_read_as "$auth_user" "$auth_home/$token_file" 2>/dev/null | tr -d '[:space:]') || value=""
     [[ ${#value} -lt 12 ]] || printf '%s\n' "$value" >>"$secrets"
   done
   while IFS= read -r name; do
@@ -357,10 +357,10 @@ stage_config() {
   ug_say ok "agent config" "$root/config from $cfg, gateway $gateway"
 }
 
-sudo -u "$auth_user" install -d -m 700 "$auth_home/.omp"
-if [[ ! -s $auth_home/.omp/auth-gateway.token ]]; then
-  openssl rand -hex 32 | write_as "$auth_user" "$auth_home/.omp/auth-gateway.token"
-  ug_say changed "gateway bearer" "new, in $auth_home/.omp/auth-gateway.token"
+ug_as "$auth_user" install -d -m 700 "$auth_home/.omp"
+if ! ug_as "$auth_user" /bin/test -s "$auth_home/.omp/auth-gateway.token"; then
+  openssl rand -hex 32 | ug_write_as "$auth_user" "$auth_home/.omp/auth-gateway.token"
+  ug_say changed "gateway bearer" "new, the .omp/auth-gateway.token of $auth_user"
 fi
 stage_config
 
@@ -382,14 +382,14 @@ start_services() {
       [[ -e $file ]] || install -m 600 -o "$want" /dev/null "$file"
     done
     ug_service_probe daemon "$label" "$health" || ug_die ug-agent-setup "setup cannot check $label; nothing changed for it"
-    resolved=$(ug_service_inputs "$tokens") || ug_die ug-agent-setup "cannot expand the inputs of $label"
+    resolved=$(ug_service_inputs "$want" "$tokens") || ug_die ug-agent-setup "cannot expand the inputs of $label"
     inputs=()
     while IFS= read -r file; do [[ -n $file ]] && inputs+=("$file"); done <<<"$resolved"
     if [[ -n $follows ]]; then
       [[ $seen == *" $follows "* ]] || ug_die ug-agent-setup "the service table makes $label follow $follows, which is not a daemon on a line above it"
       [[ $restarted != *" $follows "* ]] || rm -f "$root/state/$label.fingerprint"
     fi
-    fp=$(ug_fingerprint "$rendered" ${inputs[@]+"${inputs[@]}"}) || ug_die ug-agent-setup "cannot read the inputs of $label: ${inputs[*]}"
+    fp=$(ug_fingerprint "$want" "$rendered" ${inputs[@]+"${inputs[@]}"}) || ug_die ug-agent-setup "cannot read the inputs of $label: ${inputs[*]}"
     logline=""
     [[ -z $log ]] || logline="; read $(ug_service_expand "$log")"
     out=$(ug_ensure_service system "$label" "$rendered" "/Library/LaunchDaemons/$label.plist" "$root/state/$label.fingerprint" "$fp" "${ug_probe[@]}") ||
@@ -401,6 +401,9 @@ start_services() {
   done < <(ug_services daemon)
   ug_say ok "daemons" "each runs as the user in host/services: the logins as $auth_user, the gh-broker as $broker_user"
 }
+
+walls=$(ug_user_walls "$owner_home") || ug_die ug-agent-setup "a wall is open: ${walls//$'\n'/; }. A user that reads what the agent makes must hold only what its job needs (docs/adr/0027-enforce-least-rights.md); no service was loaded"
+ug_say ok "walls between users" "$agent_user, $auth_user, and $broker_user cannot read your home or each other's, and only $agent_user reads the gateway bearer"
 start_services
 
 agent_dir=$data/agent
@@ -417,10 +420,10 @@ ug_say ok "omp on PATH" "$bin_dir/omp, the agent's launcher"
 
 sudoers_tmp=$(mktemp) || ug_die ug-agent-setup "cannot make a temp file for the backup sudoers rule"
 cleanup+=("$sudoers_tmp")
-printf '%s ALL=(root) NOPASSWD: %s\n' "$owner" "$code/bin/agent-home-tar" >"$sudoers_tmp"
+printf '%s ALL=(%s) NOPASSWD: %s\n' "$owner" "$agent_user" "$code/bin/agent-home-tar" >"$sudoers_tmp"
 visudo -cf "$sudoers_tmp" >/dev/null || ug_die ug-agent-setup "the sudoers rule for the backup does not check; nothing was installed"
 install -m 440 -o root -g wheel "$sudoers_tmp" /etc/sudoers.d/underground-backup
-ug_say ok backup "$code/bin/agent-home-tar, and sudo for $owner to run it (/etc/sudoers.d/underground-backup)"
+ug_say ok backup "$code/bin/agent-home-tar, run as $agent_user, and sudo for $owner to run it (/etc/sudoers.d/underground-backup)"
 
 
 for item in "$root"/* "$root"/.[!.]*; do

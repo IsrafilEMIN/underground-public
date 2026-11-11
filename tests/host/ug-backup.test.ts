@@ -11,6 +11,7 @@ const SRC = join(import.meta.dirname, "../..");
 const JOB = join(SRC, "host/bin/ug-backup");
 const versions = await readFile(join(SRC, "VERSIONS"), "utf8");
 const RESTIC_PIN = /^restic=(.+)$/m.exec(versions)?.[1] ?? "";
+const AGENT_USER = /^agent_user=(.+)$/m.exec(await readFile(join(SRC, "host/facts"), "utf8"))?.[1] ?? "";
 
 const FAKE_RESTIC = `#!/bin/sh
 line='RESTIC:'; for a in "$@"; do line="$line [$a]"; done; printf '%s\\n' "$line" >>"$HOME/calls"
@@ -21,6 +22,7 @@ exit 0
 const FAKE_SUDO = `#!/bin/sh
 printf 'SUDO: %s\\n' "$*" >>"$HOME/calls"
 [ "$1" = -n ] && shift
+[ "$1" = -u ] && shift 2
 exec "$@"
 `;
 
@@ -94,10 +96,10 @@ test("ug-backup streams the agent home through the sudo helper into restic and r
   const helper = join(home, "agent-home-tar");
   assert.ok(
     all.includes(
-      `RESTIC: [-r] [sftp:owner@backup-host:backups/agent-home] [backup] [--quiet] [--tag] [ug-agent] [--stdin-filename] [ug-agent-home.tar] [--stdin-from-command] [--] [sudo] [-n] [${helper}]`,
+      `RESTIC: [-r] [sftp:owner@backup-host:backups/agent-home] [backup] [--quiet] [--tag] [ug-agent] [--stdin-filename] [ug-agent-home.tar] [--stdin-from-command] [--] [sudo] [-n] [-u] [${AGENT_USER}] [${helper}]`,
     ),
   );
-  assert.ok(all.includes(`SUDO: -n ${helper}`));
+  assert.ok(all.includes(`SUDO: -n -u ${AGENT_USER} ${helper}`));
   assert.equal(await readFile(join(home, "stdin"), "utf8"), "tar-bytes\n");
   assert.match(await readFile(join(home, ".local/share/underground/backup/last"), "utf8"), /^\d+\n$/);
 });

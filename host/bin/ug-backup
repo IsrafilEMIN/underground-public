@@ -15,6 +15,7 @@ restic_bin="$data/restic/$restic_pin/restic"
 backup="$data/backup"
 config="$backup/config"
 agent_tar=${UG_AGENT_HOME_TAR:-$(ug_fact root)/code/bin/agent-home-tar}
+agent_user=$(ug_fact agent_user)
 
 log() { printf '%s ug-backup: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >&2; }
 fail() {
@@ -56,7 +57,7 @@ elif [[ ! -x $agent_tar ]]; then
   log "the agent home reader $agent_tar is missing; run: host/bin/ug-setup"
   status=1
 else
-  "$restic_bin" -r "$repo" backup --quiet --tag ug-agent --stdin-filename ug-agent-home.tar --stdin-from-command -- sudo -n "$agent_tar"
+  "$restic_bin" -r "$repo" backup --quiet --tag ug-agent --stdin-filename ug-agent-home.tar --stdin-from-command -- sudo -n -u "$agent_user" "$agent_tar"
   status=$?
   if [[ $status -eq 0 ]]; then
     date +%s >"$backup/last"
